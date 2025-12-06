@@ -1,0 +1,6 @@
+# SSL/TLS Certificates and Keys
+nginx/certs/*.key
+nginx/certs/*.pem
+
+# Self-signed certificates (optional - uncomment if you don't want to track these either)
+# nginx/certs/*.crt
