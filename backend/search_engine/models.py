@@ -9,6 +9,8 @@ class Document(models.Model):
     processed = models.BooleanField(default=False)
     language = models.CharField(max_length=10, blank=True, null=True)
     content = models.TextField(null=True, blank=True)
+    authors = models.JSONField(default=list, blank=True, help_text="List of authors")
+    categories = models.JSONField(default=list, blank=True, help_text="List of categories/tags")
 
     class Meta:
         db_table = 'search_engine_documents'

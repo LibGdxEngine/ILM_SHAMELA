@@ -3,7 +3,11 @@
 import { useState, useCallback, useRef } from 'react';
 import { uploadDocument, UploadResponse } from '@/lib/api';
 
-export default function UploadZone() {
+interface UploadZoneProps {
+  onUploadSuccess?: () => void;
+}
+
+export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
@@ -66,6 +70,11 @@ export default function UploadZone() {
       setUploadStatus('success');
       setUploadMessage(`File "${response.title}" uploaded successfully!`);
       setUploadProgress(100);
+
+      // Call success callback if provided
+      if (onUploadSuccess) {
+        onUploadSuccess();
+      }
 
       // Reset after 3 seconds
       setTimeout(() => {
