@@ -22,6 +22,14 @@ class DocumentIndex(Document):
     )
     language = fields.KeywordField()
     uploaded_at = fields.DateField()
+    authors = fields.TextField(
+        analyzer='standard',
+        fields={
+            'arabic': fields.TextField(analyzer='arabic'),
+        },
+        multi=True
+    )
+    categories = fields.KeywordField(multi=True)
     
     class Index:
         name = 'documents'
@@ -52,4 +60,7 @@ class DocumentIndex(Document):
         self.content = instance.content or ''
         self.language = instance.language or ''
         self.uploaded_at = instance.uploaded_at
+        # Handle authors and categories as lists
+        self.authors = instance.authors if isinstance(instance.authors, list) else (instance.authors.split(',') if instance.authors else [])
+        self.categories = instance.categories if isinstance(instance.categories, list) else (instance.categories.split(',') if instance.categories else [])
         return data

@@ -214,6 +214,8 @@ STATICFILES_STORAGE = 'storages.backends.s3boto3.S3StaticStorage'
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://localhost:\d+$",
     r"^http://127\.0\.0\.1:\d+$",
+    r"^https://localhost:\d+$",
+    r"^https://127\.0\.0\.1:\d+$",
     r"^http://localhost$",
     r"^https://localhost$",
     r"^http://127\.0\.0\.1$",
@@ -224,6 +226,8 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://localhost:3000",
+    "https://127.0.0.1:3000",
     "http://localhost",
     "https://localhost",
     "http://127.0.0.1",
@@ -231,7 +235,16 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 # In development (DEBUG=True), allow all origins for easier testing
-if DEBUG:
+# Also allow all origins if we're running locally (check if we're not in strict production)
+# For local development, be permissive with CORS
+is_local_dev = (
+    DEBUG or 
+    os.environ.get('ALLOW_CORS_ALL_ORIGINS', 'False').lower() == 'true' or
+    'localhost' in os.environ.get('ALLOWED_HOSTS', '') or
+    '127.0.0.1' in os.environ.get('ALLOWED_HOSTS', '')
+)
+
+if is_local_dev:
     CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOW_CREDENTIALS = True
@@ -258,3 +271,12 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+# Explicitly expose CORS headers
+CORS_EXPOSE_HEADERS = [
+    'content-type',
+    'x-csrftoken',
+]
+
+# Preflight cache duration (24 hours)
+CORS_PREFLIGHT_MAX_AGE = 86400
