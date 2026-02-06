@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { Document } from '@/lib/api';
+import { Document, normalizeMediaUrl } from '@/lib/api';
 
 interface BookCardProps {
   document: Document;
@@ -56,8 +57,13 @@ function generateCoverPattern(title: string): string {
 }
 
 export default function BookCard({ document, formatDate }: BookCardProps) {
+  // Use cover_photo_url if available, otherwise generate a fallback pattern
   const coverSvg = generateCoverPattern(document.title);
   const coverDataUrl = `data:image/svg+xml,${encodeURIComponent(coverSvg)}`;
+  const [imageError, setImageError] = useState(false);
+  
+  // Normalize the cover photo URL to use frontend proxy if needed
+  const coverPhotoUrl = normalizeMediaUrl(document.cover_photo_url);
 
   return (
     <Link
@@ -65,11 +71,20 @@ export default function BookCard({ document, formatDate }: BookCardProps) {
       className="group block bg-white dark:bg-gray-800 rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden transform hover:-translate-y-1"
     >
       {/* Book Cover */}
-      <div className="relative aspect-[3/4] overflow-hidden">
-        <div
-          className="absolute inset-0 bg-cover bg-center transition-transform duration-300 group-hover:scale-105"
-          style={{ backgroundImage: `url("${coverDataUrl}")` }}
-        />
+      <div className="relative aspect-[3/4] overflow-hidden bg-gray-100 dark:bg-gray-700">
+        {coverPhotoUrl && !imageError ? (
+          <img
+            src={coverPhotoUrl}
+            alt={document.title}
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          <div
+            className="absolute inset-0 bg-cover bg-center transition-transform duration-300 group-hover:scale-105"
+            style={{ backgroundImage: `url("${coverDataUrl}")` }}
+          />
+        )}
         
         {/* Processing Status Badge */}
         <div className="absolute top-3 right-3">
@@ -113,10 +128,10 @@ export default function BookCard({ document, formatDate }: BookCardProps) {
           <div className="flex flex-wrap gap-1.5 mb-3">
             {document.categories.slice(0, 3).map((category) => (
               <span
-                key={category}
+                key={typeof category === 'string' ? category : category.id}
                 className="px-2 py-0.5 text-xs bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full"
               >
-                {category}
+                {typeof category === 'string' ? category : category.name}
               </span>
             ))}
             {document.categories.length > 3 && (

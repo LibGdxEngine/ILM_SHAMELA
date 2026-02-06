@@ -229,7 +229,10 @@ AWS_S3_ENDPOINT_URL = os.environ.get(
 AWS_S3_USE_SSL = False
 AWS_S3_VERIFY = False
 
-# Use S3 for file storage
+# Storage Configuration
+# Note: Django 5.2+ uses the STORAGES setting; DEFAULT_FILE_STORAGE is deprecated.
+# Currently using FileSystemStorage (Django default) since existing files are on local filesystem.
+# The old S3 settings below are kept for reference but not active via STORAGES.
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 STATICFILES_STORAGE = 'storages.backends.s3boto3.S3StaticStorage'
 
