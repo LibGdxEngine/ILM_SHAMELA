@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Document, Author, DocumentAlternateName
+from .models import Document, Author, DocumentAlternateName, Category
 
 
 class DocumentAlternateNameInline(admin.TabularInline):
@@ -30,6 +30,16 @@ class AuthorAdmin(admin.ModelAdmin):
     )
 
 
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    """Admin interface for Category model."""
+    list_display = ['id', 'name', 'created_at', 'updated_at']
+    list_filter = ['created_at', 'updated_at']
+    search_fields = ['name']
+    readonly_fields = ['created_at', 'updated_at']
+    ordering = ['name']
+
+
 @admin.register(DocumentAlternateName)
 class DocumentAlternateNameAdmin(admin.ModelAdmin):
     """Admin interface for DocumentAlternateName model."""
@@ -43,10 +53,10 @@ class DocumentAlternateNameAdmin(admin.ModelAdmin):
 class DocumentAdmin(admin.ModelAdmin):
     """Admin interface for Document model."""
     list_display = ['id', 'title', 'uploaded_at', 'processed', 'language', 'get_authors_display']
-    list_filter = ['processed', 'language', 'uploaded_at', 'authors']
+    list_filter = ['processed', 'language', 'uploaded_at', 'authors', 'categories']
     search_fields = ['title', 'description']
     readonly_fields = ['uploaded_at']
-    filter_horizontal = ['authors']
+    filter_horizontal = ['authors', 'categories']
     inlines = [DocumentAlternateNameInline]
     fieldsets = (
         ('Basic Information', {

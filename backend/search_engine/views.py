@@ -6,10 +6,11 @@ from rest_framework import generics, status, permissions, views
 from rest_framework.response import Response
 from elasticsearch_dsl import Q
 from elasticsearch_dsl import connections
-from .models import Document, Author
+from .models import Document, Author, Category
 from .serializers import (
     DocumentSerializer, DocumentListSerializer, DocumentDetailSerializer, DocumentPageSerializer,
-    AuthorSerializer, AuthorListSerializer, AuthorDetailSerializer
+    AuthorSerializer, AuthorListSerializer, AuthorDetailSerializer,
+    CategorySerializer, CategoryListSerializer
 )
 from .tasks import process_document_task
 from .documents import DocumentIndex
@@ -67,7 +68,7 @@ class DocumentListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         """Apply filtering to queryset."""
-        queryset = Document.objects.prefetch_related('authors', 'alternate_names').all()
+        queryset = Document.objects.prefetch_related('authors', 'alternate_names', 'categories').all()
 
         # Filter by authors (supports multiple, comma-separated)
         # Can filter by author names or author IDs
@@ -95,7 +96,7 @@ class DocumentListCreateView(generics.ListCreateAPIView):
             category_list = [c.strip()
                              for c in categories.split(',') if c.strip()]
             if category_list:
-                queryset = queryset.filter(categories__overlap=category_list)
+                queryset = queryset.filter(categories__name__in=category_list).distinct()
 
         # Filter by language
         language = self.request.query_params.get('language', None)
@@ -199,6 +200,10 @@ class DocumentListCreateView(generics.ListCreateAPIView):
         File will be uploaded to S3 automatically via FileField and DEFAULT_FILE_STORAGE setting.
         """
         try:
+            # Extract alternate_names and category_names from validated_data before saving
+            alternate_names = serializer.validated_data.pop('alternate_names', [])
+            category_names = serializer.validated_data.pop('category_names', [])
+            
             document = serializer.save()
             logger.info(
                 f"[UPLOAD] Document {document.id} created successfully")
@@ -210,6 +215,39 @@ class DocumentListCreateView(generics.ListCreateAPIView):
             logger.info(f"[UPLOAD] Uploaded at: {document.uploaded_at}")
             logger.info(
                 f"[UPLOAD] Initial processed status: {document.processed}")
+
+            # Create and link categories if provided
+            if category_names:
+                for category_name in category_names:
+                    if category_name and category_name.strip():
+                        try:
+                            category, created = Category.objects.get_or_create(
+                                name=category_name.strip()
+                            )
+                            document.categories.add(category)
+                            if created:
+                                logger.info(f"[UPLOAD] Created new category: {category_name.strip()}")
+                            else:
+                                logger.info(f"[UPLOAD] Linked existing category: {category_name.strip()}")
+                        except Exception as e:
+                            # Log but don't fail if error occurs
+                            logger.warning(f"[UPLOAD] Failed to create/link category '{category_name.strip()}': {str(e)}")
+
+            # Create alternate names if provided
+            if alternate_names:
+                from .models import DocumentAlternateName
+                for name in alternate_names:
+                    if name and name.strip():
+                        try:
+                            DocumentAlternateName.objects.get_or_create(
+                                document=document,
+                                name=name.strip(),
+                                defaults={'name': name.strip()}
+                            )
+                            logger.info(f"[UPLOAD] Created alternate name: {name.strip()}")
+                        except Exception as e:
+                            # Log but don't fail if duplicate or other error occurs
+                            logger.warning(f"[UPLOAD] Failed to create alternate name '{name.strip()}': {str(e)}")
 
             # Trigger async Celery task to process the document
             try:
@@ -235,7 +273,7 @@ class DocumentDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update or delete a document instance.
     """
-    queryset = Document.objects.prefetch_related('authors', 'alternate_names').all()
+    queryset = Document.objects.prefetch_related('authors', 'alternate_names', 'categories').all()
     serializer_class = DocumentDetailSerializer
     permission_classes = [permissions.AllowAny]
 
@@ -297,7 +335,7 @@ class DocumentSearchView(generics.ListAPIView):
                 f"[SEARCH] Found {len(document_ids)} document(s): {document_ids}")
 
             # Return documents in the order returned by Elasticsearch
-            documents = Document.objects.prefetch_related('authors', 'alternate_names').filter(id__in=document_ids)
+            documents = Document.objects.prefetch_related('authors', 'alternate_names', 'categories').filter(id__in=document_ids)
 
             # Apply additional filters
             authors = self.request.query_params.get('authors', None)
@@ -324,7 +362,7 @@ class DocumentSearchView(generics.ListAPIView):
                                  for c in categories.split(',') if c.strip()]
                 if category_list:
                     documents = documents.filter(
-                        categories__overlap=category_list)
+                        categories__name__in=category_list).distinct()
 
             language = self.request.query_params.get('language', None)
             if language:
@@ -633,6 +671,48 @@ class AuthorDetailView(generics.RetrieveAPIView):
     serializer_class = AuthorDetailSerializer
     permission_classes = [permissions.AllowAny]
     lookup_field = 'pk'
+    
+    def get_serializer_context(self):
+        """Add request to serializer context for URL generation."""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+
+class CategoryListView(generics.ListAPIView):
+    """
+    List all categories with pagination and filtering.
+    
+    Query parameters:
+    - search: Search categories by name
+    - ordering: Order by name, created_at, etc. (default: name)
+    """
+    queryset = Category.objects.all()
+    serializer_class = CategoryListSerializer
+    permission_classes = [permissions.AllowAny]
+    
+    def get_queryset(self):
+        """Apply filtering and ordering to queryset."""
+        queryset = Category.objects.all()
+        
+        # Search by name
+        search_query = self.request.query_params.get('search', '').strip()
+        if search_query:
+            queryset = queryset.filter(name__icontains=search_query)
+        
+        # Ordering
+        ordering = self.request.query_params.get('ordering', 'name')
+        if ordering:
+            # Validate ordering field to prevent SQL injection
+            allowed_orderings = ['name', '-name', 'created_at', '-created_at', 'updated_at', '-updated_at']
+            if ordering in allowed_orderings:
+                queryset = queryset.order_by(ordering)
+            else:
+                queryset = queryset.order_by('name')
+        else:
+            queryset = queryset.order_by('name')
+        
+        return queryset
     
     def get_serializer_context(self):
         """Add request to serializer context for URL generation."""
