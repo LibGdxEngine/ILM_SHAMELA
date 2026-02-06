@@ -232,9 +232,16 @@ export async function googleLogin(accessToken: string): Promise<User> {
 
   if (!response.ok) {
     const error: AuthError = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Google login failed');
+    // Map common error scenarios to user-friendly messages
+    const errorMessage = 
+      error.detail ||
+      error.non_field_errors?.[0] ||
+      error.email?.[0] ||
+      'Google login failed. Please try again.';
+    throw new Error(errorMessage);
   }
 
   // Fetch user data after Google login
   return getUser();
 }
+

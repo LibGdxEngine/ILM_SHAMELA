@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Document, DocumentSearchResponse } from '@/lib/api';
+import { useReadingStats } from '@/hooks/useReadingStats';
 
 interface Note {
   id: string;
@@ -20,6 +21,7 @@ interface DocumentSidebarProps {
   isSearching: boolean;
   onSearch: (query: string) => void;
   onGoToPage: (page: number) => void;
+  isOpen?: boolean;
 }
 
 type Tab = 'search' | 'notes' | 'bookmarks' | 'info';
@@ -31,6 +33,7 @@ export default function DocumentSidebar({
   isSearching,
   onSearch,
   onGoToPage,
+  isOpen = true,
 }: DocumentSidebarProps) {
   const [activeTab, setActiveTab] = useState<Tab>('search');
   const [notes, setNotes] = useState<Note[]>([]);
@@ -38,6 +41,9 @@ export default function DocumentSidebar({
   const [noteInput, setNoteInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Reading statistics
+  const { stats, resetStats } = useReadingStats(document.id, currentPage);
 
   // Load from local storage
   useEffect(() => {
@@ -113,12 +119,29 @@ export default function DocumentSidebar({
 
   const isBookmarked = bookmarks.some(b => b.page === currentPage);
 
+  // Format time in milliseconds to readable format
+  const formatTime = (ms: number): string => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes % 60}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s`;
+    } else {
+      return `${seconds}s`;
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">
       {/* Tabs Header */}
       <div className="sticky top-0 z-10 flex overflow-x-auto scrollbar-hide border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
         <button
           onClick={() => setActiveTab('search')}
+          aria-label="Search tab"
+          aria-pressed={activeTab === 'search'}
           className={`flex-1 min-w-[60px] py-4 flex flex-col items-center gap-1 transition-colors relative ${
             activeTab === 'search' 
               ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-900/20' 
@@ -149,6 +172,8 @@ export default function DocumentSidebar({
 
         <button
           onClick={() => setActiveTab('bookmarks')}
+          aria-label="Bookmarks tab"
+          aria-pressed={activeTab === 'bookmarks'}
           className={`flex-1 min-w-[60px] py-4 flex flex-col items-center gap-1 transition-colors relative ${
             activeTab === 'bookmarks' 
               ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-900/20' 
@@ -164,6 +189,8 @@ export default function DocumentSidebar({
 
         <button
           onClick={() => setActiveTab('info')}
+          aria-label="Info tab"
+          aria-pressed={activeTab === 'info'}
           className={`flex-1 min-w-[60px] py-4 flex flex-col items-center gap-1 transition-colors relative ${
             activeTab === 'info' 
               ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-900/20' 
@@ -179,7 +206,7 @@ export default function DocumentSidebar({
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+      <div className="flex-1 overflow-hidden p-6">
         
         {/* === SEARCH TAB === */}
         {activeTab === 'search' && (
@@ -211,8 +238,12 @@ export default function DocumentSidebar({
                 </div>
                 
                 {searchResults.matches.length === 0 ? (
-                   <div className="text-center py-10">
-                     <p className="text-gray-400 text-sm">No matches found</p>
+                   <div className="text-center py-10" role="status" aria-live="polite">
+                     <svg className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                     </svg>
+                     <p className="text-gray-500 dark:text-gray-400 text-sm font-medium mb-1">No matches found</p>
+                     <p className="text-gray-400 dark:text-gray-500 text-xs">Try a different search term</p>
                    </div>
                 ) : (
                   <div className="space-y-3">
@@ -309,6 +340,8 @@ export default function DocumentSidebar({
               </div>
               <button 
                 onClick={toggleBookmark}
+                aria-label={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
+                aria-pressed={isBookmarked}
                 className={`p-2.5 rounded-full shadow-sm transition-all ${
                   isBookmarked 
                     ? 'bg-amber-500 text-white hover:bg-amber-600' 
@@ -408,6 +441,46 @@ export default function DocumentSidebar({
                        </span>
                     </div>
                   </div>
+               </div>
+
+               {/* Reading Statistics */}
+               <div>
+                 <div className="flex items-center justify-between mb-2">
+                   <h4 className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Reading Statistics</h4>
+                   <button
+                     onClick={resetStats}
+                     className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                     aria-label="Reset reading statistics"
+                   >
+                     Reset
+                   </button>
+                 </div>
+                 <div className="space-y-2">
+                   <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-100 dark:border-indigo-800/50">
+                     <div className="flex items-center justify-between mb-1">
+                       <span className="text-xs text-gray-600 dark:text-gray-400">Time Spent</span>
+                       <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                         {formatTime(stats.timeSpent)}
+                       </span>
+                     </div>
+                   </div>
+                   <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-100 dark:border-green-800/50">
+                     <div className="flex items-center justify-between mb-1">
+                       <span className="text-xs text-gray-600 dark:text-gray-400">Pages Read</span>
+                       <span className="text-sm font-semibold text-green-700 dark:text-green-300">
+                         {stats.pagesRead}
+                       </span>
+                     </div>
+                   </div>
+                   <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-100 dark:border-purple-800/50">
+                     <div className="flex items-center justify-between mb-1">
+                       <span className="text-xs text-gray-600 dark:text-gray-400">Reading Speed</span>
+                       <span className="text-sm font-semibold text-purple-700 dark:text-purple-300">
+                         {stats.readingSpeed > 0 ? `${stats.readingSpeed.toFixed(1)} pages/min` : 'N/A'}
+                       </span>
+                     </div>
+                   </div>
+                 </div>
                </div>
              </div>
            </div>

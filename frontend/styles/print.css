@@ -1,0 +1,83 @@
+/* Print styles for document viewer */
+
+@media print {
+  /* Hide all non-essential elements */
+  .no-print,
+  aside,
+  nav,
+  button,
+  form,
+  .sticky,
+  .backdrop-blur-md {
+    display: none !important;
+  }
+
+  /* Main content styling */
+  body {
+    margin: 0;
+    padding: 0;
+    background: white !important;
+  }
+
+  /* Document viewer */
+  main#document-scroll-container {
+    overflow: visible !important;
+    height: auto !important;
+    background: white !important;
+  }
+
+  /* Page content */
+  article {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-bottom: 1cm;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Page header */
+  header {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  /* Text content */
+  .prose {
+    color: black !important;
+    background: white !important;
+  }
+
+  /* Remove backgrounds and shadows */
+  * {
+    background: white !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Ensure text is readable */
+  p, span, div {
+    color: black !important;
+  }
+
+  /* Links */
+  a {
+    color: black !important;
+    text-decoration: underline;
+  }
+
+  /* Search highlights */
+  mark {
+    background: #ffff00 !important;
+    color: black !important;
+  }
+
+  /* Page breaks */
+  @page {
+    margin: 2cm;
+  }
+
+  /* Avoid breaking pages in the middle */
+  article {
+    page-break-inside: avoid;
+  }
+}

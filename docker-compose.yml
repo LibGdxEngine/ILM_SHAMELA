@@ -122,6 +122,8 @@ services:
       - SECRET_KEY=${SECRET_KEY:-django-insecure-change-me-in-production}
       - DEBUG=${DEBUG:-false}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
     depends_on:
       db:
         condition: service_healthy
@@ -201,6 +203,7 @@ services:
       # which nginx will proxy from https://localhost/api -> http://backend:8000/.
       - ENVIRONMENT=${ENVIRONMENT:-prod}
       - NEXT_PUBLIC_API_URL=http://backend:8000
+      - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
     depends_on:
       - backend
     networks:
