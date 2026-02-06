@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Document, Author, DocumentAlternateName
+from .models import Document, Author, DocumentAlternateName, Category
 
 
 class AuthorListSerializer(serializers.ModelSerializer):
@@ -49,6 +49,24 @@ class DocumentAlternateNameSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
 
+class CategoryListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for Category model in list views."""
+    
+    class Meta:
+        model = Category
+        fields = ['id', 'name']
+        read_only_fields = ['id']
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    """Basic serializer for Category model."""
+    
+    class Meta:
+        model = Category
+        fields = ['id', 'name', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
 class DocumentListSerializer(serializers.ModelSerializer):
     """Serializer for Document model in list views (without full content)."""
     authors = AuthorListSerializer(many=True, read_only=True)
@@ -59,13 +77,21 @@ class DocumentListSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
+    categories = CategoryListSerializer(many=True, read_only=True)
+    category_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Category.objects.all(),
+        source='categories',
+        write_only=True,
+        required=False
+    )
     thumbnail_url = serializers.SerializerMethodField()
     cover_photo_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Document
-        fields = ['id', 'title', 'file', 'uploaded_at', 'processed', 'language', 'authors', 'authors_ids', 'categories', 'cover_photo', 'cover_photo_url', 'thumbnail', 'thumbnail_url', 'description', 'written_date']
-        read_only_fields = ['id', 'uploaded_at', 'processed', 'authors', 'thumbnail_url', 'cover_photo_url']
+        fields = ['id', 'title', 'file', 'uploaded_at', 'processed', 'language', 'authors', 'authors_ids', 'categories', 'category_ids', 'cover_photo', 'cover_photo_url', 'thumbnail', 'thumbnail_url', 'description', 'written_date']
+        read_only_fields = ['id', 'uploaded_at', 'processed', 'authors', 'categories', 'thumbnail_url', 'cover_photo_url']
     
     def get_thumbnail_url(self, obj):
         """Return thumbnail URL if available."""
@@ -96,14 +122,22 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
+    categories = CategoryListSerializer(many=True, read_only=True)
+    category_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Category.objects.all(),
+        source='categories',
+        write_only=True,
+        required=False
+    )
     alternate_names = DocumentAlternateNameSerializer(many=True, read_only=True)
     thumbnail_url = serializers.SerializerMethodField()
     cover_photo_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Document
-        fields = ['id', 'title', 'file', 'uploaded_at', 'processed', 'language', 'content', 'authors', 'authors_ids', 'categories', 'cover_photo', 'cover_photo_url', 'thumbnail', 'thumbnail_url', 'description', 'written_date', 'alternate_names']
-        read_only_fields = ['id', 'uploaded_at', 'processed', 'authors', 'alternate_names', 'thumbnail_url', 'cover_photo_url']
+        fields = ['id', 'title', 'file', 'uploaded_at', 'processed', 'language', 'content', 'authors', 'authors_ids', 'categories', 'category_ids', 'cover_photo', 'cover_photo_url', 'thumbnail', 'thumbnail_url', 'description', 'written_date', 'alternate_names']
+        read_only_fields = ['id', 'uploaded_at', 'processed', 'authors', 'categories', 'alternate_names', 'thumbnail_url', 'cover_photo_url']
     
     def get_thumbnail_url(self, obj):
         """Return thumbnail URL if available."""
@@ -133,11 +167,30 @@ class DocumentSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
+    category_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Category.objects.all(),
+        source='categories',
+        write_only=True,
+        required=False
+    )
+    category_names = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        write_only=True,
+        required=False,
+        help_text="List of category names (will be created if they don't exist)"
+    )
+    alternate_names = serializers.ListField(
+        child=serializers.CharField(max_length=500),
+        write_only=True,
+        required=False,
+        help_text="List of alternate names for the document"
+    )
     
     class Meta:
         model = Document
-        fields = ['id', 'title', 'file', 'uploaded_at', 'processed', 'language', 'content', 'authors', 'authors_ids', 'categories', 'cover_photo', 'thumbnail', 'description', 'written_date']
-        read_only_fields = ['id', 'uploaded_at', 'processed', 'authors']
+        fields = ['id', 'title', 'file', 'uploaded_at', 'processed', 'language', 'content', 'authors', 'authors_ids', 'categories', 'category_ids', 'category_names', 'cover_photo', 'thumbnail', 'description', 'written_date', 'alternate_names']
+        read_only_fields = ['id', 'uploaded_at', 'processed', 'authors', 'categories']
     
     def validate(self, attrs):
         """Validate that required fields are present."""

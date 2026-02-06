@@ -133,10 +133,28 @@ def process_document_task(self, doc_id):
         with transaction.atomic():
             document.content = extracted_text
             document.language = detected_language
-            document.authors = authors
-            document.categories = categories
             document.processed = True
             document.save()
+            
+            # Handle authors - create/get Author instances and link them
+            from .models import Author
+            for author_name in authors:
+                if author_name and author_name.strip():
+                    author, _ = Author.objects.get_or_create(
+                        name=author_name.strip(),
+                        defaults={'alternate_names': []}
+                    )
+                    document.authors.add(author)
+            
+            # Handle categories - create/get Category instances and link them
+            from .models import Category
+            for category_name in categories:
+                if category_name and category_name.strip():
+                    category, _ = Category.objects.get_or_create(
+                        name=category_name.strip()
+                    )
+                    document.categories.add(category)
+            
             logger.info(f"[STEP 6] Document model updated successfully")
             logger.info(f"[STEP 6] Content length saved: {len(extracted_text)} characters")
             logger.info(f"[STEP 6] Language saved: {detected_language}")

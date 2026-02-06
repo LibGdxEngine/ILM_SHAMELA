@@ -6,7 +6,7 @@ from .models import Document as DocumentModel
 @registry.register_document
 class DocumentIndex(Document):
     """Elasticsearch document index for Document model."""
-    
+
     title = fields.TextField(
         analyzer='standard',
         fields={
@@ -44,14 +44,14 @@ class DocumentIndex(Document):
         },
         multi=True
     )
-    
+
     class Index:
         name = 'documents'
         settings = {
             'number_of_shards': 1,
             'number_of_replicas': 0
         }
-    
+
     class Django:
         model = DocumentModel
         fields = [
@@ -60,11 +60,11 @@ class DocumentIndex(Document):
         # Disable automatic indexing on save
         # Documents are indexed manually in the Celery task after processing
         ignore_signals = True
-        
+
     def get_queryset(self):
         """Return only processed documents for indexing."""
-        return super().get_queryset().filter(processed=True).prefetch_related('authors', 'alternate_names')
-    
+        return super().get_queryset().filter(processed=True).prefetch_related('authors', 'alternate_names', 'categories')
+
     def prepare(self, instance):
         """Prepare the document instance for indexing."""
         # Call parent prepare to get base data
@@ -76,11 +76,12 @@ class DocumentIndex(Document):
         self.uploaded_at = instance.uploaded_at
         self.description = instance.description or ''
         self.written_date = instance.written_date or ''
-        
+
         # Handle authors from ManyToMany relationship
         if hasattr(instance, 'authors') and instance.authors.exists():
             # Get author names from ManyToMany relationship
-            author_names = list(instance.authors.values_list('name', flat=True))
+            author_names = list(
+                instance.authors.values_list('name', flat=True))
             # Also include alternate names from authors
             for author in instance.authors.all():
                 if author.alternate_names:
@@ -89,17 +90,27 @@ class DocumentIndex(Document):
         else:
             # Fallback to old JSONField if exists (for migration period)
             if hasattr(instance, 'authors_old') and instance.authors_old:
-                self.authors = instance.authors_old if isinstance(instance.authors_old, list) else []
+                self.authors = instance.authors_old if isinstance(
+                    instance.authors_old, list) else []
             else:
                 self.authors = []
-        
-        # Handle categories as lists
-        self.categories = instance.categories if isinstance(instance.categories, list) else (instance.categories.split(',') if instance.categories else [])
-        
+
+        # Handle categories from ManyToMany relationship
+        if hasattr(instance, 'categories') and instance.categories.exists():
+            # Get category names from ManyToMany relationship
+            self.categories = list(instance.categories.values_list('name', flat=True))
+        else:
+            # Fallback to old JSONField if exists (for migration period)
+            if hasattr(instance, 'categories_old') and instance.categories_old:
+                self.categories = instance.categories_old if isinstance(instance.categories_old, list) else []
+            else:
+                self.categories = []
+
         # Handle alternate names from DocumentAlternateName model
         if hasattr(instance, 'alternate_names') and instance.alternate_names.exists():
-            self.alternate_names = list(instance.alternate_names.values_list('name', flat=True))
+            self.alternate_names = list(
+                instance.alternate_names.values_list('name', flat=True))
         else:
             self.alternate_names = []
-        
+
         return data
