@@ -408,7 +408,7 @@ export default function DocumentSidebar({
                {document.authors && document.authors.length > 0 && (
                  <div>
                    <h4 className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">Authors</h4>
-                   <p className="text-sm text-gray-700 dark:text-gray-300">{document.authors.join(', ')}</p>
+                   <p className="text-sm text-gray-700 dark:text-gray-300">{document.authors.map(a => a.name).join(', ')}</p>
                  </div>
                )}
 

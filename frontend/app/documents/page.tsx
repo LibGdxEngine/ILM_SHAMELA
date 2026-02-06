@@ -154,7 +154,7 @@ export default function DocumentsPage() {
       const languages = new Set<string>();
 
       response.results.forEach((doc) => {
-        doc.authors?.forEach((a) => authors.add(a));
+        doc.authors?.forEach((a) => authors.add(a.name));
         doc.categories?.forEach((c) => categories.add(c));
         if (doc.language) languages.add(doc.language);
       });

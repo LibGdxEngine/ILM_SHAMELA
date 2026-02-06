@@ -6,8 +6,11 @@ from rest_framework import generics, status, permissions, views
 from rest_framework.response import Response
 from elasticsearch_dsl import Q
 from elasticsearch_dsl import connections
-from .models import Document
-from .serializers import DocumentSerializer, DocumentListSerializer, DocumentDetailSerializer, DocumentPageSerializer
+from .models import Document, Author
+from .serializers import (
+    DocumentSerializer, DocumentListSerializer, DocumentDetailSerializer, DocumentPageSerializer,
+    AuthorSerializer, AuthorListSerializer, AuthorDetailSerializer
+)
 from .tasks import process_document_task
 from .documents import DocumentIndex
 
@@ -64,14 +67,27 @@ class DocumentListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         """Apply filtering to queryset."""
-        queryset = Document.objects.all()
+        queryset = Document.objects.prefetch_related('authors', 'alternate_names').all()
 
         # Filter by authors (supports multiple, comma-separated)
+        # Can filter by author names or author IDs
         authors = self.request.query_params.get('authors', None)
         if authors:
             author_list = [a.strip() for a in authors.split(',') if a.strip()]
             if author_list:
-                queryset = queryset.filter(authors__overlap=author_list)
+                # Try to filter by author names (ManyToMany relationship)
+                from .models import Author
+                author_objects = Author.objects.filter(name__in=author_list)
+                if author_objects.exists():
+                    queryset = queryset.filter(authors__in=author_objects).distinct()
+                else:
+                    # Fallback: try to filter by IDs if provided
+                    try:
+                        author_ids = [int(a) for a in author_list if a.isdigit()]
+                        if author_ids:
+                            queryset = queryset.filter(authors__id__in=author_ids).distinct()
+                    except ValueError:
+                        pass
 
         # Filter by categories (supports multiple, comma-separated)
         categories = self.request.query_params.get('categories', None)
@@ -117,6 +133,10 @@ class DocumentListCreateView(generics.ListCreateAPIView):
                         'authors^1.5',
                         'authors.arabic^1.5',
                         'categories^1.5',
+                        'description^1.2',
+                        'description.arabic^1.2',
+                        'alternate_names^1.3',
+                        'alternate_names.arabic^1.3',
                         'content',
                         'content.arabic'
                     ],
@@ -215,7 +235,7 @@ class DocumentDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update or delete a document instance.
     """
-    queryset = Document.objects.all()
+    queryset = Document.objects.prefetch_related('authors', 'alternate_names').all()
     serializer_class = DocumentDetailSerializer
     permission_classes = [permissions.AllowAny]
 
@@ -249,13 +269,17 @@ class DocumentSearchView(generics.ListAPIView):
             'multi_match',
             query=query,
             fields=[
-                'title^2',           # Standard analyzer for title
-                'title.arabic^2',    # Arabic analyzer for title
-                'authors^1.5',        # Authors field
-                'authors.arabic^1.5',  # Arabic analyzer for authors
-                'categories^1.5',     # Categories field
-                'content',           # Standard analyzer for content
-                'content.arabic'     # Arabic analyzer for content
+                'title^2',                    # Standard analyzer for title
+                'title.arabic^2',             # Arabic analyzer for title
+                'authors^1.5',                # Authors field
+                'authors.arabic^1.5',         # Arabic analyzer for authors
+                'categories^1.5',             # Categories field
+                'description^1.2',            # Description field
+                'description.arabic^1.2',      # Arabic analyzer for description
+                'alternate_names^1.3',        # Alternate names field
+                'alternate_names.arabic^1.3', # Arabic analyzer for alternate names
+                'content',                    # Standard analyzer for content
+                'content.arabic'              # Arabic analyzer for content
             ],
             fuzziness='AUTO',
             type='best_fields'
@@ -273,15 +297,26 @@ class DocumentSearchView(generics.ListAPIView):
                 f"[SEARCH] Found {len(document_ids)} document(s): {document_ids}")
 
             # Return documents in the order returned by Elasticsearch
-            documents = Document.objects.filter(id__in=document_ids)
+            documents = Document.objects.prefetch_related('authors', 'alternate_names').filter(id__in=document_ids)
 
             # Apply additional filters
             authors = self.request.query_params.get('authors', None)
             if authors:
-                author_list = [a.strip()
-                               for a in authors.split(',') if a.strip()]
+                author_list = [a.strip() for a in authors.split(',') if a.strip()]
                 if author_list:
-                    documents = documents.filter(authors__overlap=author_list)
+                    # Try to filter by author names (ManyToMany relationship)
+                    from .models import Author
+                    author_objects = Author.objects.filter(name__in=author_list)
+                    if author_objects.exists():
+                        documents = documents.filter(authors__in=author_objects).distinct()
+                    else:
+                        # Fallback: try to filter by IDs if provided
+                        try:
+                            author_ids = [int(a) for a in author_list if a.isdigit()]
+                            if author_ids:
+                                documents = documents.filter(authors__id__in=author_ids).distinct()
+                        except ValueError:
+                            pass
 
             categories = self.request.query_params.get('categories', None)
             if categories:
@@ -543,3 +578,64 @@ class DocumentInDocumentSearchView(views.APIView):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class AuthorListView(generics.ListAPIView):
+    """
+    List all authors with pagination and filtering.
+    
+    Query parameters:
+    - search: Search authors by name
+    - ordering: Order by name, created_at, etc. (default: name)
+    """
+    queryset = Author.objects.all()
+    serializer_class = AuthorListSerializer
+    permission_classes = [permissions.AllowAny]
+    
+    def get_queryset(self):
+        """Apply filtering and ordering to queryset."""
+        queryset = Author.objects.all()
+        
+        # Search by name
+        search_query = self.request.query_params.get('search', '').strip()
+        if search_query:
+            # Search in name field
+            queryset = queryset.filter(name__icontains=search_query)
+            # Note: JSONField alternate_names search is complex, 
+            # so we search by name only. Can be enhanced later with custom logic.
+        
+        # Ordering
+        ordering = self.request.query_params.get('ordering', 'name')
+        if ordering:
+            # Validate ordering field to prevent SQL injection
+            allowed_orderings = ['name', '-name', 'created_at', '-created_at', 'updated_at', '-updated_at']
+            if ordering in allowed_orderings:
+                queryset = queryset.order_by(ordering)
+            else:
+                queryset = queryset.order_by('name')
+        else:
+            queryset = queryset.order_by('name')
+        
+        return queryset
+    
+    def get_serializer_context(self):
+        """Add request to serializer context for URL generation."""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+
+class AuthorDetailView(generics.RetrieveAPIView):
+    """
+    Retrieve author details with all published books.
+    """
+    queryset = Author.objects.prefetch_related('documents').all()
+    serializer_class = AuthorDetailSerializer
+    permission_classes = [permissions.AllowAny]
+    lookup_field = 'pk'
+    
+    def get_serializer_context(self):
+        """Add request to serializer context for URL generation."""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context

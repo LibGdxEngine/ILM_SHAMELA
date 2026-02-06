@@ -15,6 +15,14 @@ function getApiBaseUrl(): string {
 
 const API_BASE_URL = getApiBaseUrl();
 
+export interface Author {
+  id: number;
+  name: string;
+  photo: string | null;
+  date_of_birth: string | null;
+  date_of_death: string | null;
+}
+
 export interface Document {
   id: number;
   title: string;
@@ -23,7 +31,7 @@ export interface Document {
   processed: boolean;
   language: string | null;
   content?: string | null;
-  authors: string[];
+  authors: Author[];
   categories: string[];
 }
 
@@ -35,7 +43,7 @@ export interface UploadResponse {
   processed: boolean;
   language: string | null;
   content?: string | null;
-  authors: string[];
+  authors: Author[];
   categories: string[];
 }
 

@@ -44,6 +44,8 @@ export default function DocumentDetailPage() {
   const [currentBatchPage, setCurrentBatchPage] = useState(1);
   const [loadingBatchPage, setLoadingBatchPage] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
+  const [hasExhaustedRetries, setHasExhaustedRetries] = useState(false);
   
   // Use refs to avoid unnecessary function recreations
   const hasMoreRef = useRef(hasMore);
@@ -53,6 +55,10 @@ export default function DocumentDetailPage() {
   const isUserScrollingRef = useRef(false); // Track if user is actively scrolling
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pagesRef = useRef(pages); // Track latest pages array for use in callbacks
+  const retryCountRef = useRef(0); // Track retry count using ref to avoid function recreation
+  const hasExhaustedRetriesRef = useRef(false); // Track if retries are exhausted using ref
+  const isRetryingRef = useRef(false); // Track if a retry is in progress
+  const initialLoadAttemptedRef = useRef(false); // Track if initial load has been attempted
   
   // Update refs when state changes
   useEffect(() => {
@@ -125,7 +131,22 @@ export default function DocumentDetailPage() {
   }, [documentId]);
 
   // Fetch Pages Batch with caching and deduplication
-  const fetchPagesBatch = useCallback(async (batchPageNum: number, resetArgs: boolean = false) => {
+  const fetchPagesBatch = useCallback(async (batchPageNum: number, resetArgs: boolean = false, isManualRetry: boolean = false) => {
+    // If we've exhausted retries and this is not a manual retry, stop
+    if (hasExhaustedRetriesRef.current && !isManualRetry) {
+      return;
+    }
+    
+    // Prevent concurrent retries for the same batch
+    if (resetArgs && isRetryingRef.current && !isManualRetry) {
+      return;
+    }
+    
+    // Track initial load attempt
+    if (resetArgs && batchPageNum === 1) {
+      initialLoadAttemptedRef.current = true;
+    }
+    
     // If just loading more and we know there's no more, stop.
     // However, if resetting, we proceed.
     // Use refs to get latest values without causing function recreation
@@ -158,6 +179,10 @@ export default function DocumentDetailPage() {
           setHasMore(true);
         }
       }
+      
+      // Reset retry count on successful load
+      setRetryCount(0);
+      setHasExhaustedRetries(false);
       
       setCurrentBatchPage(batchPageNum);
       return;
@@ -207,17 +232,58 @@ export default function DocumentDetailPage() {
         setHasMore(true);
       }
       
+      // Reset retry count on successful load with pages
+      if (response.pages.length > 0) {
+        setRetryCount(0);
+        setHasExhaustedRetries(false);
+        retryCountRef.current = 0;
+        hasExhaustedRetriesRef.current = false;
+        isRetryingRef.current = false;
+      } else if (resetArgs && !isManualRetry) {
+        // Track retries when pages are empty on initial load (only for automatic retries)
+        const newRetryCount = retryCountRef.current + 1;
+        retryCountRef.current = newRetryCount;
+        setRetryCount(newRetryCount);
+        
+        // If we've hit 3 retries, mark as exhausted and prevent further automatic loads
+        if (newRetryCount >= 3) {
+          setHasExhaustedRetries(true);
+          hasExhaustedRetriesRef.current = true;
+          setHasMore(false); // Prevent intersection observer from triggering more loads
+        }
+        isRetryingRef.current = false;
+      } else {
+        isRetryingRef.current = false;
+      }
+      
       setCurrentBatchPage(batchPageNum);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load pages';
       setPagesError(errorMessage);
       console.error('Error fetching pages:', err);
+      
+      // Track retries only for empty pages (when resetArgs is true and not manual retry)
+      if (resetArgs && !isManualRetry) {
+        const newRetryCount = retryCountRef.current + 1;
+        retryCountRef.current = newRetryCount;
+        setRetryCount(newRetryCount);
+        
+        // If we've hit 3 retries, mark as exhausted and prevent further automatic loads
+        if (newRetryCount >= 3) {
+          setHasExhaustedRetries(true);
+          hasExhaustedRetriesRef.current = true;
+          setHasMore(false); // Prevent intersection observer from triggering more loads
+        }
+        isRetryingRef.current = false;
+      } else {
+        isRetryingRef.current = false;
+      }
     } finally {
       setIsLoadingMore(false);
       setLoadingBatchPage(null);
     }
-  }, [documentId, totalPages]); // Removed hasMore and isLoadingMore from deps - using refs instead
+  }, [documentId, totalPages]); // Removed hasMore, isLoadingMore, retryCount, hasExhaustedRetries from deps - using refs instead
 
   // Search Logic with request cancellation
   const searchAbortControllerRef = useRef<AbortController | null>(null);
@@ -511,15 +577,25 @@ export default function DocumentDetailPage() {
   }, [pages, documentId, visiblePageNum, totalPages, storeScrollPosition, restoreScrollPosition, searchParams, router]);
 
   const handleLoadMore = useCallback(() => {
+    // Don't load more if retries are exhausted and pages are empty
+    if (hasExhaustedRetriesRef.current && pagesRef.current.length === 0) {
+      return;
+    }
     fetchPagesBatch(currentBatchPage + 1);
   }, [fetchPagesBatch, currentBatchPage]);
 
   const handleRetryPages = useCallback(() => {
     setPagesError(null);
+    // Reset retry count for manual retries
+    setRetryCount(0);
+    setHasExhaustedRetries(false);
+    retryCountRef.current = 0;
+    hasExhaustedRetriesRef.current = false;
+    isRetryingRef.current = false;
     if (pages.length === 0) {
-      fetchPagesBatch(1, true);
+      fetchPagesBatch(1, true, true); // true = isManualRetry
     } else {
-      fetchPagesBatch(currentBatchPage);
+      fetchPagesBatch(currentBatchPage, false, true); // true = isManualRetry
     }
   }, [fetchPagesBatch, currentBatchPage, pages.length]);
 
@@ -527,6 +603,11 @@ export default function DocumentDetailPage() {
   // Loads ONE batch at a time (immediately before the lowest loaded page).
   // The scroll observer in DocumentViewer re-triggers this for each subsequent batch.
   const handleLoadFirstPage = useCallback(async () => {
+    // Don't load if retries are exhausted and pages are empty
+    if (hasExhaustedRetriesRef.current && pagesRef.current.length === 0) {
+      return;
+    }
+    
     // Use pagesRef to get latest pages state
     const currentPages = pagesRef.current;
     
@@ -536,8 +617,11 @@ export default function DocumentDetailPage() {
       return;
     }
     
+    // If no pages are loaded, we can't load a "previous" batch.
+    if (currentPages.length === 0) return;
+
     // Find the lowest page number currently loaded
-    const lowestPage = currentPages.length > 0 ? Math.min(...currentPages.map(p => p.page_number)) : Infinity;
+    const lowestPage = Math.min(...currentPages.map(p => p.page_number));
     if (lowestPage <= 1) return;
     
     // Calculate the batch immediately before the lowest loaded page
@@ -803,11 +887,35 @@ export default function DocumentDetailPage() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [searchParams, totalPages, visiblePageNum, handleGoToPage, restoreScrollPosition]);
 
+  // Reset retry state when documentId changes
+  useEffect(() => {
+    setRetryCount(0);
+    setHasExhaustedRetries(false);
+    retryCountRef.current = 0;
+    hasExhaustedRetriesRef.current = false;
+    isRetryingRef.current = false;
+    initialLoadAttemptedRef.current = false;
+  }, [documentId]);
+  
+  // Update refs when state changes
+  useEffect(() => {
+    retryCountRef.current = retryCount;
+  }, [retryCount]);
+  
+  useEffect(() => {
+    hasExhaustedRetriesRef.current = hasExhaustedRetries;
+  }, [hasExhaustedRetries]);
+
   // Initial Load - only run when documentId changes
   useEffect(() => {
     if (!isValidId) {
       setError('Invalid document ID. Please check the URL and try again.');
       setIsLoading(false);
+      return;
+    }
+    
+    // Prevent duplicate initial loads if already attempted and retries exhausted
+    if (initialLoadAttemptedRef.current && hasExhaustedRetriesRef.current) {
       return;
     }
     
