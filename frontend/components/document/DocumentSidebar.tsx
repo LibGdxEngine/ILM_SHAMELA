@@ -206,7 +206,7 @@ export default function DocumentSidebar({
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-hidden p-6">
+      <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
         
         {/* === SEARCH TAB === */}
         {activeTab === 'search' && (
@@ -417,8 +417,8 @@ export default function DocumentSidebar({
                    <h4 className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">Categories</h4>
                    <div className="flex flex-wrap gap-1.5">
                      {document.categories.map(cat => (
-                       <span key={cat} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded text-xs">
-                         {cat}
+                       <span key={typeof cat === 'string' ? cat : cat.id} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded text-xs">
+                         {typeof cat === 'string' ? cat : cat.name}
                        </span>
                      ))}
                    </div>

@@ -66,6 +66,12 @@ class DocumentListCreateView(generics.ListCreateAPIView):
             return DocumentListSerializer
         return DocumentSerializer
 
+    def get_serializer_context(self):
+        """Add request to serializer context for URL generation."""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
     def get_queryset(self):
         """Apply filtering to queryset."""
         queryset = Document.objects.prefetch_related('authors', 'alternate_names', 'categories').all()

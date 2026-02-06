@@ -14,6 +14,8 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
 from core.views import GoogleLogin
@@ -26,3 +28,16 @@ urlpatterns = [
     path('api/auth/google/', GoogleLogin.as_view(), name='google_login'),
     path('api/auth/', include('dj_rest_auth.urls')),
 ]
+
+# Serve media files - needed because files are stored on local filesystem
+# In production with S3/MinIO, this would not be needed as files would be served from S3
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+else:
+    # Also serve media in non-debug mode since we're behind nginx
+    # and files are on the local filesystem (not S3)
+    from django.views.static import serve
+    from django.urls import re_path
+    urlpatterns += [
+        re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+    ]

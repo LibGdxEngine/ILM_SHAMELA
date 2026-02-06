@@ -629,6 +629,10 @@ export default function DocumentDetailPage() {
     const targetBatch = lowestBatch - 1;
     if (targetBatch < 1) return;
     
+    // Store current scroll position before loading
+    const scrollContainer = typeof window !== 'undefined' ? window.document.getElementById('document-scroll-container') : null;
+    const scrollPositionBefore = scrollContainer?.scrollTop || 0;
+    
     const cacheKey = `doc_${documentId}_batch_${targetBatch}`;
     
     // Check cache first
@@ -636,15 +640,29 @@ export default function DocumentDetailPage() {
     if (cached && cached.pages.length > 0) {
       setTotalPages(cached.total_pages || totalPages);
       
+      // Check if there are new pages before merging
+      const currentPageNumbers = new Set(currentPages.map(p => p.page_number));
+      const newPages = cached.pages.filter(p => !currentPageNumbers.has(p.page_number));
+      const hasNewPages = newPages.length > 0;
+      
       // Merge pages, avoiding duplicates, maintaining sorted order
-      setPages(prev => {
-        const existingPageNumbers = new Set(prev.map(p => p.page_number));
-        const newPages = cached.pages.filter(p => !existingPageNumbers.has(p.page_number));
-        if (newPages.length === 0) return prev;
-        const combined = [...newPages, ...prev];
-        combined.sort((a, b) => a.page_number - b.page_number);
-        return combined;
-      });
+      if (hasNewPages) {
+        setPages(prev => {
+          const existingPageNumbers = new Set(prev.map(p => p.page_number));
+          const filteredNewPages = cached.pages.filter(p => !existingPageNumbers.has(p.page_number));
+          const combined = [...filteredNewPages, ...prev];
+          combined.sort((a, b) => a.page_number - b.page_number);
+          return combined;
+        });
+        
+        // Scroll down a bit after loading pages at the top to prevent scroll loop
+        if (scrollContainer) {
+          requestAnimationFrame(() => {
+            // Scroll down by 200px to move away from the top sentinel
+            scrollContainer.scrollBy({ top: 200, behavior: 'auto' });
+          });
+        }
+      }
       return;
     }
     
@@ -665,13 +683,25 @@ export default function DocumentDetailPage() {
       pageCache.set(documentId, targetBatch, response.pages);
       
       // Merge pages, avoiding duplicates, maintaining sorted order
+      let hasNewPages = false;
       setPages(prev => {
         const existingPageNumbers = new Set(prev.map(p => p.page_number));
         const newPages = response.pages.filter(p => !existingPageNumbers.has(p.page_number));
+        if (newPages.length > 0) {
+          hasNewPages = true;
+        }
         const combined = [...newPages, ...prev];
         combined.sort((a, b) => a.page_number - b.page_number);
         return combined;
       });
+
+      // Scroll down a bit after loading pages at the top to prevent scroll loop
+      if (scrollContainer && hasNewPages) {
+        requestAnimationFrame(() => {
+          // Scroll down by 200px to move away from the top sentinel
+          scrollContainer.scrollBy({ top: 200, behavior: 'auto' });
+        });
+      }
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load pages';

@@ -155,7 +155,7 @@ export default function DocumentsPage() {
 
       response.results.forEach((doc) => {
         doc.authors?.forEach((a) => authors.add(a.name));
-        doc.categories?.forEach((c) => categories.add(c));
+        doc.categories?.forEach((c) => categories.add(c.name || c));
         if (doc.language) languages.add(doc.language);
       });
 

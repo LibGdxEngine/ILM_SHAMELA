@@ -15,12 +15,60 @@ function getApiBaseUrl(): string {
 
 const API_BASE_URL = getApiBaseUrl();
 
+/**
+ * Convert backend media URL to frontend-accessible URL
+ * If the URL points to the backend server, convert it to use the frontend proxy
+ */
+export function normalizeMediaUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  
+  // If it's already a relative URL or data URL, return as-is
+  if (url.startsWith('/') || url.startsWith('data:')) {
+    return url;
+  }
+  
+  // If it's an absolute URL pointing to the backend, convert to relative
+  try {
+    const urlObj = new URL(url);
+    // Check if it's pointing to backend server (localhost:8000, 127.0.0.1:8000, or backend:8000)
+    if (
+      (urlObj.hostname === 'localhost' && urlObj.port === '8000') ||
+      (urlObj.hostname === '127.0.0.1' && urlObj.port === '8000') ||
+      urlObj.hostname === 'backend' ||
+      url.includes('localhost:8000') ||
+      url.includes('127.0.0.1:8000') ||
+      url.includes('backend:8000')
+    ) {
+      // Extract the path part (e.g., /media/documents/covers/...)
+      return urlObj.pathname + urlObj.search;
+    }
+  } catch (e) {
+    // If URL parsing fails, return as-is
+    console.warn('Failed to parse URL:', url, e);
+  }
+  
+  return url;
+}
+
 export interface Author {
   id: number;
   name: string;
   photo: string | null;
   date_of_birth: string | null;
   date_of_death: string | null;
+}
+
+export interface Category {
+  id: number;
+  name: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DocumentAlternateName {
+  id: number;
+  name: string;
+  created_at: string;
 }
 
 export interface Document {
@@ -32,7 +80,14 @@ export interface Document {
   language: string | null;
   content?: string | null;
   authors: Author[];
-  categories: string[];
+  categories: Category[];
+  description?: string | null;
+  written_date?: string | null;
+  cover_photo?: string | null;
+  cover_photo_url?: string | null;
+  thumbnail?: string | null;
+  thumbnail_url?: string | null;
+  alternate_names?: DocumentAlternateName[];
 }
 
 export interface UploadResponse {
@@ -44,7 +99,40 @@ export interface UploadResponse {
   language: string | null;
   content?: string | null;
   authors: Author[];
-  categories: string[];
+  categories: Category[];
+  description?: string | null;
+  written_date?: string | null;
+  cover_photo?: string | null;
+  cover_photo_url?: string | null;
+  thumbnail?: string | null;
+  thumbnail_url?: string | null;
+  alternate_names?: DocumentAlternateName[];
+}
+
+export interface AuthorsListResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: Author[];
+}
+
+export interface CategoriesListResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: Category[];
+}
+
+export interface UploadDocumentParams {
+  file: File;
+  title: string;
+  authors_ids?: number[];
+  category_names?: string[];
+  alternate_names?: string[];
+  description?: string;
+  written_date?: string;
+  language?: string;
+  cover_photo?: File;
 }
 
 export interface SearchResponse {
@@ -96,15 +184,104 @@ export interface DocumentSearchResponse {
 }
 
 /**
+ * Get list of authors
+ */
+export async function getAuthors(search?: string): Promise<AuthorsListResponse> {
+  const basePath = '/api/search_engine/authors/';
+  const url = API_BASE_URL 
+    ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
+    : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+  
+  if (search) {
+    url.searchParams.append('search', search);
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || error.message || 'Failed to fetch authors');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get list of categories
+ */
+export async function getCategories(search?: string): Promise<CategoriesListResponse> {
+  const basePath = '/api/search_engine/categories/';
+  const url = API_BASE_URL 
+    ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
+    : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+  
+  if (search) {
+    url.searchParams.append('search', search);
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || error.message || 'Failed to fetch categories');
+  }
+
+  return response.json();
+}
+
+/**
  * Upload a document file to the backend
  */
 export async function uploadDocument(
-  file: File,
+  params: UploadDocumentParams,
   onProgress?: (progress: number) => void
 ): Promise<UploadResponse> {
   const formData = new FormData();
-  formData.append('file', file);
-  formData.append('title', file.name);
+  formData.append('file', params.file);
+  formData.append('title', params.title);
+
+  // Add optional metadata fields
+  if (params.authors_ids && params.authors_ids.length > 0) {
+    params.authors_ids.forEach(id => {
+      formData.append('authors_ids', id.toString());
+    });
+  }
+
+  if (params.category_names && params.category_names.length > 0) {
+    // Send category_names as JSON array for ListField
+    formData.append('category_names', JSON.stringify(params.category_names));
+  }
+
+  if (params.alternate_names && params.alternate_names.length > 0) {
+    // Send alternate_names as JSON array for ListField
+    formData.append('alternate_names', JSON.stringify(params.alternate_names));
+  }
+
+  if (params.description) {
+    formData.append('description', params.description);
+  }
+
+  if (params.written_date) {
+    formData.append('written_date', params.written_date);
+  }
+
+  if (params.language) {
+    formData.append('language', params.language);
+  }
+
+  if (params.cover_photo) {
+    formData.append('cover_photo', params.cover_photo);
+  }
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
