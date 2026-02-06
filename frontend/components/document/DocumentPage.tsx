@@ -21,24 +21,30 @@ export default function DocumentPage({ pageNumber, content, searchQuery, languag
   const textDirection = language === 'ar' ? 'rtl' : 'ltr';
   
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm mb-6 overflow-hidden relative group transition-all hover:shadow-md">
+    <article 
+      className="bg-white dark:bg-gray-800 rounded-xl shadow-sm mb-6 overflow-hidden relative group transition-all hover:shadow-md"
+      aria-label={`Page ${pageNumber}`}
+    >
       {/* Page Header */}
-      <div className="px-6 py-3 bg-gray-50/50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+      <header className="px-6 py-3 bg-gray-50/50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
         <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
           Page {pageNumber}
         </span>
-      </div>
+      </header>
 
       {/* Page Content */}
       <div 
         className="p-8 md:p-10 select-none cursor-default"
         onContextMenu={(e) => e.preventDefault()}
         dir={textDirection}
+        role="text"
+        aria-label={`Content of page ${pageNumber}`}
       >
         <div
           className={`prose prose-lg dark:prose-invert max-w-none font-serif leading-relaxed ${
             textDirection === 'rtl' ? 'text-right' : 'text-left'
           }`}
+          style={{ fontSize: 'var(--document-font-size, 16px)' }}
           dangerouslySetInnerHTML={{
             __html: highlightText(
               content.replace(/\n/g, '<br />'),
@@ -49,7 +55,7 @@ export default function DocumentPage({ pageNumber, content, searchQuery, languag
       </div>
       
       {/* Footer / Overlay (optional) */}
-      <div className="absolute inset-0 pointer-events-none border-2 border-transparent group-hover:border-indigo-500/10 dark:group-hover:border-indigo-400/10 rounded-xl transition-colors" />
-    </div>
+      <div className="absolute inset-0 pointer-events-none border-2 border-transparent group-hover:border-indigo-500/10 dark:group-hover:border-indigo-400/10 rounded-xl transition-colors" aria-hidden="true" />
+    </article>
   );
 }

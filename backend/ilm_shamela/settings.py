@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sites',  # Required by django-allauth
     'rest_framework',
     'django_elasticsearch_dsl',
     'storages',
@@ -350,15 +351,13 @@ REST_AUTH = {
     'JWT_AUTH_REFRESH_COOKIE': 'jwt-refresh-token',
     'JWT_AUTH_SECURE': not DEBUG,
     'REGISTER_SERIALIZER': 'core.serializers.CustomRegisterSerializer',
+    'LOGIN_SERIALIZER': 'core.serializers.CustomLoginSerializer',
 }
 
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
-        'APP': {
-            'client_id': os.environ.get('GOOGLE_CLIENT_ID'),
-            'secret': os.environ.get('GOOGLE_CLIENT_SECRET'),
-            'key': ''
-        },
+        # NOTE: Do NOT use 'APP' here - it conflicts with database SocialApp entry
+        # The SocialApp is managed via the setup_google_oauth management command
         'SCOPE': [
             'profile',
             'email',
