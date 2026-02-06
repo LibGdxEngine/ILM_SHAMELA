@@ -32,11 +32,16 @@ echo "Collecting static files..."
 python manage.py collectstatic --noinput || true
 
 # If a command is provided, execute it (e.g., celery worker)
-# Otherwise, start gunicorn as default
+# Otherwise, start server based on environment (dev uses runserver, prod uses gunicorn)
 if [ $# -gt 0 ]; then
     echo "Executing provided command: $@"
     exec "$@"
 else
-    echo "Starting server..."
-    exec gunicorn ilm_shamela.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
+    if [ "${ENVIRONMENT:-prod}" = "dev" ]; then
+        echo "Starting development server..."
+        exec python manage.py runserver 0.0.0.0:8000
+    else
+        echo "Starting production server..."
+        exec gunicorn ilm_shamela.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
+    fi
 fi

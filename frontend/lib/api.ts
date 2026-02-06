@@ -77,8 +77,8 @@ export interface DocumentPagesResponse {
 
 export interface DocumentSearchMatch {
   page_number: number;
-  position: number;
   snippet: string;
+  score?: number;
 }
 
 export interface DocumentSearchResponse {
@@ -285,7 +285,8 @@ export async function getDocumentPages(
  */
 export async function searchInDocument(
   id: number,
-  query: string
+  query: string,
+  signal?: AbortSignal
 ): Promise<DocumentSearchResponse> {
   if (!query.trim()) {
     return {
@@ -306,6 +307,7 @@ export async function searchInDocument(
     headers: {
       'Content-Type': 'application/json',
     },
+    signal,
   });
 
   if (!response.ok) {

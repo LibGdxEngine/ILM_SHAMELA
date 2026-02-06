@@ -9,7 +9,7 @@ export default function Home() {
             ILM Shamela
           </h1>
           <p className="text-xl text-gray-600">
-            Upload documents and search through them with ease
+            Uploads documents and search through them with ease
           </p>
         </div>
 

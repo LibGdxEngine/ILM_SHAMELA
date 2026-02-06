@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -8,50 +8,56 @@ import {
   getDocumentPages,
   searchInDocument,
   Document,
-  DocumentPagesResponse,
+  DocumentPage as DocumentPageType,
   DocumentSearchResponse,
 } from '@/lib/api';
+import DocumentViewer from '@/components/document/DocumentViewer';
+import DocumentSidebar from '@/components/document/DocumentSidebar';
 
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}
-
-function highlightText(text: string, query: string): string {
-  if (!query.trim()) return text;
-  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  return text.replace(regex, '<mark class="bg-yellow-200">$1</mark>');
-}
+const PAGE_BATCH_SIZE = 5;
 
 export default function DocumentDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const documentId = parseInt(params.id as string);
 
+  // Data State
   const [document, setDocument] = useState<Document | null>(null);
-  const [pages, setPages] = useState<DocumentPagesResponse | null>(null);
-  const [currentPageNum, setCurrentPageNum] = useState(1);
+  const [pages, setPages] = useState<DocumentPageType[]>([]);
+  const [totalPages, setTotalPages] = useState(0);
+  
+  // View State
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingPages, setIsLoadingPages] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentBatchPage, setCurrentBatchPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  
+  // Use refs to avoid unnecessary function recreations
+  const hasMoreRef = useRef(hasMore);
+  const isLoadingMoreRef = useRef(isLoadingMore);
+  const isFetchingRef = useRef(false); // Track if a request is in-flight
+  
+  // Update refs when state changes
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+  
+  useEffect(() => {
+    isLoadingMoreRef.current = isLoadingMore;
+  }, [isLoadingMore]);
+  
+  // Current visible page (for sidebar)
+  const [visiblePageNum, setVisiblePageNum] = useState(1);
+  
+  // Page navigation input state
+  const [pageInputValue, setPageInputValue] = useState('');
+  const [pageInputError, setPageInputError] = useState<string | null>(null);
 
-  // Search state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<DocumentSearchResponse | null>(null);
+  // Search State
   const [isSearching, setIsSearching] = useState(false);
-  const debouncedSearch = useDebounce(searchQuery, 500);
+  const [searchResults, setSearchResults] = useState<DocumentSearchResponse | null>(null);
 
+  // Fetch Metadata
   const fetchDocument = useCallback(async () => {
     try {
       const doc = await getDocument(documentId);
@@ -63,281 +69,328 @@ export default function DocumentDetailPage() {
     }
   }, [documentId]);
 
-  const fetchPages = useCallback(async (page: number) => {
-    setIsLoadingPages(true);
-    try {
-      const pagesData = await getDocumentPages(documentId, page, 1);
-      setPages(pagesData);
-      setCurrentPageNum(page);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load pages');
-    } finally {
-      setIsLoadingPages(false);
+  // Fetch Pages Batch
+  const fetchPagesBatch = useCallback(async (batchPageNum: number, resetArgs: boolean = false) => {
+    // Prevent concurrent requests - if already fetching, return early
+    if (isFetchingRef.current) {
+      return;
     }
-  }, [documentId]);
+    
+    // If just loading more and we know there's no more, stop.
+    // However, if resetting, we proceed.
+    // Use refs to get latest values without causing function recreation
+    if ((!resetArgs && !hasMoreRef.current) || (isLoadingMoreRef.current && !resetArgs)) return;
+    
+    // Mark as fetching
+    isFetchingRef.current = true;
+    setIsLoadingMore(true);
+    
+    try {
+      const response = await getDocumentPages(documentId, batchPageNum, PAGE_BATCH_SIZE);
+      
+      setTotalPages(response.total_pages);
+      
+      if (resetArgs) {
+        setPages(response.pages);
+      } else {
+        setPages(prev => [...prev, ...response.pages]);
+      }
+      
+      // Check if we have more pages
+      // If the batch returned fewer items than requested, we reached the end.
+      // Also check if the last page loaded is the last page available.
+      if (response.pages.length < PAGE_BATCH_SIZE || response.current_page * response.page_size >= response.total_pages) {
+         // Note: response.current_page from API might be the batch index if implemented that way, 
+         // let's rely on checking if we have loaded all total_pages.
+         // response.pages returns actual pages.
+         // Let's check the last page number in the response.
+         if (response.pages.length > 0) {
+            const lastPage = response.pages[response.pages.length - 1];
+            if (lastPage.page_number >= response.total_pages) {
+               setHasMore(false);
+            } else {
+               setHasMore(true);
+            }
+         } else {
+            setHasMore(false);
+         }
+      } else {
+        setHasMore(true);
+      }
+      
+      setCurrentBatchPage(batchPageNum);
 
+    } catch (err) {
+      console.error('Error fetching pages:', err);
+    } finally {
+      setIsLoadingMore(false);
+      isFetchingRef.current = false; // Clear fetching flag
+    }
+  }, [documentId]); // Removed hasMore and isLoadingMore from deps - using refs instead
+
+  // Search Logic with request cancellation
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
+  
   const performSearch = useCallback(async (query: string) => {
+    // Cancel any ongoing search
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort();
+    }
+
     if (!query.trim()) {
       setSearchResults(null);
+      setIsSearching(false);
       return;
     }
 
+    // Create new abort controller for this search
+    const abortController = new AbortController();
+    searchAbortControllerRef.current = abortController;
+
     setIsSearching(true);
     try {
-      const results = await searchInDocument(documentId, query);
-      setSearchResults(results);
+      const results = await searchInDocument(documentId, query, abortController.signal);
+      
+      // Only update if this request wasn't aborted
+      if (!abortController.signal.aborted) {
+        setSearchResults(results);
+      }
     } catch (err) {
+      // Don't update state if request was aborted (this is expected)
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
+      // Don't update state if request was aborted via signal
+      if (abortController.signal.aborted) {
+        return;
+      }
       console.error('Search error:', err);
       setSearchResults({ matches: [], total_matches: 0, query });
     } finally {
-      setIsSearching(false);
+      if (!abortController.signal.aborted) {
+        setIsSearching(false);
+      }
     }
   }, [documentId]);
 
-  useEffect(() => {
-    fetchDocument();
-    fetchPages(1);
-  }, [fetchDocument, fetchPages]);
+  const handleSearch = useCallback((query: string) => {
+    performSearch(query);
+  }, [performSearch]);
+  
+  // Jump to specific page
+  const handleGoToPage = async (pageNumber: number) => {
+    if (!pageNumber || Number.isNaN(pageNumber)) {
+      return;
+    }
 
-  useEffect(() => {
-    performSearch(debouncedSearch);
-  }, [debouncedSearch, performSearch]);
+    // Check if page is already loaded
+    const existingPage = pages.find(p => p.page_number === pageNumber);
+    if (existingPage) {
+      // Scroll to it
+      const el = window.document.querySelector(`[data-page="${pageNumber}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' });
+        setVisiblePageNum(pageNumber);
+      }
+    } else {
+      // Prevent concurrent requests
+      if (isFetchingRef.current) {
+        return;
+      }
+      
+      // Load batch containing this page
+      const targetBatch = Math.ceil(pageNumber / PAGE_BATCH_SIZE);
+      
+      setPages([]);
+      isFetchingRef.current = true;
+      setIsLoadingMore(true);
+      
+      try {
+        const response = await getDocumentPages(documentId, targetBatch, PAGE_BATCH_SIZE);
+        setPages(response.pages);
+        setTotalPages(response.total_pages);
+        setCurrentBatchPage(targetBatch);
+        setVisiblePageNum(pageNumber);
+        
+        if (response.pages.length > 0) {
+           const lastPage = response.pages[response.pages.length - 1];
+           if (lastPage.page_number >= response.total_pages) {
+              setHasMore(false);
+           } else {
+              setHasMore(true);
+           }
+        } else {
+           setHasMore(false);
+        }
 
-  const handlePageChange = (page: number) => {
-    if (page >= 1 && page <= (pages?.total_pages || 1)) {
-      fetchPages(page);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+        setTimeout(() => {
+          const el = window.document.querySelector(`[data-page="${pageNumber}"]`);
+          if (el) el.scrollIntoView({ behavior: 'auto' });
+        }, 100);
+
+      } catch (err) {
+        console.error("Failed to jump to page", err);
+      } finally {
+        setIsLoadingMore(false);
+        isFetchingRef.current = false;
+      }
     }
   };
 
-  const goToSearchResult = (pageNumber: number) => {
-    setCurrentPageNum(pageNumber);
-    fetchPages(pageNumber);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  const handleLoadMore = useCallback(() => {
+    fetchPagesBatch(currentBatchPage + 1);
+  }, [fetchPagesBatch, currentBatchPage]);
+
+  // Handle load first page when scrolling to top
+  // const handleLoadFirstPage = useCallback(() => {
+  //   // Check if page 1 is already loaded
+  //   const hasFirstPage = pages.some(p => p.page_number === 1);
+  //   if (hasFirstPage || isLoadingMore) {
+  //     return;
+  //   }
+    
+  //   // Load first batch
+  //   fetchPagesBatch(1, true);
+  // }, [pages, isLoadingMore, fetchPagesBatch]);
+
+  // Handle page number input navigation
+  const handlePageInputSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPageInputError(null);
+    
+    const pageNum = parseInt(pageInputValue.trim());
+    
+    if (isNaN(pageNum)) {
+      setPageInputError('Please enter a valid page number');
+      return;
+    }
+    
+    if (pageNum < 1 || (totalPages > 0 && pageNum > totalPages)) {
+      setPageInputError(`Page must be between 1 and ${totalPages}`);
+      return;
+    }
+    
+    handleGoToPage(pageNum);
+    setPageInputValue('');
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+  const handlePageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPageInputValue(e.target.value);
+    setPageInputError(null);
   };
 
-  if (isLoading) {
+  // Initial Load - only run when documentId changes
+  useEffect(() => {
+    fetchDocument();
+    // Start fresh
+    fetchPagesBatch(1, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId]);
+
+  if (isLoading || !document) {
     return (
-      <main className="min-h-screen bg-gray-50">
-        <div className="container mx-auto px-4 py-8 max-w-6xl">
-          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading document...</p>
-          </div>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="flex flex-col items-center">
+          <div className="w-10 h-10 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
+          <p className="text-gray-500">Loading document...</p>
         </div>
-      </main>
+      </div>
     );
   }
 
-  if (error || !document) {
+  if (error) {
     return (
-      <main className="min-h-screen bg-gray-50">
-        <div className="container mx-auto px-4 py-8 max-w-6xl">
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-              <p>{error || 'Document not found'}</p>
-            </div>
-            <Link
-              href="/documents"
-              className="mt-4 inline-block text-blue-600 hover:text-blue-700"
-            >
-              ← Back to Documents
-            </Link>
-          </div>
-        </div>
-      </main>
+      <div className="min-h-screen flex items-center justify-center text-red-500">
+        {error}
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
-        {/* Header */}
-        <div className="mb-6">
-          <Link
-            href="/documents"
-            className="text-blue-600 hover:text-blue-700 mb-4 inline-block"
-          >
-            ← Back to Documents
-          </Link>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">{document.title}</h1>
-          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
-            {document.authors && document.authors.length > 0 && (
-              <div>
-                <span className="font-medium">Authors: </span>
-                <span>{document.authors.join(', ')}</span>
-              </div>
-            )}
-            {document.language && (
-              <div>
-                <span className="font-medium">Language: </span>
-                <span>{document.language.toUpperCase()}</span>
-              </div>
-            )}
-            <div>
-              <span className="font-medium">Uploaded: </span>
-              <span>{formatDate(document.uploaded_at)}</span>
-            </div>
-            {document.categories && document.categories.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {document.categories.map((category) => (
-                  <span
-                    key={category}
-                    className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full"
-                  >
-                    {category}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Search Bar */}
-        <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-          <div className="relative">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search within this document..."
-              className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            />
-            <svg
-              className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+    <div className="flex h-screen bg-gray-100 dark:bg-gray-900 overflow-hidden">
+      {/* Main Content (Viewer) */}
+      <div className="flex-1 h-full overflow-y-auto relative bg-gray-100 dark:bg-gray-900" id="document-scroll-container">
+        
+        {/* Top Bar */}
+        <div className="sticky top-0 z-10 bg-white/90 dark:bg-gray-800/90 backdrop-blur-md border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between shadow-sm">
+           <Link
+              href="/documents"
+              className="inline-flex items-center gap-2 text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors text-sm font-medium"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-            {isSearching && (
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
-              </div>
-            )}
-          </div>
-
-          {/* Search Results */}
-          {searchResults && searchQuery.trim() && (
-            <div className="mt-4">
-              {searchResults.total_matches > 0 ? (
-                <div>
-                  <p className="text-sm text-gray-600 mb-2">
-                    Found {searchResults.total_matches} match{searchResults.total_matches !== 1 ? 'es' : ''}
-                  </p>
-                  <div className="max-h-48 overflow-y-auto space-y-2">
-                    {searchResults.matches.map((match, idx) => (
-                      <div
-                        key={idx}
-                        className="p-2 bg-gray-50 rounded hover:bg-gray-100 cursor-pointer"
-                        onClick={() => goToSearchResult(match.page_number)}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium text-blue-600">
-                            Page {match.page_number}
-                          </span>
-                          <span className="text-xs text-gray-500">Position: {match.position}</span>
-                        </div>
-                        <p
-                          className="text-sm text-gray-700"
-                          dangerouslySetInnerHTML={{ __html: highlightText(match.snippet, searchQuery) }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-600">No matches found</p>
-              )}
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Library
+            </Link>
+            
+            <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate max-w-md mx-4">
+              {document.title}
             </div>
-          )}
+            
+            <div className="flex items-center gap-3">
+               <span className="text-xs text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-md">
+                 Page {visiblePageNum} of {totalPages}
+               </span>
+               <div className="h-4 w-px bg-gray-300 dark:bg-gray-600"></div>
+               <form onSubmit={handlePageInputSubmit} className="flex items-center gap-2">
+                 <div className="relative">
+                   <input
+                     type="number"
+                     min="1"
+                     max={totalPages}
+                     value={pageInputValue}
+                     onChange={handlePageInputChange}
+                     placeholder="Go to page..."
+                     className={`w-24 px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 ${
+                       pageInputError
+                         ? 'border-red-500 focus:ring-red-500 dark:border-red-400'
+                         : 'border-gray-300 dark:border-gray-600 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white'
+                     }`}
+                   />
+                   {pageInputError && (
+                     <div className="absolute top-full left-0 mt-1 px-2 py-1 text-xs text-red-600 dark:text-red-400 bg-white dark:bg-gray-800 border border-red-300 dark:border-red-600 rounded shadow-lg z-20 whitespace-nowrap">
+                       {pageInputError}
+                     </div>
+                   )}
+                 </div>
+                 <button
+                   type="submit"
+                   className="px-2 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-md transition-colors"
+                 >
+                   Go
+                 </button>
+               </form>
+               <div className="h-4 w-px bg-gray-300 dark:bg-gray-600"></div>
+               <div className="flex items-center text-xs text-gray-400">
+                  Read Only
+               </div>
+            </div>
         </div>
 
-        {/* Document Content */}
-        <div className="bg-white rounded-lg shadow-sm p-8 mb-6">
-          {isLoadingPages ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-4 text-gray-600">Loading page...</p>
-            </div>
-          ) : pages && pages.pages.length > 0 ? (
-            <div>
-              <div
-                className="prose max-w-none mb-6"
-                dangerouslySetInnerHTML={{
-                  __html: highlightText(
-                    pages.pages[0].content.replace(/\n/g, '<br />'),
-                    searchQuery
-                  ),
-                }}
-              />
-            </div>
-          ) : (
-            <div className="text-center py-12 text-gray-600">
-              <p>No content available</p>
-            </div>
-          )}
-        </div>
-
-        {/* Pagination */}
-        {pages && pages.total_pages > 1 && (
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => handlePageChange(currentPageNum - 1)}
-                disabled={currentPageNum === 1}
-                className="px-4 py-2 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-              >
-                Previous Page
-              </button>
-              <span className="text-sm text-gray-700">
-                Page {currentPageNum} of {pages.total_pages}
-              </span>
-              <button
-                onClick={() => handlePageChange(currentPageNum + 1)}
-                disabled={currentPageNum === pages.total_pages}
-                className="px-4 py-2 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-              >
-                Next Page
-              </button>
-            </div>
-
-            {/* Page Jump */}
-            <div className="mt-4 flex items-center justify-center space-x-2">
-              <span className="text-sm text-gray-600">Go to page:</span>
-              <input
-                type="number"
-                min={1}
-                max={pages.total_pages}
-                value={currentPageNum}
-                onChange={(e) => {
-                  const page = parseInt(e.target.value);
-                  if (page >= 1 && page <= pages.total_pages) {
-                    handlePageChange(page);
-                  }
-                }}
-                className="w-20 px-2 py-1 border border-gray-300 rounded-md text-center"
-              />
-              <span className="text-sm text-gray-600">of {pages.total_pages}</span>
-            </div>
-          </div>
-        )}
+        <DocumentViewer
+          pages={pages}
+          isLoading={isLoadingMore}
+          hasMore={hasMore}
+          searchQuery={searchResults?.query || ''}
+          onLoadMore={handleLoadMore}
+          onPageVisible={setVisiblePageNum}
+          // onLoadFirstPage={handleLoadFirstPage}
+          language={document.language}
+        />
+        
       </div>
-    </main>
+
+      {/* Sidebar - Right Side (Fixed Width) */}
+      <div className="w-80 md:w-96 h-full flex-shrink-0 z-20 border-l border-gray-200 dark:border-gray-700">
+        <DocumentSidebar
+          document={document}
+          currentPage={visiblePageNum}
+          searchResults={searchResults}
+          isSearching={isSearching}
+          onSearch={handleSearch}
+          onGoToPage={handleGoToPage}
+        />
+      </div>
+    </div>
   );
 }

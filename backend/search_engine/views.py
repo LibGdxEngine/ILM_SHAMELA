@@ -14,6 +14,37 @@ from .documents import DocumentIndex
 logger = logging.getLogger(__name__)
 
 
+def split_document_content_into_pages(content: str):
+    """
+    Helper to split a document's raw content into pages.
+
+    This mirrors the logic used in DocumentContentPagesView so it can be reused
+    from multiple places (e.g. in-document search to map snippets to pages).
+    """
+    # Split content by page breaks (form feed: \f or \x0c)
+    # Also handle \n\n\n as potential page breaks
+    page_breaks = re.split(r'[\f\x0c]', content)
+
+    # If no form feed characters found, try splitting by multiple newlines
+    if len(page_breaks) == 1:
+        page_breaks = re.split(r'\n{3,}', content)
+
+    # If still only one page, split by fixed size chunks (2000 chars)
+    if len(page_breaks) == 1 and len(content) > 2000:
+        chunk_size = 2000
+        page_breaks = [content[i:i + chunk_size]
+                       for i in range(0, len(content), chunk_size)]
+
+    # Filter out empty pages
+    pages = [{'page_number': i + 1, 'content': page.strip()}
+             for i, page in enumerate(page_breaks) if page.strip()]
+
+    if not pages:
+        pages = [{'page_number': 1, 'content': content}]
+
+    return pages
+
+
 class DocumentListCreateView(generics.ListCreateAPIView):
     """
     List all documents or create a new document.
@@ -388,27 +419,8 @@ class DocumentContentPagesView(views.APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-            # Split content by page breaks (form feed: \f or \x0c)
-            # Also handle \n\n\n as potential page breaks
             content = document.content
-            page_breaks = re.split(r'[\f\x0c]', content)
-
-            # If no form feed characters found, try splitting by multiple newlines
-            if len(page_breaks) == 1:
-                page_breaks = re.split(r'\n{3,}', content)
-
-            # If still only one page, split by fixed size chunks (2000 chars)
-            if len(page_breaks) == 1 and len(content) > 2000:
-                chunk_size = 2000
-                page_breaks = [content[i:i+chunk_size]
-                               for i in range(0, len(content), chunk_size)]
-
-            # Filter out empty pages
-            pages = [{'page_number': i+1, 'content': page.strip()}
-                     for i, page in enumerate(page_breaks) if page.strip()]
-
-            if not pages:
-                pages = [{'page_number': 1, 'content': content}]
+            pages = split_document_content_into_pages(content)
 
             # Pagination
             page = int(request.query_params.get('page', 1))
@@ -457,30 +469,38 @@ class DocumentInDocumentSearchView(views.APIView):
             )
 
         try:
+            # Fetch document content so we can map snippets back to pages
+            try:
+                document = Document.objects.get(id=pk)
+                content = document.content or ""
+            except Document.DoesNotExist:
+                return Response(
+                    {'error': f'Document with ID {pk} not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Pre-split the document into pages using the same logic as the page API
+            pages = split_document_content_into_pages(content)
+
             # 1. Start the Search Context
-            # We don't hit the database (Postgres) at all! We go straight to ES.
             s = DocumentIndex.search()
 
             # 2. Filter: "Where ID is pk"
-            # We use 'ids' query to restrict search to this specific document
             s = s.filter('ids', values=[pk])
 
             # 3. Query: "Content contains text"
-            # 'match_phrase' keeps the words in order (closer to your original .find() logic)
-            # Use 'match' if you want "red apple" to find docs with "apple" and "red" anywhere.
             s = s.query('match', content={
                 "query": query,
                 "fuzziness": "AUTO",    # Allows 1-2 character mistakes based on word length
-                "operator": "and"       # Optional: Requires ALL words to be present
+                "operator": "and"       # Requires all words to be present
             })
 
-            # 4. Highlighting: The Magic Part
-            # This replaces your manual snippet extraction logic.
+            # 4. Highlighting
             s = s.highlight(
                 'content',
-                fragment_size=150,      # Length of the snippet
+                fragment_size=150,       # Length of each snippet
                 number_of_fragments=50,  # Max number of matches to return
-                pre_tags=['<mark>'],    # Wrap match in these tags
+                pre_tags=['<mark>'],     # Wrap match in these tags
                 post_tags=['</mark>'],
                 max_analyzed_offset=1000000  # Avoid error on very large documents
             )
@@ -488,22 +508,27 @@ class DocumentInDocumentSearchView(views.APIView):
             # 5. Execute
             response = s.execute()
 
-            # 6. Parse Results
+            # 6. Parse Results and map snippets to page numbers
             matches = []
 
-            # Since we filtered by ID, we expect exactly 0 or 1 document hit
             if response.hits:
                 hit = response.hits[0]
 
-                # Check if there are highlights (matches found in content)
                 if 'highlight' in hit.meta:
                     for snippet in hit.meta.highlight.content:
+                        # Remove highlight tags to search within raw page content
+                        plain_snippet = re.sub(r'</?mark>', '', snippet)
+
+                        page_number = 1
+                        for page in pages:
+                            if plain_snippet and plain_snippet in page['content']:
+                                page_number = page['page_number']
+                                break
+
                         matches.append({
-                            # NOTE: ES works on the whole text, so "page_number"
-                            # concept doesn't exist natively unless you index pages separately.
-                            # We return the snippet directly.
+                            'page_number': page_number,
                             'snippet': snippet,
-                            'score': hit.meta.score
+                            'score': hit.meta.score,
                         })
 
             return Response({
