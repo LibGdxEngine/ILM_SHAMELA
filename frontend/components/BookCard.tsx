@@ -104,7 +104,7 @@ export default function BookCard({ document, formatDate }: BookCardProps) {
         {/* Authors */}
         {document.authors && document.authors.length > 0 && (
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-1">
-            <span className="font-medium">By:</span> {document.authors.join(', ')}
+            <span className="font-medium">By:</span> {document.authors.map(a => a.name).join(', ')}
           </p>
         )}
 
