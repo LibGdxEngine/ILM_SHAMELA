@@ -92,13 +92,21 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: search_backend
-    command: gunicorn ilm_shamela.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
+    command: >
+      sh -c "
+      if [ \"$${ENVIRONMENT:-prod}\" = \"dev\" ]; then
+        python manage.py runserver 0.0.0.0:8000
+      else
+        gunicorn ilm_shamela.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
+      fi
+      "
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
       - staticfiles:/app/staticfiles
     environment:
+      - ENVIRONMENT=${ENVIRONMENT:-prod}
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -112,7 +120,7 @@ services:
       - AWS_S3_ENDPOINT_URL=http://minio:9000
       - AWS_STORAGE_BUCKET_NAME=documents
       - SECRET_KEY=${SECRET_KEY:-django-insecure-change-me-in-production}
-      - DEBUG=${DEBUG:-False}
+      - DEBUG=${DEBUG:-false}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
     depends_on:
       db:
@@ -132,8 +140,11 @@ services:
     container_name: search_celery_worker
     command: celery -A ilm_shamela worker --loglevel=info --concurrency=2
     volumes:
+      # Volumes mounted for dev mode hot-reload
+      # In production, volumes can be kept as celery needs code access, or removed for true production
       - ./backend:/app
     environment:
+      - ENVIRONMENT=${ENVIRONMENT:-prod}
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -165,10 +176,31 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: ${FRONTEND_DOCKERFILE:-Dockerfile}
     container_name: search_frontend
+    command: >
+      sh -c "
+      if [ \"$${ENVIRONMENT:-prod}\" = \"dev\" ]; then
+        npm run dev
+      else
+        node server.js
+      fi
+      "
+    ports:
+      - "3000:3000"
+    volumes:
+      # Volumes are mounted for dev mode hot-reload
+      # Note: In production, volumes should be removed to use the built image
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
     environment:
-      - NEXT_PUBLIC_API_URL=https://localhost/api
+      # Frontend (Next.js) server-side code runs inside this container.
+      # It should talk directly to the Django backend service over the Docker network.
+      # The frontend browser code will still use relative URLs (see frontend/lib/api.ts),
+      # which nginx will proxy from https://localhost/api -> http://backend:8000/.
+      - ENVIRONMENT=${ENVIRONMENT:-prod}
+      - NEXT_PUBLIC_API_URL=http://backend:8000
     depends_on:
       - backend
     networks:
