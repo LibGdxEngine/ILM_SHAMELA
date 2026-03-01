@@ -18,7 +18,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
-from core.views import GoogleLogin
+from core.views import GoogleLogin, UserProfileView
+from core.views_health import LivenessView, ReadinessView, MetricsView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -26,7 +27,11 @@ urlpatterns = [
     # Include registration URLs before main dj-rest-auth URLs to avoid conflicts
     path('api/auth/registration/', include('dj_rest_auth.registration.urls')),
     path('api/auth/google/', GoogleLogin.as_view(), name='google_login'),
+    path('api/auth/user/', UserProfileView.as_view(), name='user_profile'),
     path('api/auth/', include('dj_rest_auth.urls')),
+    path('api/health/live/', LivenessView.as_view(), name='health-live'),
+    path('api/health/ready/', ReadinessView.as_view(), name='health-ready'),
+    path('api/metrics/', MetricsView.as_view(), name='metrics'),
 ]
 
 # Serve media files - needed because files are stored on local filesystem

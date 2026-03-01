@@ -2,30 +2,37 @@
 set -e
 
 echo "Waiting for database to be ready..."
-while ! pg_isready -h db -U ${POSTGRES_USER} -d ${POSTGRES_DB} > /dev/null 2>&1; do
+export PGPASSWORD="${POSTGRES_PASSWORD}"
+while ! pg_isready -h "${POSTGRES_HOST:-db}" -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" > /dev/null 2>&1; do
   echo "Database is unavailable - sleeping"
   sleep 1
 done
 
 echo "Database is ready!"
 
+echo "Validating configuration..."
+python manage.py check_config
+
 echo "Running migrations..."
 python manage.py migrate --noinput
+
+echo "Ensuring default auth roles exist..."
+python manage.py setup_roles
 
 echo "Creating superuser if it doesn't exist..."
 python manage.py shell << EOF
 from core.models import User
 import os
 
-username = "Ahmed"
-email = "ahmed@gmail.com"
-password = "Ahmed1998_"
+username = os.environ.get("DJANGO_SUPERUSER_USERNAME")
+email = os.environ.get("DJANGO_SUPERUSER_EMAIL")
+password = os.environ.get("DJANGO_SUPERUSER_PASSWORD")
 
-if not User.objects.filter(username=username).exists():
+if username and email and password and not User.objects.filter(username=username).exists():
     User.objects.create_superuser(username=username, email=email, password=password)
     print(f"Superuser '{username}' created successfully.")
 else:
-    print(f"Superuser '{username}' already exists.")
+    print("Skipping superuser creation (missing env vars or user already exists).")
 EOF
 
 echo "Collecting static files..."

@@ -1,0 +1,126 @@
+<svg width="900" height="620" viewBox="0 0 900 620" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FDF2D7"/>
+      <stop offset="100%" stop-color="#ECD9B1"/>
+    </linearGradient>
+    <linearGradient id="goldAccent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#E8C960"/>
+      <stop offset="100%" stop-color="#C89B3C"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.3" r="0.7">
+      <stop offset="0%" stop-color="#1a5c50" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#133C36" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="620" rx="32" fill="#133C36"/>
+
+  <!-- Geometric tessellation background -->
+  <g opacity="0.08">
+    <pattern id="tessellation" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse">
+      <path d="M30 0L60 30L30 60L0 30Z" fill="none" stroke="#14b8a6" stroke-width="0.6"/>
+      <path d="M30 10L50 30L30 50L10 30Z" fill="none" stroke="#14b8a6" stroke-width="0.4"/>
+      <circle cx="30" cy="30" r="5" fill="none" stroke="#14b8a6" stroke-width="0.4"/>
+    </pattern>
+    <rect width="900" height="620" fill="url(#tessellation)"/>
+  </g>
+
+  <!-- Ambient glow -->
+  <rect width="900" height="620" rx="32" fill="url(#glow)"/>
+
+  <!-- Islamic pointed horseshoe arch frame -->
+  <g transform="translate(100, 40)">
+    <!-- Outer arch -->
+    <path d="M0 520V200C0 80 156 20 350 20C544 20 700 80 700 200V520" stroke="url(#goldAccent)" stroke-width="4" fill="none"/>
+    <!-- Inner arch -->
+    <path d="M20 520V210C20 100 166 45 350 45C534 45 680 100 680 210V520" stroke="#C8A86B" stroke-width="2" fill="none" opacity="0.5"/>
+    <!-- Arch keystone ornament -->
+    <g transform="translate(335, 8)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#D4A853" opacity="0.6"/>
+    </g>
+  </g>
+
+  <!-- Scroll/Tomar body -->
+  <g>
+    <!-- Top scroll roller -->
+    <ellipse cx="450" cy="95" rx="260" ry="28" fill="#B3723A"/>
+    <ellipse cx="450" cy="95" rx="260" ry="20" fill="#C88B4A"/>
+    <ellipse cx="450" cy="95" rx="240" ry="14" fill="#D4A060"/>
+
+    <!-- Left roller knob -->
+    <circle cx="190" cy="95" r="18" fill="#8B5E2F"/>
+    <circle cx="190" cy="95" r="12" fill="#A3723A"/>
+    <circle cx="190" cy="95" r="6" fill="#C89B3C" opacity="0.6"/>
+    <!-- Right roller knob -->
+    <circle cx="710" cy="95" r="18" fill="#8B5E2F"/>
+    <circle cx="710" cy="95" r="12" fill="#A3723A"/>
+    <circle cx="710" cy="95" r="6" fill="#C89B3C" opacity="0.6"/>
+
+    <!-- Paper body -->
+    <rect x="210" y="110" width="480" height="400" fill="url(#paper)" rx="4"/>
+
+    <!-- Decorative top border on paper -->
+    <rect x="210" y="110" width="480" height="4" fill="url(#goldAccent)" opacity="0.4"/>
+
+    <!-- Text lines -->
+    <g opacity="0.55">
+      <path d="M270 170H630" stroke="#A3723A" stroke-width="3" stroke-linecap="round"/>
+      <path d="M270 220H590" stroke="#B08050" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M270 270H620" stroke="#B08050" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M270 320H580" stroke="#B08050" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M270 370H610" stroke="#B08050" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M270 420H600" stroke="#A3723A" stroke-width="2.5" stroke-linecap="round"/>
+    </g>
+
+    <!-- Marginal rosette decoration -->
+    <g transform="translate(230, 160)" opacity="0.3">
+      <circle cx="12" cy="12" r="10" fill="none" stroke="#C8A86B" stroke-width="1.5"/>
+      <circle cx="12" cy="12" r="5" fill="#D4A853" opacity="0.4"/>
+      <path d="M12 2L14 10L22 12L14 14L12 22L10 14L2 12L10 10Z" fill="#C8A86B" opacity="0.3"/>
+    </g>
+
+    <!-- Marginal rosette (bottom) -->
+    <g transform="translate(230, 390)" opacity="0.25">
+      <circle cx="12" cy="12" r="10" fill="none" stroke="#C8A86B" stroke-width="1.5"/>
+      <circle cx="12" cy="12" r="5" fill="#D4A853" opacity="0.4"/>
+    </g>
+
+    <!-- Bottom scroll roller -->
+    <ellipse cx="450" cy="510" rx="260" ry="28" fill="#B3723A"/>
+    <ellipse cx="450" cy="510" rx="260" ry="20" fill="#C88B4A"/>
+    <ellipse cx="450" cy="510" rx="240" ry="14" fill="#D4A060"/>
+
+    <!-- Bottom roller knobs -->
+    <circle cx="190" cy="510" r="18" fill="#8B5E2F"/>
+    <circle cx="190" cy="510" r="12" fill="#A3723A"/>
+    <circle cx="190" cy="510" r="6" fill="#C89B3C" opacity="0.6"/>
+    <circle cx="710" cy="510" r="18" fill="#8B5E2F"/>
+    <circle cx="710" cy="510" r="12" fill="#A3723A"/>
+    <circle cx="710" cy="510" r="6" fill="#C89B3C" opacity="0.6"/>
+  </g>
+
+  <!-- Ornamental rosettes in corners -->
+  <g transform="translate(40, 40)" opacity="0.2">
+    <circle cx="20" cy="20" r="16" fill="none" stroke="#14b8a6" stroke-width="1.5"/>
+    <circle cx="20" cy="20" r="8" fill="none" stroke="#14b8a6" stroke-width="1"/>
+    <path d="M20 4L24 16L36 20L24 24L20 36L16 24L4 20L16 16Z" fill="#14b8a6" opacity="0.4"/>
+  </g>
+  <g transform="translate(820, 40)" opacity="0.2">
+    <circle cx="20" cy="20" r="16" fill="none" stroke="#14b8a6" stroke-width="1.5"/>
+    <circle cx="20" cy="20" r="8" fill="none" stroke="#14b8a6" stroke-width="1"/>
+    <path d="M20 4L24 16L36 20L24 24L20 36L16 24L4 20L16 16Z" fill="#14b8a6" opacity="0.4"/>
+  </g>
+  <g transform="translate(40, 540)" opacity="0.15">
+    <circle cx="20" cy="20" r="16" fill="none" stroke="#14b8a6" stroke-width="1.5"/>
+    <circle cx="20" cy="20" r="8" fill="none" stroke="#14b8a6" stroke-width="1"/>
+  </g>
+  <g transform="translate(820, 540)" opacity="0.15">
+    <circle cx="20" cy="20" r="16" fill="none" stroke="#14b8a6" stroke-width="1.5"/>
+    <circle cx="20" cy="20" r="8" fill="none" stroke="#14b8a6" stroke-width="1"/>
+  </g>
+
+  <!-- Decorative curved line at bottom -->
+  <path d="M130 570C280 590 620 590 770 570" stroke="#C8A86B" stroke-width="2" stroke-linecap="round" opacity="0.25"/>
+</svg>

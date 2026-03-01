@@ -1,507 +1,426 @@
 import logging
 import re
 from datetime import datetime
+from typing import Dict, List, Tuple
+
 from django.db.models import Q as DjangoQ
-from rest_framework import generics, status, permissions, views
-from rest_framework.response import Response
 from elasticsearch_dsl import Q
 from elasticsearch_dsl import connections
-from .models import Document, Author, Category
+from rest_framework import generics, permissions, status, views
+from rest_framework.response import Response
+
+from .documents import DocumentIndex
+from .models import Author, Category, Document
+from .permissions import IsAuthenticatedReadOnlyOrEditor
+from .semantic import VECTOR_DIMENSIONS, build_embedding, cosine_similarity
 from .serializers import (
-    DocumentSerializer, DocumentListSerializer, DocumentDetailSerializer, DocumentPageSerializer,
-    AuthorSerializer, AuthorListSerializer, AuthorDetailSerializer,
-    CategorySerializer, CategoryListSerializer
+    AuthorDetailSerializer,
+    AuthorListSerializer,
+    CategoryListSerializer,
+    DocumentDetailSerializer,
+    DocumentListSerializer,
+    DocumentSerializer,
 )
 from .tasks import process_document_task
-from .documents import DocumentIndex
+from .utils import split_document_content_into_pages
 
 logger = logging.getLogger(__name__)
 
 
-def split_document_content_into_pages(content: str):
-    """
-    Helper to split a document's raw content into pages.
+def build_multi_match_query(query: str) -> Q:
+    return Q(
+        'multi_match',
+        query=query,
+        fields=[
+            'title^2',
+            'title.arabic^2',
+            'authors^1.5',
+            'authors.arabic^1.5',
+            'categories^1.5',
+            'description^1.2',
+            'description.arabic^1.2',
+            'alternate_names^1.3',
+            'alternate_names.arabic^1.3',
+            'content',
+            'content.arabic',
+        ],
+        fuzziness='AUTO',
+        type='best_fields',
+    )
 
-    This mirrors the logic used in DocumentContentPagesView so it can be reused
-    from multiple places (e.g. in-document search to map snippets to pages).
-    """
-    # Split content by page breaks (form feed: \f or \x0c)
-    # Also handle \n\n\n as potential page breaks
-    page_breaks = re.split(r'[\f\x0c]', content)
 
-    # If no form feed characters found, try splitting by multiple newlines
-    if len(page_breaks) == 1:
-        page_breaks = re.split(r'\n{3,}', content)
+def apply_document_filters(queryset, request):
+    authors = request.query_params.get('authors', None)
+    if authors:
+        author_list = [a.strip() for a in authors.split(',') if a.strip()]
+        if author_list:
+            author_objects = Author.objects.filter(name__in=author_list)
+            if author_objects.exists():
+                queryset = queryset.filter(authors__in=author_objects).distinct()
+            else:
+                author_ids = [int(a) for a in author_list if a.isdigit()]
+                if author_ids:
+                    queryset = queryset.filter(authors__id__in=author_ids).distinct()
 
-    # If still only one page, split by fixed size chunks (2000 chars)
-    if len(page_breaks) == 1 and len(content) > 2000:
-        chunk_size = 2000
-        page_breaks = [content[i:i + chunk_size]
-                       for i in range(0, len(content), chunk_size)]
+    categories = request.query_params.get('categories', None)
+    if categories:
+        category_list = [c.strip() for c in categories.split(',') if c.strip()]
+        if category_list:
+            queryset = queryset.filter(categories__name__in=category_list).distinct()
 
-    # Filter out empty pages
-    pages = [{'page_number': i + 1, 'content': page.strip()}
-             for i, page in enumerate(page_breaks) if page.strip()]
+    language = request.query_params.get('language', None)
+    if language:
+        queryset = queryset.filter(language=language)
 
-    if not pages:
-        pages = [{'page_number': 1, 'content': content}]
+    date_from = request.query_params.get('date_from', None)
+    if date_from:
+        try:
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d').date()
+            queryset = queryset.filter(uploaded_at__gte=date_from_obj)
+        except ValueError:
+            pass
 
-    return pages
+    date_to = request.query_params.get('date_to', None)
+    if date_to:
+        try:
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d').date()
+            queryset = queryset.filter(uploaded_at__lte=date_to_obj)
+        except ValueError:
+            pass
+
+    return queryset
 
 
 class DocumentListCreateView(generics.ListCreateAPIView):
     """
     List all documents or create a new document.
-
-    When a file is uploaded, it saves to S3 and creates the DB record.
-    Text processing is triggered asynchronously via Celery task.
     """
+
     queryset = Document.objects.all()
     serializer_class = DocumentSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsAuthenticatedReadOnlyOrEditor]
+
+    def get_throttles(self):
+        self.throttle_scope = 'upload' if self.request.method == 'POST' else 'search'
+        return super().get_throttles()
 
     def get_serializer_class(self):
-        """Use list serializer for GET requests, full serializer for POST."""
         if self.request.method == 'GET':
             return DocumentListSerializer
         return DocumentSerializer
 
     def get_serializer_context(self):
-        """Add request to serializer context for URL generation."""
         context = super().get_serializer_context()
         context['request'] = self.request
         return context
 
     def get_queryset(self):
-        """Apply filtering to queryset."""
         queryset = Document.objects.prefetch_related('authors', 'alternate_names', 'categories').all()
+        queryset = apply_document_filters(queryset, self.request)
 
-        # Filter by authors (supports multiple, comma-separated)
-        # Can filter by author names or author IDs
-        authors = self.request.query_params.get('authors', None)
-        if authors:
-            author_list = [a.strip() for a in authors.split(',') if a.strip()]
-            if author_list:
-                # Try to filter by author names (ManyToMany relationship)
-                from .models import Author
-                author_objects = Author.objects.filter(name__in=author_list)
-                if author_objects.exists():
-                    queryset = queryset.filter(authors__in=author_objects).distinct()
-                else:
-                    # Fallback: try to filter by IDs if provided
-                    try:
-                        author_ids = [int(a) for a in author_list if a.isdigit()]
-                        if author_ids:
-                            queryset = queryset.filter(authors__id__in=author_ids).distinct()
-                    except ValueError:
-                        pass
-
-        # Filter by categories (supports multiple, comma-separated)
-        categories = self.request.query_params.get('categories', None)
-        if categories:
-            category_list = [c.strip()
-                             for c in categories.split(',') if c.strip()]
-            if category_list:
-                queryset = queryset.filter(categories__name__in=category_list).distinct()
-
-        # Filter by language
-        language = self.request.query_params.get('language', None)
-        if language:
-            queryset = queryset.filter(language=language)
-
-        # Filter by date range
-        date_from = self.request.query_params.get('date_from', None)
-        if date_from:
-            try:
-                date_from_obj = datetime.strptime(date_from, '%Y-%m-%d').date()
-                queryset = queryset.filter(uploaded_at__gte=date_from_obj)
-            except ValueError:
-                pass
-
-        date_to = self.request.query_params.get('date_to', None)
-        if date_to:
-            try:
-                date_to_obj = datetime.strptime(date_to, '%Y-%m-%d').date()
-                queryset = queryset.filter(uploaded_at__lte=date_to_obj)
-            except ValueError:
-                pass
-
-        # Search query (if provided, use Elasticsearch)
         search_query = self.request.query_params.get('q', '').strip()
-        if search_query:
-            try:
-                search = DocumentIndex.search()
-                multi_match = Q(
-                    'multi_match',
-                    query=search_query,
-                    fields=[
-                        'title^2',
-                        'title.arabic^2',
-                        'authors^1.5',
-                        'authors.arabic^1.5',
-                        'categories^1.5',
-                        'description^1.2',
-                        'description.arabic^1.2',
-                        'alternate_names^1.3',
-                        'alternate_names.arabic^1.3',
-                        'content',
-                        'content.arabic'
-                    ],
-                    fuzziness='AUTO',
-                    type='best_fields'
-                )
-                search = search.query(multi_match)
-                response = search.execute()
-                document_ids = [int(hit.meta.id) for hit in response]
-                queryset = queryset.filter(id__in=document_ids)
-                # Preserve Elasticsearch order
-                id_order = {doc_id: idx for idx,
-                            doc_id in enumerate(document_ids)}
-                queryset = sorted(
-                    list(queryset), key=lambda doc: id_order.get(doc.id, float('inf')))
-            except Exception as e:
-                logger.error(
-                    f"[LIST] Elasticsearch search failed: {str(e)}", exc_info=True)
-                # Fallback to simple title/content search
-                queryset = queryset.filter(
-                    DjangoQ(title__icontains=search_query) |
-                    DjangoQ(content__icontains=search_query)
-                )
+        if not search_query:
+            return queryset
 
-        return queryset
+        try:
+            search = DocumentIndex.search()
+            search = search.query(build_multi_match_query(search_query))
+            response = search.execute()
+            document_ids = [int(hit.meta.id) for hit in response]
+            id_order = {doc_id: idx for idx, doc_id in enumerate(document_ids)}
+            queryset = queryset.filter(id__in=document_ids)
+            return sorted(list(queryset), key=lambda doc: id_order.get(doc.id, float('inf')))
+        except Exception as exc:
+            logger.error('[LIST] Elasticsearch search failed: %s', str(exc), exc_info=True)
+            return queryset.filter(
+                DjangoQ(title__icontains=search_query) | DjangoQ(content__icontains=search_query)
+            )
 
     def create(self, request, *args, **kwargs):
-        """
-        Override create to provide better error handling and logging.
-        """
-        logger.info("=" * 80)
-        logger.info(f"POST request received for document upload")
-        logger.info(f"Request scheme: {request.scheme}")
-        logger.info(f"Request host: {request.get_host()}")
-        logger.info(f"Request path: {request.path}")
         logger.info(
-            f"Remote address: {request.META.get('REMOTE_ADDR', 'unknown')}")
-        logger.info(f"Files in request: {list(request.FILES.keys())}")
-
-        try:
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            logger.info(
-                f"Serializer validation passed for document: {request.data.get('title', 'Unknown')}")
-            self.perform_create(serializer)
-            headers = self.get_success_headers(serializer.data)
-            logger.info(
-                f"Document created successfully with ID: {serializer.data.get('id')}")
-            logger.info("=" * 80)
-            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-        except Exception as e:
-            logger.error(f"Error in create method: {str(e)}", exc_info=True)
-            logger.error("=" * 80)
-            # Re-raise to let DRF handle it properly
-            raise
+            '[UPLOAD] POST request received',
+            extra={
+                'path': request.path,
+                'method': request.method,
+                'user_id': getattr(request.user, 'id', None),
+            },
+        )
+        return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        """
-        Save the document and trigger async processing task.
-        File will be uploaded to S3 automatically via FileField and DEFAULT_FILE_STORAGE setting.
-        """
-        try:
-            # Extract alternate_names and category_names from validated_data before saving
-            alternate_names = serializer.validated_data.pop('alternate_names', [])
-            category_names = serializer.validated_data.pop('category_names', [])
-            
-            document = serializer.save()
-            logger.info(
-                f"[UPLOAD] Document {document.id} created successfully")
-            logger.info(f"[UPLOAD] Title: {document.title}")
-            logger.info(
-                f"[UPLOAD] File: {document.file.name if document.file else 'No file'}")
-            logger.info(
-                f"[UPLOAD] File size: {document.file.size if document.file else 0} bytes")
-            logger.info(f"[UPLOAD] Uploaded at: {document.uploaded_at}")
-            logger.info(
-                f"[UPLOAD] Initial processed status: {document.processed}")
+        alternate_names = serializer.validated_data.pop('alternate_names', [])
+        category_names = serializer.validated_data.pop('category_names', [])
+        author_names = serializer.validated_data.pop('author_names', [])
 
-            # Create and link categories if provided
-            if category_names:
-                for category_name in category_names:
-                    if category_name and category_name.strip():
-                        try:
-                            category, created = Category.objects.get_or_create(
-                                name=category_name.strip()
-                            )
-                            document.categories.add(category)
-                            if created:
-                                logger.info(f"[UPLOAD] Created new category: {category_name.strip()}")
-                            else:
-                                logger.info(f"[UPLOAD] Linked existing category: {category_name.strip()}")
-                        except Exception as e:
-                            # Log but don't fail if error occurs
-                            logger.warning(f"[UPLOAD] Failed to create/link category '{category_name.strip()}': {str(e)}")
+        document = serializer.save()
 
-            # Create alternate names if provided
-            if alternate_names:
-                from .models import DocumentAlternateName
-                for name in alternate_names:
-                    if name and name.strip():
-                        try:
-                            DocumentAlternateName.objects.get_or_create(
-                                document=document,
-                                name=name.strip(),
-                                defaults={'name': name.strip()}
-                            )
-                            logger.info(f"[UPLOAD] Created alternate name: {name.strip()}")
-                        except Exception as e:
-                            # Log but don't fail if duplicate or other error occurs
-                            logger.warning(f"[UPLOAD] Failed to create alternate name '{name.strip()}': {str(e)}")
-
-            # Trigger async Celery task to process the document
+        for author_name in author_names:
+            if not author_name or not author_name.strip():
+                continue
             try:
-                task_result = process_document_task.delay(document.id)
-                logger.info(
-                    f"[UPLOAD] Celery task queued for document {document.id}")
-                logger.info(f"[UPLOAD] Task ID: {task_result.id}")
-                logger.info(f"[UPLOAD] Task state: {task_result.state}")
-            except Exception as e:
-                # If Celery is not available, log the error but don't fail the request
-                # The document is already saved, so we can process it later
-                logger.error(
-                    f"[UPLOAD] Failed to queue Celery task for document {document.id}: {str(e)}", exc_info=True)
-                logger.warning("[UPLOAD] Document saved but processing task could not be queued. "
-                               "Make sure Celery worker is running.")
-        except Exception as e:
+                author, _ = Author.objects.get_or_create(name=author_name.strip())
+                document.authors.add(author)
+            except Exception as exc:
+                logger.warning('[UPLOAD] Could not link author %s: %s', author_name, str(exc))
+
+        for category_name in category_names:
+            if not category_name or not category_name.strip():
+                continue
+            try:
+                category, _ = Category.objects.get_or_create(name=category_name.strip())
+                document.categories.add(category)
+            except Exception as exc:
+                logger.warning('[UPLOAD] Could not link category %s: %s', category_name, str(exc))
+
+        if alternate_names:
+            from .models import DocumentAlternateName
+
+            for name in alternate_names:
+                if not name or not name.strip():
+                    continue
+                try:
+                    DocumentAlternateName.objects.get_or_create(
+                        document=document,
+                        name=name.strip(),
+                        defaults={'name': name.strip()},
+                    )
+                except Exception as exc:
+                    logger.warning('[UPLOAD] Could not add alternate name %s: %s', name, str(exc))
+
+        try:
+            process_document_task.delay(document.id)
+        except Exception as exc:
             logger.error(
-                f"[UPLOAD] Error creating document: {str(e)}", exc_info=True)
-            raise
+                '[UPLOAD] Failed to queue processing for document %s: %s',
+                document.id,
+                str(exc),
+                exc_info=True,
+            )
 
 
 class DocumentDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Retrieve, update or delete a document instance.
-    """
     queryset = Document.objects.prefetch_related('authors', 'alternate_names', 'categories').all()
     serializer_class = DocumentDetailSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsAuthenticatedReadOnlyOrEditor]
+
+    def get_throttles(self):
+        self.throttle_scope = 'upload' if self.request.method not in permissions.SAFE_METHODS else 'search'
+        return super().get_throttles()
 
 
 class DocumentSearchView(generics.ListAPIView):
     """
-    Search documents using Elasticsearch MultiMatch query.
-
-    Query parameter:
-    - q: Search query string
-    - authors: Filter by authors (comma-separated)
-    - categories: Filter by categories (comma-separated)
-    - language: Filter by language
+    Search documents using lexical Elasticsearch score + semantic reranking.
     """
+
     serializer_class = DocumentListSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = 'search'
+
+    def _execute_search(self, query: str) -> Tuple[List[Document], Dict[int, Dict[str, object]]]:
+        search = DocumentIndex.search()
+        search = search.query(build_multi_match_query(query))
+        search = search.highlight('title', 'description', 'content', 'alternate_names')
+        search = search.extra(size=200)
+
+        response = search.execute()
+        hits = list(response)
+        if not hits:
+            return [], {}
+
+        hit_by_id = {}
+        lexical_scores = {}
+        document_ids = []
+        for hit in hits:
+            doc_id = int(hit.meta.id)
+            hit_by_id[doc_id] = hit
+            lexical_scores[doc_id] = float(getattr(hit.meta, 'score', 0.0) or 0.0)
+            document_ids.append(doc_id)
+
+        base_queryset = Document.objects.prefetch_related('authors', 'alternate_names', 'categories').filter(
+            id__in=document_ids
+        )
+        base_queryset = apply_document_filters(base_queryset, self.request)
+        docs = list(base_queryset)
+        if not docs:
+            return [], {}
+
+        query_vector = build_embedding(query, task_type="RETRIEVAL_QUERY")
+        max_lexical = max(lexical_scores.values()) if lexical_scores else 1.0
+        metadata = {}
+
+        for doc in docs:
+            lexical_raw = lexical_scores.get(doc.id, 0.0)
+            lexical_score = lexical_raw / max_lexical if max_lexical > 0 else 0.0
+            semantic_score = max(
+                0.0,
+                cosine_similarity(query_vector, doc.semantic_vector or []),
+            )
+            final_score = 0.75 * lexical_score + 0.25 * semantic_score
+
+            highlight_fields = []
+            hit = hit_by_id.get(doc.id)
+            if hit and hasattr(hit.meta, 'highlight'):
+                highlight_data = hit.meta.highlight.to_dict() if hasattr(hit.meta.highlight, 'to_dict') else {}
+                highlight_fields = list(highlight_data.keys())
+
+            metadata[doc.id] = {
+                'score_lexical': round(lexical_score, 4),
+                'score_semantic': round(semantic_score, 4),
+                'score_final': round(final_score, 4),
+                'explanations': {
+                    'matched_fields': highlight_fields,
+                    'weights': {'lexical': 0.75, 'semantic': 0.25},
+                },
+            }
+
+        ordered_docs = sorted(docs, key=lambda doc: metadata[doc.id]['score_final'], reverse=True)
+        return ordered_docs, metadata
 
     def get_queryset(self):
-        """Return queryset filtered by Elasticsearch search results."""
         query = self.request.query_params.get('q', '').strip()
-
         if not query:
             return Document.objects.none()
-
-        # Create Elasticsearch search using DocumentIndex
-        search = DocumentIndex.search()
-
-        # MultiMatch query with fuzziness
-        # Search in both standard and Arabic fields to support Arabic text
-        multi_match = Q(
-            'multi_match',
-            query=query,
-            fields=[
-                'title^2',                    # Standard analyzer for title
-                'title.arabic^2',             # Arabic analyzer for title
-                'authors^1.5',                # Authors field
-                'authors.arabic^1.5',         # Arabic analyzer for authors
-                'categories^1.5',             # Categories field
-                'description^1.2',            # Description field
-                'description.arabic^1.2',      # Arabic analyzer for description
-                'alternate_names^1.3',        # Alternate names field
-                'alternate_names.arabic^1.3', # Arabic analyzer for alternate names
-                'content',                    # Standard analyzer for content
-                'content.arabic'              # Arabic analyzer for content
-            ],
-            fuzziness='AUTO',
-            type='best_fields'
-        )
-
-        search = search.query(multi_match)
-
-        # Execute search and get document IDs
         try:
-            response = search.execute()
-            logger.info(
-                f"[SEARCH] Query: '{query}', Total hits: {response.hits.total.value}")
-            document_ids = [int(hit.meta.id) for hit in response]
-            logger.info(
-                f"[SEARCH] Found {len(document_ids)} document(s): {document_ids}")
-
-            # Return documents in the order returned by Elasticsearch
-            documents = Document.objects.prefetch_related('authors', 'alternate_names', 'categories').filter(id__in=document_ids)
-
-            # Apply additional filters
-            authors = self.request.query_params.get('authors', None)
-            if authors:
-                author_list = [a.strip() for a in authors.split(',') if a.strip()]
-                if author_list:
-                    # Try to filter by author names (ManyToMany relationship)
-                    from .models import Author
-                    author_objects = Author.objects.filter(name__in=author_list)
-                    if author_objects.exists():
-                        documents = documents.filter(authors__in=author_objects).distinct()
-                    else:
-                        # Fallback: try to filter by IDs if provided
-                        try:
-                            author_ids = [int(a) for a in author_list if a.isdigit()]
-                            if author_ids:
-                                documents = documents.filter(authors__id__in=author_ids).distinct()
-                        except ValueError:
-                            pass
-
-            categories = self.request.query_params.get('categories', None)
-            if categories:
-                category_list = [c.strip()
-                                 for c in categories.split(',') if c.strip()]
-                if category_list:
-                    documents = documents.filter(
-                        categories__name__in=category_list).distinct()
-
-            language = self.request.query_params.get('language', None)
-            if language:
-                documents = documents.filter(language=language)
-
-            # Preserve Elasticsearch order
-            id_order = {doc_id: idx for idx, doc_id in enumerate(document_ids)}
-            return sorted(documents, key=lambda doc: id_order.get(doc.id, float('inf')))
-        except Exception as e:
-            # If Elasticsearch fails, log the error and return empty queryset
-            logger.error(
-                f"[SEARCH] Elasticsearch search failed for query '{query}': {str(e)}", exc_info=True)
+            ordered_docs, metadata = self._execute_search(query)
+            self.search_metadata = metadata
+            return ordered_docs
+        except Exception as exc:
+            logger.error('[SEARCH] Elasticsearch search failed: %s', str(exc), exc_info=True)
+            self.search_metadata = {}
             return Document.objects.none()
 
     def list(self, request, *args, **kwargs):
-        """Override list to handle empty query parameter."""
         query = request.query_params.get('q', '').strip()
-
         if not query:
             return Response(
                 {'error': 'Query parameter "q" is required'},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        return super().list(request, *args, **kwargs)
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page if page is not None else queryset, many=True)
+        data = serializer.data
+
+        metadata = getattr(self, 'search_metadata', {})
+        for item in data:
+            extra = metadata.get(item['id'])
+            if extra:
+                item.update(extra)
+
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response(data)
+
+
+class DocumentSuggestionsView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = 'search'
+
+    def get(self, request):
+        query = request.query_params.get('q', '').strip()
+        if len(query) < 2:
+            return Response({'query': query, 'suggestions': []})
+
+        title_candidates = list(
+            Document.objects.filter(title__icontains=query)
+            .order_by('title')
+            .values_list('title', flat=True)[:10]
+        )
+        author_candidates = list(
+            Author.objects.filter(name__icontains=query)
+            .order_by('name')
+            .values_list('name', flat=True)[:10]
+        )
+        category_candidates = list(
+            Category.objects.filter(name__icontains=query)
+            .order_by('name')
+            .values_list('name', flat=True)[:10]
+        )
+
+        combined = list(dict.fromkeys(title_candidates + author_candidates + category_candidates))
+        combined.sort(key=lambda item: (0 if item.lower().startswith(query.lower()) else 1, len(item)))
+
+        return Response(
+            {
+                'query': query,
+                'suggestions': combined[:10],
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class DocumentStatusView(views.APIView):
-    """
-    Check the processing status of a document and verify Elasticsearch indexing.
-    """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, doc_id):
-        """
-        Get the status of a document including:
-        - Database record status
-        - Processing status
-        - Elasticsearch indexing status
-        """
         try:
             document = Document.objects.get(id=doc_id)
-
             status_info = {
                 'document_id': document.id,
                 'title': document.title,
                 'uploaded_at': document.uploaded_at,
                 'processed': document.processed,
+                'processing_status': document.processing_status,
+                'processing_error': document.processing_error,
+                'processing_attempts': document.processing_attempts,
+                'processing_started_at': document.processing_started_at,
+                'processing_completed_at': document.processing_completed_at,
                 'has_content': bool(document.content),
                 'content_length': len(document.content) if document.content else 0,
                 'language': document.language,
+                'semantic_vector_dimensions': len(document.semantic_vector or []),
                 'file_name': document.file.name if document.file else None,
                 'file_size': document.file.size if document.file else 0,
             }
 
-            # Check Elasticsearch indexing
-            es_indexed = False
-            es_info = {}
             try:
                 es = connections.get_connection()
                 index_name = DocumentIndex._index._name
-
-                try:
-                    result = es.get(index=index_name, id=document.id)
-                    es_indexed = True
-                    es_info = {
-                        'indexed': True,
-                        'index_name': index_name,
-                        'document_id': result.get('_id'),
-                        'found': result.get('found', False),
-                        'has_source': bool(result.get('_source')),
-                    }
-                    if result.get('_source'):
-                        es_info['source_title'] = result['_source'].get(
-                            'title', 'N/A')
-                        es_info['has_content'] = bool(
-                            result['_source'].get('content'))
-                except Exception as e:
-                    es_info = {
-                        'indexed': False,
-                        'error': str(e),
-                        'index_name': index_name,
-                    }
-            except Exception as e:
-                es_info = {
-                    'indexed': False,
-                    'error': f'Could not connect to Elasticsearch: {str(e)}',
+                result = es.get(index=index_name, id=document.id)
+                status_info['elasticsearch'] = {
+                    'indexed': True,
+                    'index_name': index_name,
+                    'document_id': result.get('_id'),
+                    'found': result.get('found', False),
                 }
-
-            status_info['elasticsearch'] = es_info
+            except Exception as exc:
+                status_info['elasticsearch'] = {
+                    'indexed': False,
+                    'error': str(exc),
+                    'index_name': DocumentIndex._index._name,
+                }
 
             return Response(status_info, status=status.HTTP_200_OK)
 
         except Document.DoesNotExist:
             return Response(
                 {'error': f'Document with ID {doc_id} not found'},
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as e:
-            logger.error(
-                f"Error checking document status: {str(e)}", exc_info=True)
+        except Exception as exc:
+            logger.error('[STATUS] Error checking document status: %s', str(exc), exc_info=True)
             return Response(
-                {'error': f'Error checking document status: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {'error': f'Error checking document status: {str(exc)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
 class DocumentContentPagesView(views.APIView):
-    """
-    Get paginated content pages of a document.
-
-    Splits document content by page breaks (form feed characters).
-    Query parameters:
-    - page: Page number (default: 1)
-    - page_size: Number of pages per response (default: 1)
-    """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk):
-        """Return paginated document content pages."""
         try:
             document = Document.objects.get(id=pk)
-
             if not document.content:
                 return Response(
                     {'error': 'Document has no content available'},
-                    status=status.HTTP_404_NOT_FOUND
+                    status=status.HTTP_404_NOT_FOUND,
                 )
 
-            content = document.content
-            pages = split_document_content_into_pages(content)
+            pages = split_document_content_into_pages(document.content)
 
-            # Pagination
             page = int(request.query_params.get('page', 1))
             page_size = int(request.query_params.get('page_size', 1))
 
@@ -509,219 +428,153 @@ class DocumentContentPagesView(views.APIView):
             start_idx = (page - 1) * page_size
             end_idx = start_idx + page_size
 
-            paginated_pages = pages[start_idx:end_idx]
-
-            return Response({
-                'total_pages': total_pages,
-                'current_page': page,
-                'page_size': page_size,
-                'pages': paginated_pages
-            }, status=status.HTTP_200_OK)
-
+            return Response(
+                {
+                    'total_pages': total_pages,
+                    'current_page': page,
+                    'page_size': page_size,
+                    'pages': pages[start_idx:end_idx],
+                },
+                status=status.HTTP_200_OK,
+            )
         except Document.DoesNotExist:
             return Response(
                 {'error': f'Document with ID {pk} not found'},
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as e:
-            logger.error(
-                f"Error getting document pages: {str(e)}", exc_info=True)
+        except Exception as exc:
+            logger.error('[PAGES] Error getting document pages: %s', str(exc), exc_info=True)
             return Response(
-                {'error': f'Error getting document pages: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {'error': f'Error getting document pages: {str(exc)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
 class DocumentInDocumentSearchView(views.APIView):
-    """
-    Search within a single document using Elasticsearch.
-    """
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = 'search'
 
     def get(self, request, pk):
         query = request.query_params.get('q', '').strip()
-
         if not query:
             return Response(
                 {'error': 'Query parameter "q" is required'},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            # Fetch document content so we can map snippets back to pages
             try:
                 document = Document.objects.get(id=pk)
-                content = document.content or ""
+                content = document.content or ''
             except Document.DoesNotExist:
                 return Response(
                     {'error': f'Document with ID {pk} not found'},
-                    status=status.HTTP_404_NOT_FOUND
+                    status=status.HTTP_404_NOT_FOUND,
                 )
 
-            # Pre-split the document into pages using the same logic as the page API
             pages = split_document_content_into_pages(content)
-
-            # 1. Start the Search Context
-            s = DocumentIndex.search()
-
-            # 2. Filter: "Where ID is pk"
-            s = s.filter('ids', values=[pk])
-
-            # 3. Query: "Content contains text"
-            s = s.query('match', content={
-                "query": query,
-                "fuzziness": "AUTO",    # Allows 1-2 character mistakes based on word length
-                "operator": "and"       # Requires all words to be present
-            })
-
-            # 4. Highlighting
-            s = s.highlight(
+            search = DocumentIndex.search()
+            search = search.filter('ids', values=[pk])
+            search = search.query(
+                'match',
+                content={'query': query, 'fuzziness': 'AUTO', 'operator': 'and'},
+            )
+            search = search.highlight(
                 'content',
-                fragment_size=150,       # Length of each snippet
-                number_of_fragments=50,  # Max number of matches to return
-                pre_tags=['<mark>'],     # Wrap match in these tags
+                fragment_size=150,
+                number_of_fragments=50,
+                pre_tags=['<mark>'],
                 post_tags=['</mark>'],
-                max_analyzed_offset=1000000  # Avoid error on very large documents
+                max_analyzed_offset=1000000,
             )
 
-            # 5. Execute
-            response = s.execute()
-
-            # 6. Parse Results and map snippets to page numbers
+            response = search.execute()
             matches = []
-
             if response.hits:
                 hit = response.hits[0]
-
                 if 'highlight' in hit.meta:
                     for snippet in hit.meta.highlight.content:
-                        # Remove highlight tags to search within raw page content
                         plain_snippet = re.sub(r'</?mark>', '', snippet)
-
                         page_number = 1
                         for page in pages:
                             if plain_snippet and plain_snippet in page['content']:
                                 page_number = page['page_number']
                                 break
 
-                        matches.append({
-                            'page_number': page_number,
-                            'snippet': snippet,
-                            'score': hit.meta.score,
-                        })
+                        matches.append(
+                            {
+                                'page_number': page_number,
+                                'snippet': snippet,
+                                'score': hit.meta.score,
+                            }
+                        )
 
-            return Response({
-                'matches': matches,
-                'total_matches': len(matches),
-                'query': query
-            }, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            # logger.error(...)
             return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {'matches': matches, 'total_matches': len(matches), 'query': query},
+                status=status.HTTP_200_OK,
             )
+        except Exception as exc:
+            logger.error('[DOC_SEARCH] Error: %s', str(exc), exc_info=True)
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class AuthorListView(generics.ListAPIView):
-    """
-    List all authors with pagination and filtering.
-    
-    Query parameters:
-    - search: Search authors by name
-    - ordering: Order by name, created_at, etc. (default: name)
-    """
     queryset = Author.objects.all()
     serializer_class = AuthorListSerializer
-    permission_classes = [permissions.AllowAny]
-    
+    permission_classes = [permissions.IsAuthenticated]
+
     def get_queryset(self):
-        """Apply filtering and ordering to queryset."""
         queryset = Author.objects.all()
-        
-        # Search by name
         search_query = self.request.query_params.get('search', '').strip()
         if search_query:
-            # Search in name field
             queryset = queryset.filter(name__icontains=search_query)
-            # Note: JSONField alternate_names search is complex, 
-            # so we search by name only. Can be enhanced later with custom logic.
-        
-        # Ordering
+
         ordering = self.request.query_params.get('ordering', 'name')
-        if ordering:
-            # Validate ordering field to prevent SQL injection
-            allowed_orderings = ['name', '-name', 'created_at', '-created_at', 'updated_at', '-updated_at']
-            if ordering in allowed_orderings:
-                queryset = queryset.order_by(ordering)
-            else:
-                queryset = queryset.order_by('name')
+        allowed_orderings = ['name', '-name', 'created_at', '-created_at', 'updated_at', '-updated_at']
+        if ordering in allowed_orderings:
+            queryset = queryset.order_by(ordering)
         else:
             queryset = queryset.order_by('name')
-        
         return queryset
-    
+
     def get_serializer_context(self):
-        """Add request to serializer context for URL generation."""
         context = super().get_serializer_context()
         context['request'] = self.request
         return context
 
 
 class AuthorDetailView(generics.RetrieveAPIView):
-    """
-    Retrieve author details with all published books.
-    """
     queryset = Author.objects.prefetch_related('documents').all()
     serializer_class = AuthorDetailSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'pk'
-    
+
     def get_serializer_context(self):
-        """Add request to serializer context for URL generation."""
         context = super().get_serializer_context()
         context['request'] = self.request
         return context
 
 
 class CategoryListView(generics.ListAPIView):
-    """
-    List all categories with pagination and filtering.
-    
-    Query parameters:
-    - search: Search categories by name
-    - ordering: Order by name, created_at, etc. (default: name)
-    """
     queryset = Category.objects.all()
     serializer_class = CategoryListSerializer
-    permission_classes = [permissions.AllowAny]
-    
+    permission_classes = [permissions.IsAuthenticated]
+
     def get_queryset(self):
-        """Apply filtering and ordering to queryset."""
         queryset = Category.objects.all()
-        
-        # Search by name
         search_query = self.request.query_params.get('search', '').strip()
         if search_query:
             queryset = queryset.filter(name__icontains=search_query)
-        
-        # Ordering
+
         ordering = self.request.query_params.get('ordering', 'name')
-        if ordering:
-            # Validate ordering field to prevent SQL injection
-            allowed_orderings = ['name', '-name', 'created_at', '-created_at', 'updated_at', '-updated_at']
-            if ordering in allowed_orderings:
-                queryset = queryset.order_by(ordering)
-            else:
-                queryset = queryset.order_by('name')
+        allowed_orderings = ['name', '-name', 'created_at', '-created_at', 'updated_at', '-updated_at']
+        if ordering in allowed_orderings:
+            queryset = queryset.order_by(ordering)
         else:
             queryset = queryset.order_by('name')
-        
         return queryset
-    
+
     def get_serializer_context(self):
-        """Add request to serializer context for URL generation."""
         context = super().get_serializer_context()
         context['request'] = self.request
         return context

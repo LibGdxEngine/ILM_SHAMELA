@@ -77,6 +77,11 @@ export interface Document {
   file: string;
   uploaded_at: string;
   processed: boolean;
+  processing_status?: 'pending' | 'processing' | 'succeeded' | 'failed';
+  processing_error?: string | null;
+  processing_attempts?: number;
+  processing_started_at?: string | null;
+  processing_completed_at?: string | null;
   language: string | null;
   content?: string | null;
   authors: Author[];
@@ -88,6 +93,13 @@ export interface Document {
   thumbnail?: string | null;
   thumbnail_url?: string | null;
   alternate_names?: DocumentAlternateName[];
+  score_lexical?: number;
+  score_semantic?: number;
+  score_final?: number;
+  explanations?: {
+    matched_fields: string[];
+    weights: { lexical: number; semantic: number };
+  };
 }
 
 export interface UploadResponse {
@@ -96,6 +108,9 @@ export interface UploadResponse {
   file: string;
   uploaded_at: string;
   processed: boolean;
+  processing_status?: 'pending' | 'processing' | 'succeeded' | 'failed';
+  processing_error?: string | null;
+  processing_attempts?: number;
   language: string | null;
   content?: string | null;
   authors: Author[];
@@ -127,6 +142,7 @@ export interface UploadDocumentParams {
   file: File;
   title: string;
   authors_ids?: number[];
+  author_names?: string[];
   category_names?: string[];
   alternate_names?: string[];
   description?: string;
@@ -183,6 +199,11 @@ export interface DocumentSearchResponse {
   query: string;
 }
 
+export interface SearchSuggestionsResponse {
+  query: string;
+  suggestions: string[];
+}
+
 /**
  * Get list of authors
  */
@@ -201,6 +222,7 @@ export async function getAuthors(search?: string): Promise<AuthorsListResponse> 
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
   });
 
   if (!response.ok) {
@@ -229,6 +251,7 @@ export async function getCategories(search?: string): Promise<CategoriesListResp
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
   });
 
   if (!response.ok) {
@@ -255,6 +278,11 @@ export async function uploadDocument(
     params.authors_ids.forEach(id => {
       formData.append('authors_ids', id.toString());
     });
+  }
+
+  if (params.author_names && params.author_names.length > 0) {
+    // Send author_names as JSON array for ListField
+    formData.append('author_names', JSON.stringify(params.author_names));
   }
 
   if (params.category_names && params.category_names.length > 0) {
@@ -285,6 +313,7 @@ export async function uploadDocument(
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    xhr.withCredentials = true;
 
     // Track upload progress
     if (onProgress) {
@@ -327,6 +356,15 @@ export async function uploadDocument(
       ? `${API_BASE_URL}${API_BASE_URL.endsWith('/') ? '' : '/'}api/search_engine/documents/`
       : '/api/search_engine/documents/';
     xhr.open('POST', uploadUrl);
+    if (typeof document !== 'undefined') {
+      const csrfToken = document.cookie
+        .split('; ')
+        .find((row) => row.startsWith('csrftoken='))
+        ?.split('=')[1];
+      if (csrfToken) {
+        xhr.setRequestHeader('X-CSRFToken', decodeURIComponent(csrfToken));
+      }
+    }
     xhr.send(formData);
   });
 }
@@ -356,6 +394,7 @@ export async function searchDocuments(query: string): Promise<SearchResponse> {
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
   });
 
   if (!response.ok) {
@@ -402,6 +441,7 @@ export async function getDocuments(params: DocumentsListParams = {}): Promise<Do
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
   });
 
   if (!response.ok) {
@@ -425,6 +465,7 @@ export async function getDocument(id: number): Promise<Document> {
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
   });
 
   if (!response.ok) {
@@ -455,6 +496,7 @@ export async function getDocumentPages(
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
   });
 
   if (!response.ok) {
@@ -492,12 +534,43 @@ export async function searchInDocument(
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
     signal,
   });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || error.message || 'Search failed');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get search suggestions for partial input.
+ */
+export async function getSearchSuggestions(query: string): Promise<SearchSuggestionsResponse> {
+  if (!query.trim()) {
+    return { query: '', suggestions: [] };
+  }
+
+  const basePath = '/api/search_engine/documents/suggest/';
+  const url = API_BASE_URL
+    ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
+    : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+  url.searchParams.append('q', query);
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || error.message || 'Failed to fetch suggestions');
   }
 
   return response.json();

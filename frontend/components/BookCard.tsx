@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Document, normalizeMediaUrl } from '@/lib/api';
+import { useLocalizedPath } from '@/lib/i18n/navigation';
+import { useI18n } from '@/components/i18n/I18nProvider';
 
 interface BookCardProps {
   document: Document;
@@ -57,6 +59,9 @@ function generateCoverPattern(title: string): string {
 }
 
 export default function BookCard({ document, formatDate }: BookCardProps) {
+  const { t } = useI18n();
+  const localizedPath = useLocalizedPath();
+
   // Use cover_photo_url if available, otherwise generate a fallback pattern
   const coverSvg = generateCoverPattern(document.title);
   const coverDataUrl = `data:image/svg+xml,${encodeURIComponent(coverSvg)}`;
@@ -65,9 +70,13 @@ export default function BookCard({ document, formatDate }: BookCardProps) {
   // Normalize the cover photo URL to use frontend proxy if needed
   const coverPhotoUrl = normalizeMediaUrl(document.cover_photo_url);
 
+  const isReady = document.processing_status
+    ? document.processing_status === 'succeeded'
+    : document.processed;
+
   return (
     <Link
-      href={`/documents/${document.id}`}
+      href={localizedPath(`/documents/${document.id}`)}
       className="group block bg-white dark:bg-gray-800 rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden transform hover:-translate-y-1"
     >
       {/* Book Cover */}
@@ -90,12 +99,12 @@ export default function BookCard({ document, formatDate }: BookCardProps) {
         <div className="absolute top-3 right-3">
           <span
             className={`px-2 py-1 text-xs font-medium rounded-full backdrop-blur-sm ${
-              document.processed
+              isReady
                 ? 'bg-green-500/80 text-white'
                 : 'bg-yellow-500/80 text-white'
             }`}
           >
-            {document.processed ? '✓ Ready' : '⏳ Processing'}
+            {isReady ? `✓ ${t('book.ready', 'جاهز')}` : `⏳ ${t('book.processing', 'قيد المعالجة')}`}
           </span>
         </div>
 
@@ -110,7 +119,7 @@ export default function BookCard({ document, formatDate }: BookCardProps) {
       </div>
 
       {/* Book Info */}
-      <div className="p-4">
+      <div className="p-4 flex flex-col min-h-[140px]">
         {/* Title */}
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white line-clamp-2 mb-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
           {document.title}
@@ -119,7 +128,7 @@ export default function BookCard({ document, formatDate }: BookCardProps) {
         {/* Authors */}
         {document.authors && document.authors.length > 0 && (
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-1">
-            <span className="font-medium">By:</span> {document.authors.map(a => a.name).join(', ')}
+            <span className="font-medium">{t('book.by', 'بقلم')}:</span> {document.authors.map(a => a.name).join(', ')}
           </p>
         )}
 
@@ -142,9 +151,12 @@ export default function BookCard({ document, formatDate }: BookCardProps) {
           </div>
         )}
 
+        {/* Spacer to push date to bottom */}
+        <div className="flex-grow"></div>
+
         {/* Date */}
-        <div className="flex items-center text-xs text-gray-500 dark:text-gray-500 pt-2 border-t border-gray-100 dark:border-gray-700">
-          <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="flex items-center text-xs text-gray-500 dark:text-gray-500 pt-2 border-t border-gray-100 dark:border-gray-700 mt-auto">
+          <svg className="w-4 h-4 mx-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
           {formatDate(document.uploaded_at)}

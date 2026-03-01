@@ -1,7 +1,18 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { User, login as apiLogin, register as apiRegister, logout as apiLogout, getUser, googleLogin as apiGoogleLogin, LoginRequest, RegisterRequest } from './auth';
+import {
+  User,
+  login as apiLogin,
+  register as apiRegister,
+  logout as apiLogout,
+  getUser,
+  googleLogin as apiGoogleLogin,
+  updateUserProfile as apiUpdateUserProfile,
+  LoginRequest,
+  RegisterRequest,
+  UserProfileUpdateRequest,
+} from './auth';
 
 interface AuthContextType {
   user: User | null;
@@ -11,6 +22,7 @@ interface AuthContextType {
   register: (data: RegisterRequest) => Promise<void>;
   logout: () => Promise<void>;
   googleLogin: (accessToken: string) => Promise<void>;
+  updateProfile: (data: UserProfileUpdateRequest) => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
@@ -84,6 +96,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const updateProfile = useCallback(async (data: UserProfileUpdateRequest) => {
+    const userData = await apiUpdateUserProfile(data);
+    setUser(userData);
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -94,6 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         register,
         logout,
         googleLogin,
+        updateProfile,
         refreshUser,
       }}
     >

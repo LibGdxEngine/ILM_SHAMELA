@@ -1,19 +1,35 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useEffect, useState, FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+
 import { useAuth } from '@/lib/AuthContext';
+import { useI18n } from '@/components/i18n/I18nProvider';
+import { useLocalizedPath } from '@/lib/i18n/navigation';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { register, googleLogin, isLoading } = useAuth();
+  const { register, isLoading, isAuthenticated } = useAuth();
+  const { t, locale } = useI18n();
+  const localizedPath = useLocalizedPath();
+
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.replace(localizedPath('/'));
+    }
+  }, [isAuthenticated, isLoading, localizedPath, router]);
+
+  if (!isLoading && isAuthenticated) {
+    return null;
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -27,88 +43,89 @@ export default function RegisterPage() {
         first_name: firstName,
         last_name: lastName,
       });
-      router.push('/');
+      router.push(localizedPath('/'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      setError(err instanceof Error ? err.message : t('register.errorFallback', 'فشل إنشاء الحساب'));
     }
   };
 
   const handleGoogleLogin = () => {
-    // Redirect to Google OAuth
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
     if (!clientId) {
-      setError('Google login is not configured');
+      setError(t('login.googleNotConfigured', 'تسجيل الدخول عبر Google غير مهيأ.'));
       return;
     }
 
-    const redirectUri = encodeURIComponent(window.location.origin + '/auth/google/callback');
+    const callbackPath = '/auth/google/callback';
+    const redirectUri = encodeURIComponent(window.location.origin + callbackPath);
     const scope = encodeURIComponent('email profile');
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}`;
-    
+    const state = encodeURIComponent(JSON.stringify({ locale }));
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}&state=${state}`;
+
     window.location.href = googleAuthUrl;
   };
 
   return (
     <div className="w-full max-w-md">
-      {/* Logo and branding */}
-      <div className="text-center mb-8">
-        <Link href="/" className="inline-flex items-center justify-center gap-3 mb-4">
-          <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-            <span className="text-white text-xl font-bold">م</span>
+      <div className="mb-8 text-center">
+        <Link href={localizedPath('/')} className="mb-4 inline-flex items-center justify-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-700 shadow-lg">
+            <span className="text-xl font-bold text-white">{t('brand.word2', 'علم').charAt(0)}</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-            مكتبة <span className="text-indigo-600 dark:text-indigo-400">علم</span>
+            {t('brand.word1', 'مكتبة')} <span className="text-amber-700 dark:text-amber-400">{t('brand.word2', 'علم')}</span>
           </h1>
         </Link>
-        <p className="text-gray-600 dark:text-gray-300">Create your account to get started.</p>
+        <p className="text-gray-600 dark:text-gray-300">{t('register.title', 'أنشئ حسابك للبدء.')}</p>
       </div>
 
-      {/* Registration card */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 p-8">
-        {/* Error message */}
+      <div className="rounded-2xl border border-gray-100 bg-white p-8 shadow-xl dark:border-gray-700 dark:bg-gray-800">
         {error && (
-          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl">
-            <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
-              <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/30">
+            <p className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+              <svg className="h-4 w-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                  clipRule="evenodd"
+                />
               </svg>
               {error}
             </p>
           </div>
         )}
 
-        {/* Google signup button */}
         <button
           type="button"
           onClick={handleGoogleLogin}
           disabled={isLoading}
-          className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-700 dark:text-gray-200 font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex w-full items-center justify-center gap-3 rounded-xl border border-gray-300 bg-white px-4 py-3 font-medium text-gray-700 transition-colors duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
         >
-          <svg className="w-5 h-5" viewBox="0 0 24 24">
-            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          <svg className="h-5 w-5" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
           </svg>
-          Continue with Google
+          {t('login.googleContinue', 'المتابعة عبر Google')}
         </button>
 
-        {/* Divider */}
         <div className="relative my-6">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-200 dark:border-gray-600"></div>
+            <div className="w-full border-t border-gray-200 dark:border-gray-600" />
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">or register with email</span>
+            <span className="bg-white px-4 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+              {t('register.orEmail', 'أو إنشاء حساب بالبريد الإلكتروني')}
+            </span>
           </div>
         </div>
 
-        {/* Registration form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                First name
+              <label htmlFor="firstName" className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {t('register.firstName', 'الاسم الأول')}
               </label>
               <input
                 id="firstName"
@@ -116,15 +133,15 @@ export default function RegisterPage() {
                 required
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-colors duration-200"
-                placeholder="John"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-gray-900 transition-colors duration-200 placeholder-gray-500 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                placeholder={t('register.placeholder.firstName', 'محمد')}
                 disabled={isLoading}
               />
             </div>
 
             <div>
-              <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Last name
+              <label htmlFor="lastName" className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {t('register.lastName', 'اسم العائلة')}
               </label>
               <input
                 id="lastName"
@@ -132,16 +149,16 @@ export default function RegisterPage() {
                 required
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-colors duration-200"
-                placeholder="Doe"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-gray-900 transition-colors duration-200 placeholder-gray-500 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                placeholder={t('register.placeholder.lastName', 'الأنصاري')}
                 disabled={isLoading}
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Email address
+            <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {t('login.email', 'البريد الإلكتروني')}
             </label>
             <input
               id="email"
@@ -149,15 +166,15 @@ export default function RegisterPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-colors duration-200"
-              placeholder="you@example.com"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-gray-900 transition-colors duration-200 placeholder-gray-500 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+              placeholder={t('auth.placeholder.email', 'you@example.com')}
               disabled={isLoading}
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Password
+            <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {t('login.password', 'كلمة المرور')}
             </label>
             <div className="relative">
               <input
@@ -167,21 +184,21 @@ export default function RegisterPage() {
                 minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-colors duration-200 pr-12"
-                placeholder="••••••••"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 pe-12 text-gray-900 transition-colors duration-200 placeholder-gray-500 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                placeholder={t('auth.placeholder.password', '••••••••')}
                 disabled={isLoading}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                className="absolute inset-inline-end-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               >
                 {showPassword ? (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                   </svg>
                 ) : (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                   </svg>
@@ -189,34 +206,36 @@ export default function RegisterPage() {
               </button>
             </div>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Must be at least 8 characters
+              {t('register.minPassword', 'يجب أن تكون كلمة المرور 8 أحرف على الأقل.')}
             </p>
           </div>
 
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/40 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed mt-6"
+            className="mt-6 w-full btn-solid-brand"
           >
             {isLoading ? (
               <span className="flex items-center justify-center gap-2">
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                Creating account...
+                {t('register.creating', 'جارٍ إنشاء الحساب...')}
               </span>
             ) : (
-              'Create account'
+              t('register.create', 'إنشاء حساب')
             )}
           </button>
         </form>
 
-        {/* Sign in link */}
         <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
-          Already have an account?{' '}
-          <Link href="/auth/login" className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">
-            Sign in
+          {t('register.hasAccount', 'لديك حساب بالفعل؟')}{' '}
+          <Link
+            href={localizedPath('/auth/login')}
+            className="font-medium text-amber-700 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300"
+          >
+            {t('login.signIn', 'تسجيل الدخول')}
           </Link>
         </p>
       </div>

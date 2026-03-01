@@ -1,0 +1,455 @@
+{
+  "meta": {
+    "name": "ILM Shamela Cultural Design Profile",
+    "version": "1.0.0",
+    "generatedOn": "2026-02-13",
+    "description": "Reusable cultural + visual style extraction from the active frontend.",
+    "sourceFiles": [
+      "app/globals.css",
+      "app/layout.tsx",
+      "app/page.tsx",
+      "app/auth/layout.tsx",
+      "app/auth/login/page.tsx",
+      "app/auth/register/page.tsx",
+      "app/documents/page.tsx",
+      "app/documents/[id]/page.tsx",
+      "components/Navigation.tsx",
+      "components/BookCard.tsx",
+      "components/document/FontThemeControls.tsx",
+      "lib/i18n/config.ts"
+    ]
+  },
+  "culture": {
+    "identity": "Arabic-first scholarly library with heritage-inspired visuals",
+    "toneKeywords": [
+      "scholarly",
+      "warm",
+      "ornamental",
+      "calm",
+      "trustworthy",
+      "craft-focused"
+    ],
+    "defaultLocale": "ar",
+    "supportedLocales": [
+      "ar",
+      "en",
+      "fa",
+      "ur"
+    ],
+    "directionality": {
+      "default": "rtl",
+      "rtlLocales": [
+        "ar",
+        "fa",
+        "ur"
+      ],
+      "ltrLocales": [
+        "en"
+      ]
+    },
+    "visualMotifs": [
+      "Islamic geometric patterns",
+      "Arabesque dividers",
+      "8-point star ornaments",
+      "Medallion step markers",
+      "Parchment-like surfaces"
+    ]
+  },
+  "principles": [
+    "Prioritize readability and focus for long-form reading.",
+    "Use warm parchment tones as base; reserve saturated color for intent.",
+    "Pair amber (knowledge/heritage) with teal (clarity/modernity).",
+    "Favor rounded shapes and soft elevation over sharp/high-contrast chrome.",
+    "Keep motion gentle and meaningful (reveal, float, subtle hover lift).",
+    "Respect RTL by default and mirror spatial affordances when locale changes."
+  ],
+  "tokens": {
+    "colors": {
+      "cssVariables": {
+        "light": {
+          "--background": "#f8f7f3",
+          "--foreground": "#1d1f22",
+          "--surface": "#ffffff",
+          "--brand": "#a16207",
+          "--brand-accent": "#0f766e"
+        },
+        "dark": {
+          "--background": "#111827",
+          "--foreground": "#f3f4f6",
+          "--surface": "#1f2937",
+          "--brand": "#f59e0b",
+          "--brand-accent": "#14b8a6"
+        }
+      },
+      "brand": {
+        "gold": {
+          "300": "#d5bf93",
+          "400": "#d4a853",
+          "500": "#c8a86b",
+          "600": "#b8942f",
+          "700": "#92400e"
+        },
+        "amber": {
+          "50": "#fef3c7",
+          "100": "#fde68a",
+          "300": "#fcd34d",
+          "500": "#f59e0b",
+          "700": "#a16207",
+          "800": "#92400e"
+        },
+        "teal": {
+          "50": "#f0fdfa",
+          "100": "#ccfbf1",
+          "400": "#2dd4bf",
+          "500": "#14b8a6",
+          "700": "#0f766e",
+          "900": "#113a34",
+          "950": "#153c36"
+        }
+      },
+      "surfaces": {
+        "paper": "#f8f7f3",
+        "paperWarm": "#fffaf0",
+        "paperWarmSoft": "#fff6e3",
+        "paperWarmGradientFrom": "#f8e8c2",
+        "paperWarmGradientTo": "#fdf5df",
+        "paperAccent": "#f8ecd2",
+        "paperAccentDeep": "#f5e8cb",
+        "card": "#ffffff"
+      },
+      "text": {
+        "primary": "#1d1f22",
+        "secondary": "#44403c",
+        "muted": "#78716c",
+        "onDark": "#f3f4f6",
+        "onDarkMuted": "#99f6e4"
+      },
+      "neutralGray": {
+        "50": "#f9fafb",
+        "100": "#f3f4f6",
+        "200": "#e5e7eb",
+        "300": "#d1d5db",
+        "400": "#9ca3af",
+        "500": "#6b7280",
+        "600": "#4b5563",
+        "700": "#374151",
+        "800": "#1f2937",
+        "900": "#111827"
+      },
+      "compatPalette": {
+        "indigo": {
+          "50": "#eef2ff",
+          "200": "#c7d2fe",
+          "400": "#818cf8",
+          "500": "#6366f1",
+          "600": "#4f46e5",
+          "700": "#4338ca",
+          "900": "#312e81"
+        },
+        "note": "Used in navigation, filters, and legacy list components. Keep for compatibility."
+      },
+      "feedback": {
+        "success": {
+          "bg": "rgba(34, 197, 94, 0.8)",
+          "text": "#ffffff"
+        },
+        "warning": {
+          "bg": "rgba(234, 179, 8, 0.8)",
+          "text": "#ffffff"
+        },
+        "error": {
+          "bg": "#fee2e2",
+          "text": "#dc2626"
+        },
+        "highlight": "#fef08a"
+      }
+    },
+    "gradients": {
+      "bodyAmbientLight": "radial-gradient(circle at 20% -20%, rgba(251, 191, 36, 0.22), transparent 35%), radial-gradient(circle at 95% 10%, rgba(20, 184, 166, 0.2), transparent 28%), #f8f7f3",
+      "landingAmbientOverlay": "radial-gradient(circle at 85% 5%, rgba(172,121,43,0.23), transparent 30%), radial-gradient(circle at 10% 0%, rgba(16,90,78,0.22), transparent 35%)",
+      "authBackground": "linear-gradient(to bottom right, #fef3c7, #ffffff, #f0fdfa)",
+      "ctaGradient": "linear-gradient(to right, #a16207, #0f766e)",
+      "panelWarm": "linear-gradient(to left, #f8e8c2, #fdf5df)"
+    },
+    "typography": {
+      "fontFamily": {
+        "primary": "var(--font-arabic), var(--font-manrope), \"Segoe UI\", sans-serif",
+        "latinFirst": "var(--font-manrope), \"Segoe UI\", sans-serif",
+        "arabic": "var(--font-arabic), \"Segoe UI\", sans-serif"
+      },
+      "fontSize": {
+        "xs": "0.75rem",
+        "sm": "0.875rem",
+        "base": "1rem",
+        "lg": "1.125rem",
+        "xl": "1.25rem",
+        "2xl": "1.5rem",
+        "3xl": "1.875rem",
+        "4xl": "2.25rem",
+        "6xl": "3.75rem"
+      },
+      "fontWeight": {
+        "medium": 500,
+        "semibold": 600,
+        "bold": 700,
+        "extrabold": 800,
+        "black": 900
+      },
+      "lineHeight": {
+        "tight": 1.2,
+        "normal": 1.5,
+        "comfortable": 1.75,
+        "document": 1.8
+      },
+      "tracking": {
+        "normal": "0em",
+        "sectionCaps": "0.2em"
+      }
+    },
+    "spacing": {
+      "1": "0.25rem",
+      "2": "0.5rem",
+      "3": "0.75rem",
+      "4": "1rem",
+      "5": "1.25rem",
+      "6": "1.5rem",
+      "7": "1.75rem",
+      "8": "2rem",
+      "10": "2.5rem",
+      "12": "3rem"
+    },
+    "radii": {
+      "md": "0.375rem",
+      "lg": "0.5rem",
+      "xl": "0.75rem",
+      "2xl": "1rem",
+      "3xl": "1.5rem",
+      "hero": "2.2rem",
+      "pill": "9999px"
+    },
+    "borders": {
+      "default": "1px solid #e5e7eb",
+      "heritage": "1px solid #d5bf93",
+      "focusAmber": "2px solid rgba(245, 158, 11, 0.3)",
+      "focusTeal": "2px solid rgba(20, 184, 166, 0.25)"
+    },
+    "shadows": {
+      "sm": "0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06)",
+      "md": "0 10px 30px rgba(0,0,0,0.06)",
+      "hero": "0 30px 80px rgba(101,69,19,0.12)",
+      "glowAmber": "0 0 40px rgba(217, 168, 72, 0.15), 0 0 80px rgba(217, 168, 72, 0.08)",
+      "glowTeal": "0 0 40px rgba(20, 184, 166, 0.15), 0 0 80px rgba(20, 184, 166, 0.08)"
+    },
+    "motion": {
+      "duration": {
+        "fast": "150ms",
+        "normal": "200ms",
+        "slow": "300ms",
+        "reveal": "700ms",
+        "float": "5000ms",
+        "floatSlow": "6000ms",
+        "spinSlow": "20000ms"
+      },
+      "easing": {
+        "standard": "ease",
+        "out": "ease-out",
+        "inOut": "ease-in-out",
+        "smooth": "cubic-bezier(0.4, 0, 0.6, 1)"
+      },
+      "keyframes": {
+        "fadeIn": {
+          "from": {
+            "opacity": 0,
+            "transform": "translateY(10px)"
+          },
+          "to": {
+            "opacity": 1,
+            "transform": "translateY(0)"
+          }
+        },
+        "slideIn": {
+          "from": {
+            "opacity": 0,
+            "transform": "translateX(-10px)"
+          },
+          "to": {
+            "opacity": 1,
+            "transform": "translateX(0)"
+          }
+        },
+        "reveal": {
+          "from": {
+            "opacity": 0,
+            "transform": "translateY(32px)"
+          },
+          "to": {
+            "opacity": 1,
+            "transform": "translateY(0)"
+          }
+        },
+        "float": {
+          "0%,100%": "translateY(0) rotate(0deg)",
+          "50%": "translateY(-12px) rotate(3deg)"
+        },
+        "floatSlow": {
+          "0%,100%": "translateY(0) rotate(0deg)",
+          "50%": "translateY(-8px) rotate(-2deg)"
+        },
+        "popoverIn": {
+          "from": {
+            "opacity": 0,
+            "transform": "scale(0.95) translateY(4px)"
+          },
+          "to": {
+            "opacity": 1,
+            "transform": "scale(1) translateY(0)"
+          }
+        }
+      }
+    },
+    "layout": {
+      "container": {
+        "maxWidth": "80rem",
+        "paddingXMobile": "1rem",
+        "paddingXDesktop": "2.5rem"
+      },
+      "navbarHeight": "5rem",
+      "commonSectionSpacing": "3.5rem",
+      "heroGrid": "1fr 1fr",
+      "contentGrid": {
+        "mobile": 1,
+        "tablet": 2,
+        "desktop": 3
+      }
+    },
+    "ornaments": {
+      "pattern": {
+        "light": {
+          "token": "islamic-pattern-bg",
+          "strokeColor": "#d4a853",
+          "strokeOpacity": 0.18,
+          "tileSize": "60px"
+        },
+        "dark": {
+          "token": "islamic-pattern-bg-dark",
+          "strokeColor": "#14b8a6",
+          "strokeOpacity": 0.12,
+          "tileSize": "48px"
+        }
+      },
+      "divider": {
+        "token": "ornamental-divider",
+        "lineColor": "#c8a86b",
+        "symbolShape": "diamond"
+      },
+      "starOrnament": {
+        "token": "star-ornament",
+        "color": "#c8a86b",
+        "shape": "8-point star"
+      },
+      "medallion": {
+        "token": "medallion",
+        "border": "#c8a86b",
+        "backgroundFrom": "#fdf5df",
+        "backgroundTo": "#f8ecd2",
+        "text": "#92400e"
+      }
+    },
+    "readerThemes": {
+      "light": {
+        "background": "#ffffff",
+        "text": "#1d1f22"
+      },
+      "sepia": {
+        "background": "#f8f0e3",
+        "text": "#5c4b37",
+        "articleBackground": "#faf4e8",
+        "accentBorder": "#c8a86b"
+      },
+      "dark": {
+        "background": "#1a1a2e",
+        "text": "#d4d4d8",
+        "articleBackground": "#222240",
+        "headerOverlay": "rgba(255,255,255,0.05)"
+      }
+    }
+  },
+  "componentRecipes": {
+    "heroPanel": {
+      "background": "#fffaf0",
+      "border": "1px solid rgba(251,191,36,0.8)",
+      "radius": "2.2rem",
+      "shadow": "0 30px 80px rgba(101,69,19,0.12)",
+      "ornament": "geo-corner"
+    },
+    "contentCard": {
+      "background": "rgba(255,255,255,0.9)",
+      "border": "1px solid #d5bf93",
+      "radius": "1rem",
+      "shadow": "0 10px 30px rgba(0,0,0,0.06)",
+      "hover": {
+        "transform": "translateY(-4px)",
+        "shadow": "elevation-xl"
+      }
+    },
+    "primaryButton": {
+      "background": "#a16207",
+      "hoverBackground": "#92400e",
+      "text": "#ffffff",
+      "radius": "0.75rem",
+      "padding": "0.75rem 1.5rem",
+      "weight": 600
+    },
+    "gradientButton": {
+      "background": "linear-gradient(to right, #a16207, #0f766e)",
+      "hoverBackground": "linear-gradient(to right, #92400e, #115e59)",
+      "text": "#ffffff",
+      "radius": "0.75rem",
+      "padding": "0.75rem 1.5rem",
+      "shadow": "0 10px 25px rgba(161,98,7,0.3)"
+    },
+    "secondaryButton": {
+      "background": "#ffffff",
+      "border": "1px solid #fcd34d",
+      "text": "#78350f",
+      "hoverBorder": "#f59e0b",
+      "radius": "0.75rem",
+      "padding": "0.75rem 1.5rem"
+    },
+    "inputField": {
+      "background": "#f9fafb",
+      "border": "1px solid #e5e7eb",
+      "text": "#111827",
+      "focusBorder": "#d97706",
+      "focusRing": "0 0 0 2px rgba(245, 158, 11, 0.3)",
+      "radius": "0.75rem"
+    },
+    "statCard": {
+      "radius": "0.75rem",
+      "padding": "1rem",
+      "accentFrame": "linear-gradient(90deg, transparent, currentColor, transparent)"
+    },
+    "navbar": {
+      "height": "5rem",
+      "background": "#f9fafb",
+      "borderBottom": "1px solid #e5e7eb",
+      "brandAccent": "#4f46e5",
+      "ctaGradient": "linear-gradient(to right, #d97706, #0f766e)"
+    }
+  },
+  "usageRules": {
+    "do": [
+      "Lead with Arabic readability: generous line height and calm contrast.",
+      "Use ornaments as atmosphere, not as dense decoration.",
+      "Reserve bright gradients for calls to action and key badges.",
+      "Keep card corners rounded (`xl` to `3xl`) across pages for continuity.",
+      "Mirror directional spacing for RTL/LTR (`ps-*`, `pe-*`, logical inset)."
+    ],
+    "avoid": [
+      "Do not switch to cold/pure-blue dominant themes for primary experiences.",
+      "Do not remove amber-teal pairing from core CTAs and highlights.",
+      "Avoid sharp corners and heavy black shadows.",
+      "Avoid dense animation loops outside decorative ambient elements."
+    ]
+  }
+}
