@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { searchDocuments, Document } from '@/lib/api';
+import { useI18n } from '@/components/i18n/I18nProvider';
+import { localeToDateLocale } from '@/lib/i18n/config';
 import { highlightText, extractSnippet } from '@/lib/utils';
 
 function useDebounce<T>(value: T, delay: number): T {
@@ -21,6 +23,7 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 export default function SearchInterface() {
+  const { t, locale } = useI18n();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -41,12 +44,12 @@ export default function SearchInterface() {
       const response = await searchDocuments(searchQuery);
       setResults(response.results);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed');
+      setError(err instanceof Error ? err.message : t('search.errorFallback', 'Search failed'));
       setResults([]);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     performSearch(debouncedQuery);
@@ -54,7 +57,7 @@ export default function SearchInterface() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString(localeToDateLocale(locale), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -71,7 +74,7 @@ export default function SearchInterface() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search documents..."
+            placeholder={t('search.placeholder', 'Search documents...')}
             className="w-full px-4 py-3 pl-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
           />
           <svg
@@ -103,71 +106,78 @@ export default function SearchInterface() {
 
       {!query.trim() && (
         <div className="text-center py-12 text-gray-500">
-          <p>Enter a search query to find documents</p>
+          <p>{t('search.emptyPrompt', 'Enter a query to find documents')}</p>
         </div>
       )}
 
       {query.trim() && !isLoading && results.length === 0 && !error && (
         <div className="text-center py-12 text-gray-500">
-          <p>No documents found matching your search</p>
+          <p>{t('search.noResults', 'No documents found matching your search')}</p>
         </div>
       )}
 
       {results.length > 0 && (
         <div className="space-y-4">
           <div className="text-sm text-gray-600 mb-4">
-            Found {results.length} result{results.length !== 1 ? 's' : ''}
+            {t('search.resultsCount', 'Found {count} results', { count: results.length })}
           </div>
-          {results.map((document) => (
-            <div
-              key={document.id}
-              className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {document.title}
-                </h3>
-                <span
-                  className={`px-2 py-1 text-xs rounded-full ${
-                    document.processed
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-yellow-100 text-yellow-800'
-                  }`}
-                >
-                  {document.processed ? 'Processed' : 'Processing...'}
-                </span>
-              </div>
-
-              {document.content && query.trim() && (
-                <div className="mb-3">
-                  <p
-                    className="text-gray-700 text-sm leading-relaxed"
-                    dangerouslySetInnerHTML={{
-                      __html: highlightText(
-                        extractSnippet(document.content, query, 300),
-                        query
-                      ),
-                    }}
-                  />
-                </div>
-              )}
-
-              {!document.content && (
-                <p className="text-gray-500 text-sm italic mb-3">
-                  Content not available yet
-                </p>
-              )}
-
-              <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>Uploaded: {formatDate(document.uploaded_at)}</span>
-                {document.language && (
-                  <span className="px-2 py-1 bg-gray-100 rounded">
-                    {document.language.toUpperCase()}
+          {results.map((document) => {
+            const isReady = document.processing_status
+              ? document.processing_status === 'succeeded'
+              : document.processed;
+            return (
+              <div
+                key={document.id}
+                className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {document.title}
+                  </h3>
+                  <span
+                    className={`px-2 py-1 text-xs rounded-full ${
+                      isReady
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-yellow-100 text-yellow-800'
+                    }`}
+                  >
+                    {isReady
+                      ? t('search.status.processed', 'Processed')
+                      : t('search.status.processing', 'Processing...')}
                   </span>
+                </div>
+
+                {document.content && query.trim() && (
+                  <div className="mb-3">
+                    <p
+                      className="text-gray-700 text-sm leading-relaxed"
+                      dangerouslySetInnerHTML={{
+                        __html: highlightText(
+                          extractSnippet(document.content, query, 300),
+                          query
+                        ),
+                      }}
+                    />
+                  </div>
                 )}
+
+                {!document.content && (
+                  <p className="text-gray-500 text-sm italic mb-3">
+                    {t('search.contentUnavailable', 'Content not available yet')}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>{t('search.uploaded', 'Uploaded')}: {formatDate(document.uploaded_at)}</span>
+                  {document.language && (
+                    <span className="px-2 py-1 bg-gray-100 rounded">
+                      {document.language.toUpperCase()}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

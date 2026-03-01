@@ -4,14 +4,28 @@ from allauth.socialaccount.models import SocialAccount, SocialApp
 from django.contrib.auth import get_user_model
 from django.contrib.sites.shortcuts import get_current_site
 from dj_rest_auth.registration.views import SocialLoginView
+from rest_framework import generics
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 import os
 import logging
 import requests
+from .serializers import UserProfileSerializer
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+
+class UserProfileView(generics.RetrieveUpdateAPIView):
+    """Dedicated profile endpoint for authenticated user updates."""
+
+    serializer_class = UserProfileSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'patch', 'head', 'options']
+
+    def get_object(self):
+        return self.request.user
 
 
 class GoogleLogin(SocialLoginView):

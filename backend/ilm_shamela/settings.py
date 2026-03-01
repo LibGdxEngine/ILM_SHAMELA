@@ -5,23 +5,38 @@ Django settings for ilm_shamela project.
 import os
 from pathlib import Path
 from datetime import timedelta
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def env_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def env_list(name, default=None):
+    value = os.environ.get(name)
+    if value is None:
+        return default or []
+    return [item.strip() for item in value.split(',') if item.strip()]
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    'SECRET_KEY', 'django-insecure-change-me-in-production')
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    raise ImproperlyConfigured('SECRET_KEY environment variable is required.')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+DEBUG = env_bool('DEBUG', False)
 
-ALLOWED_HOSTS = os.environ.get(
-    'ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', ['localhost', '127.0.0.1', 'backend'])
 
 # Security settings for HTTPS reverse proxy
 # Trust the X-Forwarded-Proto header from nginx
@@ -34,14 +49,19 @@ csrf_origins = os.environ.get(
 CSRF_TRUSTED_ORIGINS = [origin.strip()
                         for origin in csrf_origins.split(',') if origin.strip()]
 
-# Since nginx handles SSL termination and redirects, disable Django's SSL redirect
-SECURE_SSL_REDIRECT = False
+SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', not DEBUG)
 
 # Cookie security settings (when behind HTTPS proxy)
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', not DEBUG)
+CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', not DEBUG)
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = False  # CSRF cookie needs to be accessible to JavaScript
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+X_FRAME_OPTIONS = 'DENY'
+SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '0' if DEBUG else '31536000'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', not DEBUG)
+SECURE_HSTS_PRELOAD = env_bool('SECURE_HSTS_PRELOAD', False)
 
 # Application definition
 
@@ -66,10 +86,12 @@ INSTALLED_APPS = [
     'allauth.account',
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
+    'rest_framework_simplejwt.token_blacklist',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'core.middleware.RequestIDMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -114,6 +136,14 @@ DATABASES = {
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
     }
 }
+
+if env_bool('USE_SQLITE_FOR_TESTS', False):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'test.sqlite3',
+        }
+    }
 
 
 # Custom User Model
@@ -185,6 +215,18 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '20/min',
+        'user': '200/min',
+        'dj_rest_auth': '20/min',
+        'upload': '30/hour',
+        'search': '600/hour',
+    },
 }
 
 
@@ -237,43 +279,17 @@ DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 STATICFILES_STORAGE = 'storages.backends.s3boto3.S3StaticStorage'
 
 # CORS Configuration
-# Allow all localhost origins for development (regardless of DEBUG setting)
-# This covers cases where frontend runs on different ports
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^http://localhost:\d+$",
-    r"^http://127\.0\.0\.1:\d+$",
-    r"^https://localhost:\d+$",
-    r"^https://127\.0\.0\.1:\d+$",
-    r"^http://localhost$",
-    r"^https://localhost$",
-    r"^http://127\.0\.0\.1$",
-    r"^https://127\.0\.0\.1$",
-]
-
-# Also allow specific origins
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://localhost:3000",
-    "https://127.0.0.1:3000",
-    "http://localhost",
-    "https://localhost",
-    "http://127.0.0.1",
-    "https://127.0.0.1",
-]
-
-# In development (DEBUG=True), allow all origins for easier testing
-# Also allow all origins if we're running locally (check if we're not in strict production)
-# For local development, be permissive with CORS
-is_local_dev = (
-    DEBUG or
-    os.environ.get('ALLOW_CORS_ALL_ORIGINS', 'False').lower() == 'true' or
-    'localhost' in os.environ.get('ALLOWED_HOSTS', '') or
-    '127.0.0.1' in os.environ.get('ALLOWED_HOSTS', '')
+CORS_ALLOW_ALL_ORIGINS = env_bool('CORS_ALLOW_ALL_ORIGINS', False)
+CORS_ALLOWED_ORIGINS = env_list(
+    'CORS_ALLOWED_ORIGINS',
+    [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://localhost:3000',
+        'https://127.0.0.1:3000',
+    ],
 )
-
-if is_local_dev:
-    CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGIN_REGEXES = env_list('CORS_ALLOWED_ORIGIN_REGEXES', [])
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -355,7 +371,11 @@ REST_AUTH = {
     'JWT_AUTH_SECURE': not DEBUG,
     'REGISTER_SERIALIZER': 'core.serializers.CustomRegisterSerializer',
     'LOGIN_SERIALIZER': 'core.serializers.CustomLoginSerializer',
+    'USER_DETAILS_SERIALIZER': 'core.serializers.CustomUserDetailsSerializer',
 }
+
+# Gemini Embedding — required for semantic search reranking
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
@@ -369,4 +389,31 @@ SOCIALACCOUNT_PROVIDERS = {
             'access_type': 'online',
         }
     }
+}
+
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {
+        'request_id': {
+            '()': 'core.logging.RequestIDFilter',
+        },
+    },
+    'formatters': {
+        'json': {
+            '()': 'core.logging.JSONFormatter',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'json',
+            'filters': ['request_id'],
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': os.environ.get('LOG_LEVEL', 'INFO'),
+    },
 }

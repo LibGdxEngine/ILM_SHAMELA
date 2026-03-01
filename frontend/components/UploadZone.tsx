@@ -2,12 +2,16 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { uploadDocument, UploadResponse, getAuthors, Author, UploadDocumentParams, getCategories, Category } from '@/lib/api';
+import { useI18n } from '@/components/i18n/I18nProvider';
 
 interface UploadZoneProps {
   onUploadSuccess?: () => void;
 }
 
 export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
+  const { t, direction } = useI18n();
+  const isRtl = direction === 'rtl';
+
   // File upload state
   const [isDragging, setIsDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -20,7 +24,8 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
 
   // Form state
   const [title, setTitle] = useState('');
-  const [selectedAuthors, setSelectedAuthors] = useState<Author[]>([]);
+  const [selectedAuthors, setSelectedAuthors] = useState<string[]>([]);
+  const [authorInput, setAuthorInput] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
   const [categoryInput, setCategoryInput] = useState('');
   const [alternateTitles, setAlternateTitles] = useState<string[]>([]);
@@ -32,7 +37,6 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
   const [coverPhotoPreview, setCoverPhotoPreview] = useState<string | null>(null);
 
   // Authors search state
-  const [authorsSearchQuery, setAuthorsSearchQuery] = useState('');
   const [availableAuthors, setAvailableAuthors] = useState<Author[]>([]);
   const [isSearchingAuthors, setIsSearchingAuthors] = useState(false);
   const [showAuthorsDropdown, setShowAuthorsDropdown] = useState(false);
@@ -51,20 +55,22 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
   // Fetch authors when search query changes
   useEffect(() => {
     const searchAuthors = async () => {
-      if (authorsSearchQuery.trim().length < 2) {
+      if (authorInput.trim().length < 2) {
         setAvailableAuthors([]);
         return;
       }
 
       setIsSearchingAuthors(true);
       try {
-        const response = await getAuthors(authorsSearchQuery);
-        // Filter out already selected authors
+        const response = await getAuthors(authorInput);
+        // Filter out already selected authors by name
         const filtered = response.results.filter(
-          author => !selectedAuthors.some(selected => selected.id === author.id)
+          author => !selectedAuthors.includes(author.name)
         );
         setAvailableAuthors(filtered);
-        setShowAuthorsDropdown(true);
+        if (filtered.length > 0) {
+          setShowAuthorsDropdown(true);
+        }
       } catch (error) {
         console.error('Failed to search authors:', error);
         setAvailableAuthors([]);
@@ -75,7 +81,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
 
     const debounceTimer = setTimeout(searchAuthors, 300);
     return () => clearTimeout(debounceTimer);
-  }, [authorsSearchQuery, selectedAuthors]);
+  }, [authorInput, selectedAuthors]);
 
   // Fetch available categories on mount
   useEffect(() => {
@@ -126,7 +132,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     e.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
@@ -135,7 +141,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     if (files.length > 0) {
       handleFileSelect(files[0]);
     }
-  }, []);
+  };
 
   const handleFileSelect = (file: File) => {
     // Validate file type
@@ -146,7 +152,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
 
     if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-      setErrors({ file: 'Please select a valid file (PDF, DOC, DOCX, or TXT)' });
+      setErrors({ file: t('upload.invalidFile', 'يرجى اختيار ملف صالح (PDF أو DOC أو DOCX أو TXT).') });
       return;
     }
 
@@ -168,7 +174,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
       const file = files[0];
       // Validate image type
       if (!file.type.startsWith('image/')) {
-        setErrors(prev => ({ ...prev, cover_photo: 'Please select a valid image file' }));
+        setErrors(prev => ({ ...prev, cover_photo: t('upload.invalidImage', 'يرجى اختيار صورة صالحة.') }));
         return;
       }
       setCoverPhoto(file);
@@ -182,17 +188,49 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     }
   };
 
-  const handleAddAuthor = (author: Author) => {
-    if (!selectedAuthors.some(a => a.id === author.id)) {
-      setSelectedAuthors([...selectedAuthors, author]);
-      setAuthorsSearchQuery('');
+  const handleAddAuthor = () => {
+    const trimmed = authorInput.trim();
+    if (trimmed && !selectedAuthors.includes(trimmed)) {
+      setSelectedAuthors([...selectedAuthors, trimmed]);
+      setAuthorInput('');
       setShowAuthorsDropdown(false);
     }
   };
 
-  const handleRemoveAuthor = (authorId: number) => {
-    setSelectedAuthors(selectedAuthors.filter(a => a.id !== authorId));
+  const handleSelectAuthor = (author: Author) => {
+    const authorName = author.name;
+    if (!selectedAuthors.includes(authorName)) {
+      setSelectedAuthors([...selectedAuthors, authorName]);
+      setAuthorInput('');
+      setShowAuthorsDropdown(false);
+    }
   };
+
+  const handleRemoveAuthor = (authorName: string) => {
+    setSelectedAuthors(selectedAuthors.filter(a => a !== authorName));
+  };
+
+  const handleAuthorKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddAuthor();
+    }
+  };
+
+  const handleAuthorInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setAuthorInput(value);
+    if (value.trim().length > 0) {
+      setShowAuthorsDropdown(true);
+    } else {
+      setShowAuthorsDropdown(false);
+    }
+  };
+
+  const filteredAuthors = availableAuthors.filter(
+    author => author.name.toLowerCase().includes(authorInput.toLowerCase()) &&
+             !selectedAuthors.includes(author.name)
+  );
 
   const handleAddCategory = () => {
     const trimmed = categoryInput.trim();
@@ -260,11 +298,11 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     const newErrors: Record<string, string> = {};
 
     if (!selectedFile) {
-      newErrors.file = 'Please select a file to upload';
+      newErrors.file = t('upload.fileRequired', 'يرجى اختيار ملف للرفع.');
     }
 
     if (!title.trim()) {
-      newErrors.title = 'Title is required';
+      newErrors.title = t('upload.titleRequired', 'العنوان مطلوب.');
     }
 
     setErrors(newErrors);
@@ -285,7 +323,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
       const uploadParams: UploadDocumentParams = {
         file: selectedFile,
         title: title.trim(),
-        authors_ids: selectedAuthors.map(a => a.id),
+        author_names: selectedAuthors.length > 0 ? selectedAuthors : undefined,
         category_names: categories.length > 0 ? categories : undefined,
         alternate_names: alternateTitles.length > 0 ? alternateTitles : undefined,
         description: description.trim() || undefined,
@@ -299,7 +337,11 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
       });
 
       setUploadStatus('success');
-      setUploadMessage(`File "${response.title}" uploaded successfully!`);
+      setUploadMessage(
+        t('upload.successMessage', 'تم رفع الملف "{title}" بنجاح.', {
+          title: response.title,
+        })
+      );
       setUploadProgress(100);
 
       // Call success callback if provided
@@ -314,7 +356,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     } catch (error) {
       setUploadStatus('error');
       setUploadMessage(
-        error instanceof Error ? error.message : 'Failed to upload file'
+        error instanceof Error ? error.message : t('upload.uploadFailed', 'تعذر رفع الملف.')
       );
       setUploadProgress(0);
     } finally {
@@ -326,6 +368,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     setSelectedFile(null);
     setTitle('');
     setSelectedAuthors([]);
+    setAuthorInput('');
     setCategories([]);
     setCategoryInput('');
     setAlternateTitles([]);
@@ -358,7 +401,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
       {/* File Upload Zone */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Document File <span className="text-red-500">*</span>
+          {t('upload.documentFile', 'ملف الكتاب')} <span className="text-red-500">*</span>
         </label>
         <div
           className={`
@@ -408,11 +451,11 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
                 {selectedFile
                   ? selectedFile.name
                   : isUploading
-                  ? 'Uploading...'
-                  : 'Drag and drop a file here, or click to select'}
+                  ? t('upload.uploading', 'جارٍ الرفع...')
+                  : t('upload.dragDrop', 'اسحب الملف هنا أو انقر للاختيار')}
               </p>
               <p className="text-sm text-gray-500 mt-1">
-                PDF, DOC, DOCX, TXT files are supported
+                {t('upload.supportedFiles', 'الملفات المدعومة: PDF وDOC وDOCX وTXT')}
               </p>
             </div>
 
@@ -438,12 +481,12 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
 
       {/* Basic Information */}
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold text-gray-900">Basic Information</h3>
+        <h3 className="text-lg font-semibold text-gray-900">{t('upload.basicInfo', 'معلومات أساسية')}</h3>
         
         {/* Title */}
         <div>
           <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
-            Title <span className="text-red-500">*</span>
+            {t('upload.title', 'العنوان')} <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
@@ -456,7 +499,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
             className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
               errors.title ? 'border-red-300' : 'border-gray-300'
             }`}
-            placeholder="Enter document title"
+            placeholder={t('upload.enterTitle', 'اكتب عنوان الكتاب')}
             disabled={isUploading}
           />
           {errors.title && (
@@ -467,33 +510,44 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
         {/* Authors */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Authors
+            {t('upload.authors', 'المؤلفون')}
           </label>
           <div className="relative" ref={authorsDropdownRef}>
-            <input
-              type="text"
-              value={authorsSearchQuery}
-              onChange={(e) => setAuthorsSearchQuery(e.target.value)}
-              onFocus={() => {
-                if (availableAuthors.length > 0) {
-                  setShowAuthorsDropdown(true);
-                }
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Search for authors..."
-              disabled={isUploading}
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={authorInput}
+                onChange={handleAuthorInputChange}
+                onKeyPress={handleAuthorKeyPress}
+                onFocus={() => {
+                  if (filteredAuthors.length > 0) {
+                    setShowAuthorsDropdown(true);
+                  }
+                }}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder={t('upload.searchOrAuthor', 'ابحث أو اكتب اسم المؤلف')}
+                disabled={isUploading}
+              />
+              <button
+                type="button"
+                onClick={handleAddAuthor}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50"
+                disabled={isUploading || !authorInput.trim()}
+              >
+                {t('upload.add', 'إضافة')}
+              </button>
+            </div>
             {isSearchingAuthors && (
-              <div className="absolute right-3 top-2.5">
+              <div className="absolute top-2.5 inset-inline-end-3">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
               </div>
             )}
-            {showAuthorsDropdown && availableAuthors.length > 0 && (
+            {showAuthorsDropdown && filteredAuthors.length > 0 && (
               <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
-                {availableAuthors.map((author) => (
+                {filteredAuthors.map((author) => (
                   <div
                     key={author.id}
-                    onClick={() => handleAddAuthor(author)}
+                    onClick={() => handleSelectAuthor(author)}
                     className="px-4 py-2 hover:bg-blue-50 cursor-pointer"
                   >
                     {author.name}
@@ -504,16 +558,16 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
           </div>
           {selectedAuthors.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
-              {selectedAuthors.map((author) => (
+              {selectedAuthors.map((authorName) => (
                 <span
-                  key={author.id}
+                  key={authorName}
                   className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800"
                 >
-                  {author.name}
+                  {authorName}
                   <button
                     type="button"
-                    onClick={() => handleRemoveAuthor(author.id)}
-                    className="ml-2 text-blue-600 hover:text-blue-800"
+                    onClick={() => handleRemoveAuthor(authorName)}
+                    className={`${isRtl ? 'mr-2' : 'ml-2'} text-blue-600 hover:text-blue-800`}
                     disabled={isUploading}
                   >
                     ×
@@ -522,12 +576,15 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
               ))}
             </div>
           )}
+          <p className="mt-1 text-xs text-gray-500">
+            {t('upload.authorHint', 'اختر من المؤلفين المتاحين أو أضف مؤلفًا جديدًا.')}
+          </p>
         </div>
 
         {/* Categories */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Categories
+            {t('upload.categories', 'التصنيفات')}
           </label>
           <div className="relative" ref={categoriesDropdownRef}>
             <div className="flex gap-2">
@@ -542,7 +599,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
                   }
                 }}
                 className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Search or enter category name"
+                placeholder={t('upload.searchOrCategory', 'ابحث أو اكتب اسم التصنيف')}
                 disabled={isUploading}
               />
               <button
@@ -551,11 +608,11 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
                 className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50"
                 disabled={isUploading || !categoryInput.trim()}
               >
-                Add
+                {t('upload.add', 'إضافة')}
               </button>
             </div>
             {isLoadingCategories && (
-              <div className="absolute right-3 top-2.5">
+              <div className="absolute top-2.5 inset-inline-end-3">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
               </div>
             )}
@@ -584,7 +641,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
                   <button
                     type="button"
                     onClick={() => handleRemoveCategory(category)}
-                    className="ml-2 text-gray-600 hover:text-gray-800"
+                    className={`${isRtl ? 'mr-2' : 'ml-2'} text-gray-600 hover:text-gray-800`}
                     disabled={isUploading}
                   >
                     ×
@@ -594,14 +651,14 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
             </div>
           )}
           <p className="mt-1 text-xs text-gray-500">
-            Select from existing categories or type a new category name
+            {t('upload.categoryHint', 'اختر من التصنيفات المتاحة أو أضف تصنيفًا جديدًا.')}
           </p>
         </div>
 
         {/* Alternate Titles */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Alternate Titles
+            {t('upload.altTitles', 'العناوين البديلة')}
           </label>
           <div className="flex gap-2">
             <input
@@ -610,7 +667,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
               onChange={(e) => setAlternateTitleInput(e.target.value)}
               onKeyPress={handleAlternateTitleKeyPress}
               className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter alternate title and press Enter"
+              placeholder={t('upload.altInput', 'اكتب عنوانًا بديلًا ثم اضغط Enter')}
               disabled={isUploading}
             />
             <button
@@ -619,7 +676,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
               className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50"
               disabled={isUploading || !alternateTitleInput.trim() || alternateTitleInput.trim() === title.trim()}
             >
-              Add
+              {t('upload.add', 'إضافة')}
             </button>
           </div>
           {alternateTitles.length > 0 && (
@@ -633,7 +690,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
                   <button
                     type="button"
                     onClick={() => handleRemoveAlternateTitle(altTitle)}
-                    className="ml-2 text-purple-600 hover:text-purple-800"
+                    className={`${isRtl ? 'mr-2' : 'ml-2'} text-purple-600 hover:text-purple-800`}
                     disabled={isUploading}
                   >
                     ×
@@ -643,14 +700,14 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
             </div>
           )}
           <p className="mt-1 text-xs text-gray-500">
-            Add alternative names or titles for this document (different from the main title)
+            {t('upload.altHint', 'أضف أسماء بديلة مختلفة عن العنوان الرئيسي.')}
           </p>
         </div>
 
         {/* Description */}
         <div>
           <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
-            Description
+            {t('upload.description', 'الوصف')}
           </label>
           <textarea
             id="description"
@@ -658,7 +715,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Enter document description..."
+            placeholder={t('upload.descriptionInput', 'اكتب وصف الكتاب...')}
             disabled={isUploading}
           />
         </div>
@@ -672,15 +729,21 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
           className="flex items-center text-sm font-medium text-gray-700 hover:text-gray-900"
         >
           <span>{showAdvanced ? '▼' : '▶'}</span>
-          <span className="ml-2">Advanced Options</span>
+          <span className={`${isRtl ? 'mr-2' : 'ml-2'}`}>
+            {t('upload.advanced', 'خيارات متقدمة')}
+          </span>
         </button>
 
         {showAdvanced && (
-          <div className="mt-4 space-y-4 pl-6 border-l-2 border-gray-200">
+          <div
+            className={`mt-4 space-y-4 border-gray-200 ${
+              isRtl ? 'pr-6 border-r-2' : 'pl-6 border-l-2'
+            }`}
+          >
             {/* Written Date */}
             <div>
               <label htmlFor="written_date" className="block text-sm font-medium text-gray-700 mb-1">
-                Written Date
+                {t('upload.writtenDate', 'تاريخ التأليف')}
               </label>
               <input
                 type="text"
@@ -688,18 +751,18 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
                 value={writtenDate}
                 onChange={(e) => setWrittenDate(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., 1200 CE, 5th century"
+                placeholder={t('upload.writtenDatePlaceholder', '1200م أو القرن الخامس')}
                 disabled={isUploading}
               />
               <p className="mt-1 text-xs text-gray-500">
-                Flexible format (e.g., "1200 CE", "5th century")
+                {t('upload.writtenDateHint', 'صيغة مرنة مثل: 1200م أو القرن الخامس.')}
               </p>
             </div>
 
             {/* Language */}
             <div>
               <label htmlFor="language" className="block text-sm font-medium text-gray-700 mb-1">
-                Language
+                {t('upload.language', 'لغة المحتوى')}
               </label>
               <select
                 id="language"
@@ -708,31 +771,36 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={isUploading}
               >
-                <option value="">Select language</option>
-                <option value="ar">Arabic</option>
-                <option value="en">English</option>
-                <option value="fr">French</option>
-                <option value="es">Spanish</option>
-                <option value="de">German</option>
-                <option value="it">Italian</option>
-                <option value="pt">Portuguese</option>
-                <option value="ru">Russian</option>
-                <option value="zh">Chinese</option>
-                <option value="ja">Japanese</option>
+                <option value="">{t('upload.selectLanguage', 'اختر اللغة')}</option>
+                <option value="ar">{t('upload.languageName.ar', 'العربية')}</option>
+                <option value="en">{t('upload.languageName.en', 'English')}</option>
+                <option value="fa">{t('upload.languageName.fa', 'فارسی')}</option>
+                <option value="ur">{t('upload.languageName.ur', 'اردو')}</option>
+                <option value="fr">{t('upload.languageName.fr', 'Français')}</option>
+                <option value="es">{t('upload.languageName.es', 'Español')}</option>
+                <option value="de">{t('upload.languageName.de', 'Deutsch')}</option>
+                <option value="it">{t('upload.languageName.it', 'Italiano')}</option>
+                <option value="pt">{t('upload.languageName.pt', 'Português')}</option>
+                <option value="ru">{t('upload.languageName.ru', 'Русский')}</option>
+                <option value="zh">{t('upload.languageName.zh', '中文')}</option>
+                <option value="ja">{t('upload.languageName.ja', '日本語')}</option>
+                <option value="tr">{t('upload.languageName.tr', 'Türkçe')}</option>
               </select>
             </div>
 
             {/* Cover Photo */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cover Photo
+                {t('upload.cover', 'صورة الغلاف')}
               </label>
               <input
                 ref={coverPhotoInputRef}
                 type="file"
                 accept="image/*"
                 onChange={handleCoverPhotoSelect}
-                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                className={`block w-full text-sm text-gray-500 ${
+                  isRtl ? 'file:ml-4' : 'file:mr-4'
+                } file:rounded-md file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100`}
                 disabled={isUploading}
               />
               {errors.cover_photo && (
@@ -742,7 +810,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
                 <div className="mt-2">
                   <img
                     src={coverPhotoPreview}
-                    alt="Cover preview"
+                    alt={t('upload.cover', 'صورة الغلاف')}
                     className="max-w-xs h-48 object-cover rounded-md border border-gray-300"
                   />
                 </div>
@@ -773,7 +841,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
           className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50"
           disabled={isUploading}
         >
-          Reset
+          {t('upload.reset', 'إعادة ضبط')}
         </button>
         <button
           type="button"
@@ -781,7 +849,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
           className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={isUploading || !selectedFile || !title.trim()}
         >
-          {isUploading ? 'Uploading...' : 'Upload Document'}
+          {isUploading ? t('upload.uploading', 'جارٍ الرفع...') : t('upload.submit', 'رفع الكتاب')}
         </button>
       </div>
     </div>

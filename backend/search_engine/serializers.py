@@ -1,5 +1,14 @@
+import os
+
 from rest_framework import serializers
 from .models import Document, Author, DocumentAlternateName, Category
+
+
+MAX_DOCUMENT_FILE_SIZE_MB = int(os.environ.get('MAX_DOCUMENT_FILE_SIZE_MB', '25'))
+MAX_DOCUMENT_FILE_SIZE_BYTES = MAX_DOCUMENT_FILE_SIZE_MB * 1024 * 1024
+MAX_COVER_FILE_SIZE_MB = int(os.environ.get('MAX_COVER_FILE_SIZE_MB', '10'))
+MAX_COVER_FILE_SIZE_BYTES = MAX_COVER_FILE_SIZE_MB * 1024 * 1024
+ALLOWED_DOCUMENT_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt'}
 
 
 class AuthorListSerializer(serializers.ModelSerializer):
@@ -90,8 +99,39 @@ class DocumentListSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Document
-        fields = ['id', 'title', 'file', 'uploaded_at', 'processed', 'language', 'authors', 'authors_ids', 'categories', 'category_ids', 'cover_photo', 'cover_photo_url', 'thumbnail', 'thumbnail_url', 'description', 'written_date']
-        read_only_fields = ['id', 'uploaded_at', 'processed', 'authors', 'categories', 'thumbnail_url', 'cover_photo_url']
+        fields = [
+            'id',
+            'title',
+            'file',
+            'uploaded_at',
+            'processed',
+            'processing_status',
+            'processing_error',
+            'processing_attempts',
+            'language',
+            'authors',
+            'authors_ids',
+            'categories',
+            'category_ids',
+            'cover_photo',
+            'cover_photo_url',
+            'thumbnail',
+            'thumbnail_url',
+            'description',
+            'written_date',
+        ]
+        read_only_fields = [
+            'id',
+            'uploaded_at',
+            'processed',
+            'processing_status',
+            'processing_error',
+            'processing_attempts',
+            'authors',
+            'categories',
+            'thumbnail_url',
+            'cover_photo_url',
+        ]
     
     def get_thumbnail_url(self, obj):
         """Return thumbnail URL if available."""
@@ -136,8 +176,46 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Document
-        fields = ['id', 'title', 'file', 'uploaded_at', 'processed', 'language', 'content', 'authors', 'authors_ids', 'categories', 'category_ids', 'cover_photo', 'cover_photo_url', 'thumbnail', 'thumbnail_url', 'description', 'written_date', 'alternate_names']
-        read_only_fields = ['id', 'uploaded_at', 'processed', 'authors', 'categories', 'alternate_names', 'thumbnail_url', 'cover_photo_url']
+        fields = [
+            'id',
+            'title',
+            'file',
+            'uploaded_at',
+            'processed',
+            'processing_status',
+            'processing_error',
+            'processing_attempts',
+            'processing_started_at',
+            'processing_completed_at',
+            'language',
+            'content',
+            'authors',
+            'authors_ids',
+            'categories',
+            'category_ids',
+            'cover_photo',
+            'cover_photo_url',
+            'thumbnail',
+            'thumbnail_url',
+            'description',
+            'written_date',
+            'alternate_names',
+        ]
+        read_only_fields = [
+            'id',
+            'uploaded_at',
+            'processed',
+            'processing_status',
+            'processing_error',
+            'processing_attempts',
+            'processing_started_at',
+            'processing_completed_at',
+            'authors',
+            'categories',
+            'alternate_names',
+            'thumbnail_url',
+            'cover_photo_url',
+        ]
     
     def get_thumbnail_url(self, obj):
         """Return thumbnail URL if available."""
@@ -180,6 +258,12 @@ class DocumentSerializer(serializers.ModelSerializer):
         required=False,
         help_text="List of category names (will be created if they don't exist)"
     )
+    author_names = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        write_only=True,
+        required=False,
+        help_text="List of author names (will be created if they don't exist)"
+    )
     alternate_names = serializers.ListField(
         child=serializers.CharField(max_length=500),
         write_only=True,
@@ -189,8 +273,43 @@ class DocumentSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Document
-        fields = ['id', 'title', 'file', 'uploaded_at', 'processed', 'language', 'content', 'authors', 'authors_ids', 'categories', 'category_ids', 'category_names', 'cover_photo', 'thumbnail', 'description', 'written_date', 'alternate_names']
-        read_only_fields = ['id', 'uploaded_at', 'processed', 'authors', 'categories']
+        fields = [
+            'id',
+            'title',
+            'file',
+            'uploaded_at',
+            'processed',
+            'processing_status',
+            'processing_error',
+            'processing_attempts',
+            'processing_started_at',
+            'processing_completed_at',
+            'language',
+            'content',
+            'authors',
+            'authors_ids',
+            'author_names',
+            'categories',
+            'category_ids',
+            'category_names',
+            'cover_photo',
+            'thumbnail',
+            'description',
+            'written_date',
+            'alternate_names',
+        ]
+        read_only_fields = [
+            'id',
+            'uploaded_at',
+            'processed',
+            'processing_status',
+            'processing_error',
+            'processing_attempts',
+            'processing_started_at',
+            'processing_completed_at',
+            'authors',
+            'categories',
+        ]
     
     def validate(self, attrs):
         """Validate that required fields are present."""
@@ -200,6 +319,25 @@ class DocumentSerializer(serializers.ModelSerializer):
             if 'file' not in attrs or not attrs.get('file'):
                 raise serializers.ValidationError({'file': 'This field is required.'})
         return attrs
+
+    def validate_file(self, file_obj):
+        extension = os.path.splitext(file_obj.name)[1].lower()
+        if extension not in ALLOWED_DOCUMENT_EXTENSIONS:
+            raise serializers.ValidationError(
+                f'Unsupported file extension "{extension}". Allowed: {", ".join(sorted(ALLOWED_DOCUMENT_EXTENSIONS))}.'
+            )
+        if file_obj.size > MAX_DOCUMENT_FILE_SIZE_BYTES:
+            raise serializers.ValidationError(
+                f'File is too large. Maximum allowed size is {MAX_DOCUMENT_FILE_SIZE_MB} MB.'
+            )
+        return file_obj
+
+    def validate_cover_photo(self, file_obj):
+        if file_obj.size > MAX_COVER_FILE_SIZE_BYTES:
+            raise serializers.ValidationError(
+                f'Cover photo is too large. Maximum allowed size is {MAX_COVER_FILE_SIZE_MB} MB.'
+            )
+        return file_obj
 
 
 class DocumentPageSerializer(serializers.Serializer):

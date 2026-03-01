@@ -1,0 +1,129 @@
+<svg width="900" height="620" viewBox="0 0 900 620" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="pageCream" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFF8E8"/>
+      <stop offset="100%" stop-color="#F5EBD1"/>
+    </linearGradient>
+    <linearGradient id="goldBand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="transparent"/>
+      <stop offset="20%" stop-color="#D4A853"/>
+      <stop offset="80%" stop-color="#D4A853"/>
+      <stop offset="100%" stop-color="transparent"/>
+    </linearGradient>
+    <radialGradient id="lampGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#F5D67E" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#F5D67E" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="620" rx="28" fill="#F5EBD1"/>
+
+  <!-- Subtle geometric pattern -->
+  <g opacity="0.04">
+    <pattern id="bookPattern" x="0" y="0" width="50" height="50" patternUnits="userSpaceOnUse">
+      <path d="M25 0L50 25L25 50L0 25Z" fill="none" stroke="#8B6914" stroke-width="0.5"/>
+      <circle cx="25" cy="25" r="6" fill="none" stroke="#8B6914" stroke-width="0.4"/>
+    </pattern>
+    <rect width="900" height="620" fill="url(#bookPattern)"/>
+  </g>
+
+  <!-- Open book — left page -->
+  <g>
+    <!-- Book spine shadow -->
+    <rect x="438" y="88" width="24" height="440" fill="#C8A86B" opacity="0.15" rx="2"/>
+
+    <!-- Left page -->
+    <path d="M100 100C100 90 108 82 118 82H438V540H118C108 540 100 532 100 522V100Z" fill="url(#pageCream)" stroke="#D8BF90" stroke-width="3"/>
+
+    <!-- Left page inner border (arabesque frame) -->
+    <rect x="125" y="108" width="290" height="408" rx="8" fill="none" stroke="#D5BF93" stroke-width="1.5" opacity="0.5"/>
+
+    <!-- Left page arabesque corner (top-right) -->
+    <g transform="translate(388, 112)" opacity="0.3">
+      <path d="M0 0C12 0 24 12 24 24" stroke="#C8A86B" stroke-width="1.5" fill="none"/>
+      <path d="M0 6C8 6 18 16 18 24" stroke="#C8A86B" stroke-width="1" fill="none"/>
+    </g>
+    <!-- Left page arabesque corner (top-left) -->
+    <g transform="translate(128, 112)" opacity="0.3">
+      <path d="M24 0C12 0 0 12 0 24" stroke="#C8A86B" stroke-width="1.5" fill="none"/>
+      <path d="M24 6C16 6 6 16 6 24" stroke="#C8A86B" stroke-width="1" fill="none"/>
+    </g>
+
+    <!-- Left page text lines -->
+    <g opacity="0.5">
+      <path d="M155 170H390" stroke="#CCA96B" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M155 210H370" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M155 250H380" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M155 290H360" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M155 330H375" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M155 370H365" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M155 410H380" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M155 450H355" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+    </g>
+
+    <!-- Marginal note decoration (left) -->
+    <g transform="translate(110, 200)" opacity="0.2">
+      <rect width="20" height="80" rx="4" fill="#E8D5A8"/>
+      <path d="M5 10V70" stroke="#C8A86B" stroke-width="0.5" stroke-dasharray="3 3"/>
+    </g>
+  </g>
+
+  <!-- Right page -->
+  <g>
+    <path d="M462 82H782C792 82 800 90 800 100V522C800 532 792 540 782 540H462V82Z" fill="url(#pageCream)" stroke="#D8BF90" stroke-width="3"/>
+
+    <!-- Right page inner border -->
+    <rect x="485" y="108" width="290" height="408" rx="8" fill="none" stroke="#D5BF93" stroke-width="1.5" opacity="0.5"/>
+
+    <!-- Right page arabesque corners -->
+    <g transform="translate(748, 112)" opacity="0.3">
+      <path d="M0 0C12 0 24 12 24 24" stroke="#C8A86B" stroke-width="1.5" fill="none"/>
+      <path d="M0 6C8 6 18 16 18 24" stroke="#C8A86B" stroke-width="1" fill="none"/>
+    </g>
+    <g transform="translate(488, 112)" opacity="0.3">
+      <path d="M24 0C12 0 0 12 0 24" stroke="#C8A86B" stroke-width="1.5" fill="none"/>
+      <path d="M24 6C16 6 6 16 6 24" stroke="#C8A86B" stroke-width="1" fill="none"/>
+    </g>
+
+    <!-- Right page text lines -->
+    <g opacity="0.5">
+      <path d="M515 170H750" stroke="#CCA96B" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M515 210H730" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M515 250H740" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M515 290H720" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M515 330H735" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M515 370H725" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M515 410H740" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+      <path d="M515 450H715" stroke="#CCA96B" stroke-width="2" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <!-- Arabesque page divider (horizontal ornament between book) -->
+  <g transform="translate(350, 480)" opacity="0.3">
+    <line x1="0" y1="15" x2="90" y2="15" stroke="#C8A86B" stroke-width="1"/>
+    <line x1="110" y1="15" x2="200" y2="15" stroke="#C8A86B" stroke-width="1"/>
+    <path d="M100 5L106 13L114 15L106 17L100 25L94 17L86 15L94 13Z" fill="#C8A86B"/>
+  </g>
+
+  <!-- Reading lamp / مشكاة motif (top right) -->
+  <g transform="translate(770, 30)">
+    <!-- Lamp glow -->
+    <circle cx="40" cy="70" r="50" fill="url(#lampGlow)"/>
+    <!-- Chain -->
+    <line x1="40" y1="0" x2="40" y2="30" stroke="#C8A86B" stroke-width="2"/>
+    <!-- Lamp body (mishkat shape) -->
+    <path d="M20 30C20 30 15 50 15 65C15 80 25 90 40 90C55 90 65 80 65 65C65 50 60 30 60 30Z" fill="#D4A853" opacity="0.5" stroke="#C8A86B" stroke-width="1.5"/>
+    <path d="M28 35C28 35 25 50 25 60C25 72 32 80 40 80C48 80 55 72 55 60C55 50 52 35 52 35Z" fill="#F5D67E" opacity="0.4"/>
+    <!-- Flame -->
+    <ellipse cx="40" cy="55" rx="5" ry="10" fill="#F5D67E" opacity="0.7"/>
+    <ellipse cx="40" cy="52" rx="3" ry="6" fill="#FFF8E8" opacity="0.6"/>
+    <!-- Lamp base decoration -->
+    <path d="M25 88H55" stroke="#C8A86B" stroke-width="1.5"/>
+  </g>
+
+  <!-- Decorative star at book spine top -->
+  <g transform="translate(438, 60)" opacity="0.3">
+    <path d="M12 0L15 9L24 12L15 15L12 24L9 15L0 12L9 9Z" fill="#C8A86B"/>
+  </g>
+</svg>

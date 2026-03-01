@@ -46,23 +46,51 @@ class Category(models.Model):
 
 class Document(models.Model):
     """Document model for storing file metadata."""
+    class ProcessingStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        PROCESSING = 'processing', 'Processing'
+        SUCCEEDED = 'succeeded', 'Succeeded'
+        FAILED = 'failed', 'Failed'
+
     title = models.CharField(max_length=500)
     file = models.FileField(upload_to='documents/')
     uploaded_at = models.DateTimeField(auto_now_add=True)
     processed = models.BooleanField(default=False)
+    processing_status = models.CharField(
+        max_length=20,
+        choices=ProcessingStatus.choices,
+        default=ProcessingStatus.PENDING,
+        help_text="State of asynchronous document processing"
+    )
+    processing_error = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Last processing error (if any)"
+    )
+    processing_attempts = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of processing attempts"
+    )
+    processing_started_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="When processing was last started"
+    )
+    processing_completed_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="When processing last completed (success/failure)"
+    )
     language = models.CharField(max_length=10, blank=True, null=True)
     content = models.TextField(null=True, blank=True)
-    # Keep old authors JSONField temporarily for migration, will be removed later
-    authors_old = models.JSONField(
-        default=list, blank=True, help_text="Legacy authors field (deprecated)")
+    semantic_vector = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Deterministic embedding vector used for hybrid search reranking"
+    )
     # New ManyToMany relationship with Author model
     authors = models.ManyToManyField(
         Author, related_name='documents', blank=True, help_text="Authors of the document")
-    # Keep old categories JSONField temporarily for migration, will be removed later
-    # Note: This field will be created by migration 0006
-    # IMPORTANT: Run migrations before using this model: python manage.py migrate
-    categories_old = models.JSONField(
-        default=list, blank=True, help_text="Legacy categories field (deprecated)")
     # New ManyToMany relationship with Category model
     categories = models.ManyToManyField(
         Category, related_name='documents', blank=True, help_text="Categories of the document")
@@ -84,6 +112,26 @@ class Document(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class DocumentChunk(models.Model):
+    """Per-page/chunk embedding storage for in-document semantic search."""
+    document = models.ForeignKey(
+        Document, on_delete=models.CASCADE, related_name='chunks', db_index=True)
+    chunk_index = models.PositiveIntegerField()
+    page_number = models.PositiveIntegerField()
+    content = models.TextField()
+    embedding = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'search_engine_document_chunks'
+        ordering = ['document', 'chunk_index']
+        unique_together = [['document', 'chunk_index']]
+        indexes = [models.Index(fields=['document', 'chunk_index'], name='chunk_doc_idx')]
+
+    def __str__(self):
+        return f"{self.document.title} — chunk {self.chunk_index} (page {self.page_number})"
 
 
 class DocumentAlternateName(models.Model):

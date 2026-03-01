@@ -3,35 +3,105 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8f7f3;
+  --foreground: #1d1f22;
+  --surface: #ffffff;
+  --brand: #a16207;
+  --brand-accent: #0f766e;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #020617;
+    --foreground: #f8fafc;
+    --surface: #0f172a;
+    --brand: #eab308;
+    --brand-accent: #10b981;
   }
 }
 
 body {
   color: var(--foreground);
-  background: var(--background);
-  font-family:
-    "Inter",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    sans-serif;
+  background:
+    radial-gradient(
+      circle at 20% -20%,
+      rgba(251, 191, 36, 0.22),
+      transparent 35%
+    ),
+    radial-gradient(
+      circle at 95% 10%,
+      rgba(20, 184, 166, 0.2),
+      transparent 28%
+    ),
+    var(--background);
+  font-family: var(--font-arabic), var(--font-manrope), "Segoe UI", sans-serif;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+html[lang="en"] body {
+  font-family: var(--font-manrope), "Segoe UI", sans-serif;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  .text-start {
+    text-align: start;
+  }
+
+  .text-end {
+    text-align: end;
+  }
+
+  .inset-inline-start-3 {
+    inset-inline-start: 0.75rem;
+  }
+
+  .inset-inline-start-4 {
+    inset-inline-start: 1rem;
+  }
+
+  .inset-inline-end-3 {
+    inset-inline-end: 0.75rem;
+  }
+
+  .inset-inline-end-4 {
+    inset-inline-end: 1rem;
+  }
+
+  .ps-10 {
+    padding-inline-start: 2.5rem;
+  }
+
+  .pe-12 {
+    padding-inline-end: 3rem;
+  }
+
+  .border-inline-start {
+    border-inline-start-width: 1px;
+  }
+
+  .border-inline-end {
+    border-inline-end-width: 1px;
+  }
+
+  .glass {
+    @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-lg dark:bg-slate-900/70 dark:border-slate-800/50;
+  }
+
+  .glass-dark {
+    @apply bg-slate-900/80 backdrop-blur-lg border border-slate-700/50 shadow-[0_8px_32px_rgba(0,0,0,0.3)];
+  }
+
+  .glass-amber {
+    @apply bg-amber-50/80 backdrop-blur-md border border-amber-200/50 shadow-lg dark:bg-amber-950/40 dark:border-amber-900/50;
+  }
+
+  .glass-teal {
+    @apply bg-teal-50/80 backdrop-blur-md border border-teal-200/50 shadow-lg dark:bg-teal-950/40 dark:border-teal-900/50;
   }
 }
 
@@ -125,6 +195,14 @@ mark {
   .book-card:hover {
     @apply shadow-xl -translate-y-1;
   }
+
+  .btn-solid-brand {
+    @apply inline-flex items-center justify-center rounded-xl bg-amber-700 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors duration-200 hover:bg-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-amber-500 dark:text-stone-950 dark:hover:bg-amber-400 dark:focus:ring-offset-gray-900;
+  }
+
+  .btn-solid-brand-sm {
+    @apply inline-flex items-center justify-center rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors duration-200 hover:bg-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-amber-500 dark:text-stone-950 dark:hover:bg-amber-400 dark:focus:ring-offset-gray-900;
+  }
 }
 
 /* Prose styling enhancements for document content */
@@ -178,6 +256,60 @@ mark {
   letter-spacing: 0.01em;
 }
 
+/* Reader theme styles */
+[data-reader-theme="sepia"] {
+  --reader-bg: #f8f0e3;
+  --reader-text: #5c4b37;
+}
+
+[data-reader-theme="sepia"] .bg-white {
+  background-color: #f8f0e3 !important;
+}
+
+[data-reader-theme="sepia"] article {
+  background-color: #faf4e8 !important;
+  color: #5c4b37 !important;
+}
+
+[data-reader-theme="dark"] {
+  --reader-bg: #1a1a2e;
+  --reader-text: #d4d4d8;
+}
+
+[data-reader-theme="dark"] .bg-white {
+  background-color: #1a1a2e !important;
+}
+
+[data-reader-theme="dark"] article {
+  background-color: #222240 !important;
+  color: #d4d4d8 !important;
+}
+
+[data-reader-theme="dark"] article header {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-reader-theme="dark"] article header span {
+  color: #9ca3af !important;
+}
+
+/* Reader popover animation */
+@keyframes popoverIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-popover-in {
+  animation: popoverIn 0.15s ease-out forwards;
+}
+
 /* Focus ring utilities */
 .focus-ring {
   @apply focus:ring-2 focus:ring-indigo-500/50 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-gray-800;
@@ -186,4 +318,362 @@ mark {
 /* Smooth scrollbar */
 .smooth-scroll {
   scroll-behavior: smooth;
+}
+
+/* ═══════════════════════════════════════════════════
+   Islamic Cultural Design — Landing Page Enhancements
+   ═══════════════════════════════════════════════════ */
+
+/* Floating animation for decorative elements */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(3deg);
+  }
+}
+
+@keyframes floatSlow {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(-2deg);
+  }
+}
+
+@keyframes spinSlow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Scroll-triggered reveal animation */
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes revealScale {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Section reveal with scroll-driven animation (progressive enhancement) */
+.section-reveal {
+  opacity: 0;
+  transform: translateY(32px);
+  animation: reveal 0.7s ease-out forwards;
+  animation-timeline: view();
+  animation-range: entry 0% entry 40%;
+}
+
+/* Fallback: if animation-timeline is not supported, show immediately */
+@supports not (animation-timeline: view()) {
+  .section-reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Islamic geometric repeating pattern background */
+.islamic-pattern-bg {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23d4a853' stroke-width='0.5' opacity='0.18'%3E%3Cpath d='M30 0L60 30L30 60L0 30Z'/%3E%3Cpath d='M30 10L50 30L30 50L10 30Z'/%3E%3Ccircle cx='30' cy='30' r='8'/%3E%3Cpath d='M30 0V60M0 30H60'/%3E%3Cpath d='M0 0L60 60M60 0L0 60'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 60px 60px;
+}
+
+/* Denser geometric pattern for dark sections */
+.islamic-pattern-bg-dark {
+  background-image: url("data:image/svg+xml,%3Csvg width='48' height='48' viewBox='0 0 48 48' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%2314b8a6' stroke-width='0.4' opacity='0.12'%3E%3Cpath d='M24 0L48 24L24 48L0 24Z'/%3E%3Cpath d='M24 8L40 24L24 40L8 24Z'/%3E%3Ccircle cx='24' cy='24' r='6'/%3E%3Cpath d='M0 0L48 48M48 0L0 48'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 48px 48px;
+}
+
+/* Ornamental divider — arabesque horizontal rule */
+.ornamental-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.ornamental-divider::before,
+.ornamental-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #c8a86b 30%,
+    #c8a86b 70%,
+    transparent
+  );
+}
+
+.ornamental-divider-symbol {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  background: #c8a86b;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  position: relative;
+}
+
+.ornamental-divider-symbol::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  background: var(--background, #f8f7f3);
+  border-radius: 1px;
+}
+
+/* Ambient glow effects */
+.glow-amber {
+  box-shadow:
+    0 0 40px rgba(217, 168, 72, 0.15),
+    0 0 80px rgba(217, 168, 72, 0.08);
+}
+
+.glow-teal {
+  box-shadow:
+    0 0 40px rgba(20, 184, 166, 0.15),
+    0 0 80px rgba(20, 184, 166, 0.08);
+}
+
+/* Arabesque-inspired decorative card border */
+.arabesque-border {
+  position: relative;
+  border: 1px solid #d5bf93;
+}
+
+.arabesque-border::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 10%;
+  right: 10%;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #c8a86b 20%,
+    #d4a853,
+    #c8a86b 80%,
+    transparent
+  );
+  border-radius: 0 0 4px 4px;
+}
+
+/* Decorative star ornament (CSS-only 8-point star) */
+.star-ornament {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+.star-ornament::before,
+.star-ornament::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #c8a86b;
+}
+
+.star-ornament::before {
+  clip-path: polygon(
+    50% 0%,
+    65% 35%,
+    100% 50%,
+    65% 65%,
+    50% 100%,
+    35% 65%,
+    0% 50%,
+    35% 35%
+  );
+}
+
+.star-ornament::after {
+  clip-path: polygon(
+    50% 0%,
+    65% 35%,
+    100% 50%,
+    65% 65%,
+    50% 100%,
+    35% 65%,
+    0% 50%,
+    35% 35%
+  );
+  transform: rotate(22.5deg);
+  opacity: 0.6;
+}
+
+/* Medallion frame for step numbers */
+.medallion {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid #c8a86b;
+  background: linear-gradient(135deg, #fdf5df, #f8ecd2);
+  font-weight: 800;
+  color: #92400e;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.medallion::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid rgba(200, 168, 107, 0.3);
+}
+
+/* Connecting line between journey steps */
+.journey-connector {
+  position: absolute;
+  top: 48px;
+  width: 2px;
+  height: calc(100% - 48px);
+  background: linear-gradient(to bottom, #c8a86b, transparent);
+  opacity: 0.3;
+}
+
+[dir="rtl"] .journey-connector {
+  right: 23px;
+}
+
+[dir="ltr"] .journey-connector {
+  left: 23px;
+}
+
+/* Arabic guillemet quotation marks */
+.arabic-quote {
+  position: relative;
+  padding-top: 1.5rem;
+}
+
+.arabic-quote::before {
+  content: "\AB";
+  position: absolute;
+  top: 0;
+  font-size: 2rem;
+  line-height: 1;
+  color: #c8a86b;
+  font-weight: 700;
+}
+
+[dir="rtl"] .arabic-quote::before {
+  right: 0;
+}
+
+[dir="ltr"] .arabic-quote::before {
+  left: 0;
+}
+
+/* Geometric corner decorations */
+.geo-corner::before,
+.geo-corner::after {
+  content: "";
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border: 2px solid rgba(200, 168, 107, 0.3);
+  pointer-events: none;
+}
+
+.geo-corner::before {
+  top: 8px;
+  right: 8px;
+  border-left: none;
+  border-bottom: none;
+  border-radius: 0 8px 0 0;
+}
+
+.geo-corner::after {
+  bottom: 8px;
+  left: 8px;
+  border-right: none;
+  border-top: none;
+  border-radius: 0 0 0 8px;
+}
+
+/* Floating decorative element animations */
+.float-slow {
+  animation: floatSlow 6s ease-in-out infinite;
+}
+
+.float-medium {
+  animation: float 5s ease-in-out infinite;
+}
+
+.spin-slow {
+  animation: spinSlow 20s linear infinite;
+}
+
+/* Category chip hover glow */
+.category-chip {
+  transition: all 0.3s ease;
+}
+
+.category-chip:hover {
+  box-shadow: 0 0 20px rgba(217, 168, 72, 0.2);
+  border-color: #b8942f;
+  transform: translateY(-2px);
+}
+
+/* Stats card decorative frame */
+.stat-frame {
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-frame::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, currentColor, transparent);
+  opacity: 0.2;
+}
+
+/* Footer Islamic geometric divider */
+.footer-divider {
+  height: 2px;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 8px,
+    #c8a86b 8px,
+    #c8a86b 16px
+  );
+  opacity: 0.3;
+  margin-bottom: 1.5rem;
 }

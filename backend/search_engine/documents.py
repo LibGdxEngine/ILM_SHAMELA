@@ -79,32 +79,19 @@ class DocumentIndex(Document):
 
         # Handle authors from ManyToMany relationship
         if hasattr(instance, 'authors') and instance.authors.exists():
-            # Get author names from ManyToMany relationship
-            author_names = list(
-                instance.authors.values_list('name', flat=True))
-            # Also include alternate names from authors
+            author_names = list(instance.authors.values_list('name', flat=True))
             for author in instance.authors.all():
                 if author.alternate_names:
                     author_names.extend(author.alternate_names)
             self.authors = author_names
         else:
-            # Fallback to old JSONField if exists (for migration period)
-            if hasattr(instance, 'authors_old') and instance.authors_old:
-                self.authors = instance.authors_old if isinstance(
-                    instance.authors_old, list) else []
-            else:
-                self.authors = []
+            self.authors = []
 
         # Handle categories from ManyToMany relationship
         if hasattr(instance, 'categories') and instance.categories.exists():
-            # Get category names from ManyToMany relationship
             self.categories = list(instance.categories.values_list('name', flat=True))
         else:
-            # Fallback to old JSONField if exists (for migration period)
-            if hasattr(instance, 'categories_old') and instance.categories_old:
-                self.categories = instance.categories_old if isinstance(instance.categories_old, list) else []
-            else:
-                self.categories = []
+            self.categories = []
 
         # Handle alternate names from DocumentAlternateName model
         if hasattr(instance, 'alternate_names') and instance.alternate_names.exists():

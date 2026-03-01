@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { getDocuments, Document, DocumentsListParams } from '@/lib/api';
 import BookCard from '@/components/BookCard';
 import BookCardSkeleton from '@/components/BookCardSkeleton';
+import RequireAuth from '@/components/RequireAuth';
+import { useI18n } from '@/components/i18n/I18nProvider';
+import { localeToDateLocale } from '@/lib/i18n/config';
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -37,7 +40,7 @@ function FilterSection({
     <div className="border-b border-gray-100 dark:border-gray-700 pb-4 mb-4 last:border-0 last:pb-0 last:mb-0">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-between w-full text-left font-medium text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+        className="flex items-center justify-between w-full text-start font-medium text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
       >
         {title}
         <svg
@@ -72,7 +75,7 @@ function FilterPill({
       {value}
       <button
         onClick={onRemove}
-        className="ml-1 hover:bg-indigo-200 dark:hover:bg-indigo-800 rounded-full p-0.5 transition-colors"
+        className="hover:bg-indigo-200 dark:hover:bg-indigo-800 rounded-full p-0.5 transition-colors"
       >
         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -83,6 +86,8 @@ function FilterPill({
 }
 
 export default function DocumentsPage() {
+  const { t, locale } = useI18n();
+
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +160,7 @@ export default function DocumentsPage() {
 
       response.results.forEach((doc) => {
         doc.authors?.forEach((a) => authors.add(a.name));
-        doc.categories?.forEach((c) => categories.add(c.name || c));
+        doc.categories?.forEach((c) => categories.add(typeof c === 'string' ? c : c.name));
         if (doc.language) languages.add(doc.language);
       });
 
@@ -163,12 +168,12 @@ export default function DocumentsPage() {
       setAvailableCategories(Array.from(categories).sort());
       setAvailableLanguages(Array.from(languages).sort());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load documents');
+      setError(err instanceof Error ? err.message : t('docs.errorLoading', 'حدث خطأ أثناء تحميل الكتب'));
       setDocuments([]);
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, debouncedSearch, selectedAuthors, selectedCategories, selectedLanguage, dateFrom, dateTo]);
+  }, [currentPage, debouncedSearch, selectedAuthors, selectedCategories, selectedLanguage, dateFrom, dateTo, t]);
 
   useEffect(() => {
     fetchDocuments();
@@ -181,7 +186,7 @@ export default function DocumentsPage() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString(localeToDateLocale(locale), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -222,38 +227,38 @@ export default function DocumentsPage() {
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
           </svg>
-          Filters
+          {t('docs.filters', 'المرشحات')}
         </h2>
         {hasActiveFilters && (
           <button
             onClick={clearFilters}
             className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium"
           >
-            Clear All
+            {t('docs.clearAll', 'مسح الكل')}
           </button>
         )}
       </div>
 
       {/* Search */}
-      <FilterSection title="Search" defaultOpen={true}>
+      <FilterSection title={t('docs.search', 'بحث')} defaultOpen={true}>
         <div className="relative">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="absolute inset-inline-start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search books..."
-            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 transition-all"
+            placeholder={t('docs.searchBooks', 'ابحث في الكتب...')}
+            className="w-full ps-10 px-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 transition-all"
           />
         </div>
       </FilterSection>
 
       {/* Authors */}
       {availableAuthors.length > 0 && (
-        <FilterSection title={`Authors (${availableAuthors.length})`}>
-          <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+        <FilterSection title={`${t('docs.authors', 'المؤلفون')} (${availableAuthors.length})`}>
+          <div className="space-y-2 max-h-48 overflow-y-auto ps-2 custom-scrollbar">
             {availableAuthors.map((author) => (
               <label key={author} className="flex items-center cursor-pointer group">
                 <input
@@ -262,7 +267,7 @@ export default function DocumentsPage() {
                   onChange={() => toggleAuthor(author)}
                   className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500 dark:bg-gray-700"
                 />
-                <span className="ml-3 text-sm text-gray-700 dark:text-gray-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors truncate">
+                <span className="mx-3 text-sm text-gray-700 dark:text-gray-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors truncate">
                   {author}
                 </span>
               </label>
@@ -273,8 +278,8 @@ export default function DocumentsPage() {
 
       {/* Categories */}
       {availableCategories.length > 0 && (
-        <FilterSection title={`Categories (${availableCategories.length})`}>
-          <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+        <FilterSection title={`${t('docs.categories', 'التصنيفات')} (${availableCategories.length})`}>
+          <div className="space-y-2 max-h-48 overflow-y-auto ps-2 custom-scrollbar">
             {availableCategories.map((category) => (
               <label key={category} className="flex items-center cursor-pointer group">
                 <input
@@ -283,7 +288,7 @@ export default function DocumentsPage() {
                   onChange={() => toggleCategory(category)}
                   className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500 dark:bg-gray-700"
                 />
-                <span className="ml-3 text-sm text-gray-700 dark:text-gray-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors truncate">
+                <span className="mx-3 text-sm text-gray-700 dark:text-gray-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors truncate">
                   {category}
                 </span>
               </label>
@@ -294,7 +299,7 @@ export default function DocumentsPage() {
 
       {/* Language */}
       {availableLanguages.length > 0 && (
-        <FilterSection title="Language">
+        <FilterSection title={t('docs.language', 'اللغة')}>
           <select
             value={selectedLanguage}
             onChange={(e) => {
@@ -303,7 +308,7 @@ export default function DocumentsPage() {
             }}
             className="w-full px-3 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900 dark:text-white transition-all"
           >
-            <option value="">All Languages</option>
+            <option value="">{t('docs.allLanguages', 'كل اللغات')}</option>
             {availableLanguages.map((lang) => (
               <option key={lang} value={lang}>
                 {lang.toUpperCase()}
@@ -314,10 +319,10 @@ export default function DocumentsPage() {
       )}
 
       {/* Date Range */}
-      <FilterSection title="Upload Date" defaultOpen={false}>
+      <FilterSection title={t('docs.uploadDate', 'تاريخ الرفع')} defaultOpen={false}>
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">From</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{t('docs.from', 'من')}</label>
             <input
               type="date"
               value={dateFrom}
@@ -329,7 +334,7 @@ export default function DocumentsPage() {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">To</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{t('docs.to', 'إلى')}</label>
             <input
               type="date"
               value={dateTo}
@@ -346,15 +351,16 @@ export default function DocumentsPage() {
   );
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
+    <RequireAuth>
+      <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-            📚 Library
+            📚 {t('docs.title', 'المكتبة')}
           </h1>
           <p className="text-gray-600 dark:text-gray-400 text-lg">
-            Browse and explore your uploaded books
+            {t('docs.subtitle', 'تصفّح كتبك ونتائج البحث بسهولة.')}
           </p>
         </div>
 
@@ -367,10 +373,12 @@ export default function DocumentsPage() {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
-            {showMobileFilters ? 'Hide Filters' : 'Show Filters'}
+            {showMobileFilters
+              ? t('docs.hideFilters', 'إخفاء المرشحات')
+              : t('docs.showFilters', 'إظهار المرشحات')}
             {hasActiveFilters && (
-              <span className="ml-1 px-2 py-0.5 text-xs bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400 rounded-full">
-                Active
+              <span className="px-2 py-0.5 text-xs bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400 rounded-full">
+                {t('docs.active', 'نشط')}
               </span>
             )}
           </button>
@@ -390,7 +398,7 @@ export default function DocumentsPage() {
               <div className="flex flex-wrap gap-2">
                 {searchQuery && (
                   <FilterPill
-                    label="Search"
+                    label={t('docs.search', 'بحث')}
                     value={searchQuery}
                     onRemove={() => setSearchQuery('')}
                   />
@@ -398,7 +406,7 @@ export default function DocumentsPage() {
                 {selectedAuthors.map((author) => (
                   <FilterPill
                     key={author}
-                    label="Author"
+                    label={t('docs.filter.author', 'مؤلف')}
                     value={author}
                     onRemove={() => toggleAuthor(author)}
                   />
@@ -406,21 +414,21 @@ export default function DocumentsPage() {
                 {selectedCategories.map((category) => (
                   <FilterPill
                     key={category}
-                    label="Category"
+                    label={t('docs.filter.category', 'تصنيف')}
                     value={category}
                     onRemove={() => toggleCategory(category)}
                   />
                 ))}
                 {selectedLanguage && (
                   <FilterPill
-                    label="Language"
+                    label={t('docs.language', 'اللغة')}
                     value={selectedLanguage.toUpperCase()}
                     onRemove={() => setSelectedLanguage('')}
                   />
                 )}
                 {(dateFrom || dateTo) && (
                   <FilterPill
-                    label="Date"
+                    label={t('docs.filter.date', 'تاريخ')}
                     value={`${dateFrom || '...'} - ${dateTo || '...'}`}
                     onRemove={() => {
                       setDateFrom('');
@@ -439,7 +447,7 @@ export default function DocumentsPage() {
                       ? 'bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-400 shadow-sm'
                       : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                   }`}
-                  title="Grid View"
+                  title={t('docs.grid', 'عرض شبكي')}
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -452,7 +460,7 @@ export default function DocumentsPage() {
                       ? 'bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-400 shadow-sm'
                       : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                   }`}
-                  title="List View"
+                  title={t('docs.list', 'عرض قائمة')}
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -464,7 +472,10 @@ export default function DocumentsPage() {
             {/* Results Count */}
             {!isLoading && !error && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                Showing <span className="font-medium text-gray-700 dark:text-gray-300">{documents.length}</span> of <span className="font-medium text-gray-700 dark:text-gray-300">{totalCount}</span> books
+                {t('docs.showing', 'عرض {shown} من أصل {total} كتاب', {
+                  shown: documents.length,
+                  total: totalCount,
+                })}
               </p>
             )}
 
@@ -486,13 +497,15 @@ export default function DocumentsPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Error Loading Books</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                    {t('docs.errorLoading', 'حدث خطأ أثناء تحميل الكتب')}
+                  </h3>
                   <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
                   <button
                     onClick={fetchDocuments}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                   >
-                    Try Again
+                    {t('docs.tryAgain', 'إعادة المحاولة')}
                   </button>
                 </div>
               </div>
@@ -504,11 +517,13 @@ export default function DocumentsPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                     </svg>
                   </div>
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No Books Found</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                    {t('docs.noBooks', 'لا توجد كتب')}
+                  </h3>
                   <p className="text-gray-600 dark:text-gray-400 mb-6">
                     {hasActiveFilters 
-                      ? 'Try adjusting your filters to find more books.' 
-                      : 'Upload your first book to get started!'
+                      ? t('docs.adjustFilters', 'جرّب تعديل المرشحات لعرض نتائج أكثر.') 
+                      : t('docs.uploadFirst', 'ابدأ برفع كتابك الأول.')
                     }
                   </p>
                   {hasActiveFilters && (
@@ -516,7 +531,7 @@ export default function DocumentsPage() {
                       onClick={clearFilters}
                       className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                     >
-                      Clear Filters
+                      {t('docs.clearFilters', 'مسح المرشحات')}
                     </button>
                   )}
                 </div>
@@ -548,7 +563,7 @@ export default function DocumentsPage() {
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
-                      Previous
+                      {t('docs.previous', 'السابق')}
                     </button>
                     
                     <div className="flex items-center gap-1">
@@ -585,7 +600,7 @@ export default function DocumentsPage() {
                       disabled={!nextPage}
                       className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium transition-colors"
                     >
-                      Next
+                      {t('docs.next', 'التالي')}
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
@@ -597,6 +612,7 @@ export default function DocumentsPage() {
           </div>
         </div>
       </div>
-    </main>
+      </main>
+    </RequireAuth>
   );
 }

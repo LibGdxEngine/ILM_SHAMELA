@@ -1,0 +1,49 @@
+<svg width="256" height="256" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ilm-bg" x1="20" y1="16" x2="108" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDF5DF" />
+      <stop offset="1" stop-color="#F8E8C2" />
+    </linearGradient>
+    <linearGradient id="ilm-star" x1="64" y1="26" x2="64" y2="102" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D4A853" />
+      <stop offset="1" stop-color="#B8942F" />
+    </linearGradient>
+    <linearGradient id="ilm-book" x1="34" y1="44" x2="94" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" />
+      <stop offset="1" stop-color="#FFF7E8" />
+    </linearGradient>
+  </defs>
+
+  <rect x="8" y="8" width="112" height="112" rx="30" fill="url(#ilm-bg)" />
+  <rect x="8" y="8" width="112" height="112" rx="30" stroke="#D5BF93" stroke-width="2" />
+
+  <path
+    d="M64 26L71.8 44.2L90 36L81.8 54.2L100 64L81.8 73.8L90 92L71.8 83.8L64 102L56.2 83.8L38 92L46.2 73.8L28 64L46.2 54.2L38 36L56.2 44.2L64 26Z"
+    fill="url(#ilm-star)"
+    fill-opacity="0.28"
+    stroke="#B8942F"
+    stroke-opacity="0.45"
+    stroke-width="1.4"
+  />
+
+  <circle cx="64" cy="34" r="4.4" fill="#0F766E" />
+  <circle cx="64" cy="34" r="2.2" fill="#CCFBF1" />
+
+  <path
+    d="M34 49.5C43.6 44.8 53.8 44.4 64 49.8V88C53.8 82.9 43.6 82.9 34 87.6V49.5Z"
+    fill="url(#ilm-book)"
+    stroke="#92400E"
+    stroke-width="2"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M94 49.5C84.4 44.8 74.2 44.4 64 49.8V88C74.2 82.9 84.4 82.9 94 87.6V49.5Z"
+    fill="url(#ilm-book)"
+    stroke="#92400E"
+    stroke-width="2"
+    stroke-linejoin="round"
+  />
+  <path d="M64 49.8V88" stroke="#B45309" stroke-width="2" />
+  <path d="M38.5 62.8C46.6 59.4 55.2 59.5 62 63.4" stroke="#D4A853" stroke-width="1.5" stroke-linecap="round" />
+  <path d="M89.5 62.8C81.4 59.4 72.8 59.5 66 63.4" stroke="#D4A853" stroke-width="1.5" stroke-linecap="round" />
+</svg>

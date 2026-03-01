@@ -21,6 +21,12 @@ export interface RegisterRequest {
   last_name: string;
 }
 
+export interface UserProfileUpdateRequest {
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+}
+
 export interface AuthResponse {
   access: string;
   refresh: string;
@@ -36,6 +42,18 @@ export interface AuthError {
   password2?: string[];
   first_name?: string[];
   last_name?: string[];
+  username?: string[];
+  [key: string]: string[] | string | undefined;
+}
+
+export class AuthValidationError extends Error {
+  fieldErrors: Partial<Record<keyof UserProfileUpdateRequest, string>>;
+
+  constructor(message: string, fieldErrors: Partial<Record<keyof UserProfileUpdateRequest, string>> = {}) {
+    super(message);
+    this.name = 'AuthValidationError';
+    this.fieldErrors = fieldErrors;
+  }
 }
 
 // Get API base URL - same logic as api.ts
@@ -218,6 +236,47 @@ export async function getUser(): Promise<User> {
 }
 
 /**
+ * Update profile fields for the current authenticated user.
+ */
+export async function updateUserProfile(data: UserProfileUpdateRequest): Promise<User> {
+  await ensureCsrfToken();
+
+  const csrfToken = getCookie('csrftoken');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (csrfToken) {
+    headers['X-CSRFToken'] = csrfToken;
+  }
+
+  const response = await fetch(buildUrl('/api/auth/user/'), {
+    method: 'PATCH',
+    headers,
+    credentials: 'include',
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error: AuthError = await response.json().catch(() => ({}));
+    const fieldErrors: Partial<Record<keyof UserProfileUpdateRequest, string>> = {
+      email: error.email?.[0],
+      first_name: error.first_name?.[0],
+      last_name: error.last_name?.[0],
+    };
+    const message =
+      error.detail ||
+      fieldErrors.email ||
+      fieldErrors.first_name ||
+      fieldErrors.last_name ||
+      'Failed to update profile';
+    throw new AuthValidationError(message, fieldErrors);
+  }
+
+  return response.json();
+}
+
+/**
  * Login with Google OAuth access token
  */
 export async function googleLogin(accessToken: string): Promise<User> {
@@ -244,4 +303,3 @@ export async function googleLogin(accessToken: string): Promise<User> {
   // Fetch user data after Google login
   return getUser();
 }
-

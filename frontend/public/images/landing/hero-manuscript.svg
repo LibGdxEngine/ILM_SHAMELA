@@ -1,0 +1,214 @@
+<svg width="1200" height="800" viewBox="0 0 1200 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F7EFD9"/>
+      <stop offset="100%" stop-color="#E8D8B6"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#D4A853"/>
+      <stop offset="100%" stop-color="#B8942F"/>
+    </linearGradient>
+    <linearGradient id="goldLeaf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E8C960"/>
+      <stop offset="100%" stop-color="#C89B3C"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7C3E1D"/>
+      <stop offset="100%" stop-color="#B0692F"/>
+    </linearGradient>
+    <!-- 8-point star clip path -->
+    <clipPath id="starClip">
+      <path d="M30 0L38 22L60 30L38 38L30 60L22 38L0 30L22 22Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="800" rx="40" fill="url(#bg)"/>
+
+  <!-- Subtle geometric pattern overlay -->
+  <g opacity="0.06">
+    <pattern id="geoPattern" x="0" y="0" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M40 0L80 40L40 80L0 40Z" fill="none" stroke="#8B6914" stroke-width="0.8"/>
+      <path d="M40 12L68 40L40 68L12 40Z" fill="none" stroke="#8B6914" stroke-width="0.5"/>
+      <circle cx="40" cy="40" r="10" fill="none" stroke="#8B6914" stroke-width="0.5"/>
+    </pattern>
+    <rect width="1200" height="800" fill="url(#geoPattern)"/>
+  </g>
+
+  <!-- Manuscript outer frame -->
+  <rect x="100" y="70" width="1000" height="660" rx="24" fill="#FFF8E8" stroke="url(#gold)" stroke-width="5"/>
+
+  <!-- Arabesque corner decorations (top-right) -->
+  <g transform="translate(1040, 85)">
+    <path d="M0 0C20 0 40 20 40 40" stroke="#C8A86B" stroke-width="2.5" fill="none"/>
+    <path d="M0 10C15 10 30 25 30 40" stroke="#C8A86B" stroke-width="1.5" fill="none"/>
+    <circle cx="5" cy="5" r="3" fill="#D4A853"/>
+  </g>
+  <!-- Top-left corner -->
+  <g transform="translate(115, 85)">
+    <path d="M40 0C20 0 0 20 0 40" stroke="#C8A86B" stroke-width="2.5" fill="none"/>
+    <path d="M40 10C25 10 10 25 10 40" stroke="#C8A86B" stroke-width="1.5" fill="none"/>
+    <circle cx="35" cy="5" r="3" fill="#D4A853"/>
+  </g>
+  <!-- Bottom-right corner -->
+  <g transform="translate(1040, 670)">
+    <path d="M0 40C20 40 40 20 40 0" stroke="#C8A86B" stroke-width="2.5" fill="none"/>
+    <path d="M0 30C15 30 30 15 30 0" stroke="#C8A86B" stroke-width="1.5" fill="none"/>
+    <circle cx="5" cy="35" r="3" fill="#D4A853"/>
+  </g>
+  <!-- Bottom-left corner -->
+  <g transform="translate(115, 670)">
+    <path d="M40 40C20 40 0 20 0 0" stroke="#C8A86B" stroke-width="2.5" fill="none"/>
+    <path d="M40 30C25 30 10 15 10 0" stroke="#C8A86B" stroke-width="1.5" fill="none"/>
+    <circle cx="35" cy="35" r="3" fill="#D4A853"/>
+  </g>
+
+  <!-- Inner manuscript page -->
+  <rect x="160" y="130" width="880" height="540" rx="16" fill="#FBF4E3" stroke="#D5BF93" stroke-width="2"/>
+
+  <!-- Gold leaf accent band at top -->
+  <rect x="160" y="130" width="880" height="6" rx="3" fill="url(#goldLeaf)" opacity="0.5"/>
+
+  <!-- Geometric star pattern border (top) -->
+  <g transform="translate(200, 148)" opacity="0.25">
+    <g>
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(60,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(120,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(180,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(240,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(300,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(360,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(420,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(480,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(540,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(600,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(660,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(720,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(780,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+  </g>
+
+  <!-- Simulated Arabic calligraphy lines -->
+  <g opacity="0.7">
+    <!-- Header calligraphy (بسم الله الرحمن الرحيم style) -->
+    <path d="M440 220C470 210 520 208 560 215C590 220 610 230 600 240C588 252 550 248 530 240" stroke="url(#ink)" stroke-width="4" stroke-linecap="round" fill="none"/>
+    <path d="M620 215C650 210 690 218 700 232C706 242 694 252 670 248" stroke="url(#ink)" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+    <path d="M720 220C740 215 758 225 750 240" stroke="url(#ink)" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+    <!-- Body text lines -->
+    <path d="M260 300H930" stroke="#C8A86B" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+    <path d="M260 350H880" stroke="#CCB27B" stroke-width="2.5" stroke-linecap="round" opacity="0.45"/>
+    <path d="M260 400H910" stroke="#CCB27B" stroke-width="2.5" stroke-linecap="round" opacity="0.45"/>
+    <path d="M260 450H850" stroke="#CCB27B" stroke-width="2.5" stroke-linecap="round" opacity="0.45"/>
+    <path d="M260 500H890" stroke="#CCB27B" stroke-width="2.5" stroke-linecap="round" opacity="0.45"/>
+    <path d="M260 550H870" stroke="#C8A86B" stroke-width="2.5" stroke-linecap="round" opacity="0.4"/>
+  </g>
+
+  <!-- Marginal annotation area -->
+  <rect x="180" y="280" width="55" height="300" rx="6" fill="#F5EBD1" opacity="0.6"/>
+  <path d="M195 310V560" stroke="#D5BF93" stroke-width="0.5" stroke-dasharray="4 4"/>
+
+  <!-- Large decorative 8-point star (center-top) -->
+  <g transform="translate(570, 195)" opacity="0.12">
+    <path d="M30 0L38 22L60 30L38 38L30 60L22 38L0 30L22 22Z" fill="#C8A86B"/>
+    <path d="M30 0L38 22L60 30L38 38L30 60L22 38L0 30L22 22Z" fill="#C8A86B" transform="rotate(22.5,30,30)"/>
+  </g>
+
+  <!-- Decorative rosettes -->
+  <circle cx="192" cy="160" r="10" fill="none" stroke="#C8A86B" stroke-width="1.5" opacity="0.3"/>
+  <circle cx="192" cy="160" r="5" fill="#D4A853" opacity="0.2"/>
+  <circle cx="1008" cy="160" r="10" fill="none" stroke="#C8A86B" stroke-width="1.5" opacity="0.3"/>
+  <circle cx="1008" cy="160" r="5" fill="#D4A853" opacity="0.2"/>
+
+  <!-- Gold accent dots along border -->
+  <circle cx="600" cy="85" r="4" fill="#D4A853" opacity="0.4"/>
+  <circle cx="550" cy="85" r="2.5" fill="#D4A853" opacity="0.3"/>
+  <circle cx="650" cy="85" r="2.5" fill="#D4A853" opacity="0.3"/>
+  <circle cx="600" cy="715" r="4" fill="#D4A853" opacity="0.4"/>
+  <circle cx="550" cy="715" r="2.5" fill="#D4A853" opacity="0.3"/>
+  <circle cx="650" cy="715" r="2.5" fill="#D4A853" opacity="0.3"/>
+
+  <!-- Quill and inkwell -->
+  <g transform="translate(920, 140)">
+    <circle cx="22" cy="22" r="18" fill="#2F6B5F" opacity="0.9"/>
+    <circle cx="22" cy="22" r="12" fill="#1a4a40"/>
+    <ellipse cx="22" cy="18" rx="8" ry="4" fill="#2F6B5F"/>
+  </g>
+  <g transform="translate(870, 125)">
+    <path d="M20 50L25 8L30 0L35 8L30 50Z" fill="#A3682F" opacity="0.85"/>
+    <path d="M30 0L28 15" stroke="#7C3E1D" stroke-width="1"/>
+  </g>
+
+  <!-- Geometric star pattern border (bottom) -->
+  <g transform="translate(200, 622)" opacity="0.2">
+    <g>
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(60,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(120,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(180,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(240,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(300,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(360,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(420,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(480,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(540,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(600,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(660,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(720,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+    <g transform="translate(780,0)">
+      <path d="M15 0L19 11L30 15L19 19L15 30L11 19L0 15L11 11Z" fill="#C8A86B"/>
+    </g>
+  </g>
+</svg>

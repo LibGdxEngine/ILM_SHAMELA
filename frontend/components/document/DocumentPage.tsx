@@ -1,4 +1,5 @@
 import React from 'react';
+import { useI18n } from '@/components/i18n/I18nProvider';
 
 interface DocumentPageProps {
   pageNumber: number;
@@ -17,18 +18,20 @@ function highlightText(text: string, query: string): string {
 }
 
 export default function DocumentPage({ pageNumber, content, searchQuery, language }: DocumentPageProps) {
+  const { t } = useI18n();
+
   // Determine text direction: Arabic = RTL, others = LTR
   const textDirection = language === 'ar' ? 'rtl' : 'ltr';
   
   return (
     <article 
       className="bg-white dark:bg-gray-800 rounded-xl shadow-sm mb-6 overflow-hidden relative group transition-all hover:shadow-md"
-      aria-label={`Page ${pageNumber}`}
+      aria-label={t('reader.pageLabel', 'صفحة {page}', { page: pageNumber })}
     >
       {/* Page Header */}
       <header className="px-6 py-3 bg-gray-50/50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
         <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-          Page {pageNumber}
+          {t('reader.pageLabel', 'صفحة {page}', { page: pageNumber })}
         </span>
       </header>
 
@@ -38,13 +41,13 @@ export default function DocumentPage({ pageNumber, content, searchQuery, languag
         onContextMenu={(e) => e.preventDefault()}
         dir={textDirection}
         role="text"
-        aria-label={`Content of page ${pageNumber}`}
+        aria-label={t('reader.pageLabel', 'صفحة {page}', { page: pageNumber })}
       >
         <div
           className={`prose prose-lg dark:prose-invert max-w-none font-serif leading-relaxed ${
             textDirection === 'rtl' ? 'text-right' : 'text-left'
           }`}
-          style={{ fontSize: 'var(--document-font-size, 16px)' }}
+          style={{ fontSize: 'var(--reader-font-size, 1.125rem)' }}
           dangerouslySetInnerHTML={{
             __html: highlightText(
               content.replace(/\n/g, '<br />'),

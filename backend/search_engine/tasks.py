@@ -1,208 +1,284 @@
-from celery import shared_task
-from tika import parser
-from langdetect import detect, LangDetectException
 import logging
+import os
+from io import BytesIO
+
+from celery import shared_task
+from django.core.files.base import ContentFile
 from django.db import transaction
-from .models import Document
+from django.utils import timezone
+from langdetect import LangDetectException, detect
+from PIL import Image
+from tika import parser
+
+from core.metrics import increment_metric
+from core.request_id import reset_request_id, set_request_id
 from .documents import DocumentIndex
+from .models import Author, Category, Document
+from .semantic import build_embedding
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True)
+class RetriableProcessingError(Exception):
+    """Raised when a processing step can be retried safely."""
+
+
+def _is_pdf(document):
+    file_name = (document.file.name or '').lower()
+    return file_name.endswith('.pdf')
+
+
+def _generate_pdf_thumbnail(document, file_content):
+    """
+    Best-effort first-page thumbnail generation for PDF files.
+    Returns True when thumbnail is generated and attached to the model instance.
+    """
+    if not _is_pdf(document) or document.thumbnail:
+        return False
+
+    try:
+        # Import lazily so missing optional dependency does not break processing.
+        from pdf2image import convert_from_bytes
+    except Exception:
+        logger.warning(
+            '[THUMBNAIL] pdf2image not available; skipping thumbnail generation',
+            extra={'document_id': document.id},
+        )
+        return False
+
+    try:
+        pages = convert_from_bytes(
+            file_content,
+            first_page=1,
+            last_page=1,
+            dpi=150,
+        )
+        if not pages:
+            return False
+
+        image = pages[0]
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        image.thumbnail((480, 480), Image.Resampling.LANCZOS)
+
+        output = BytesIO()
+        image.save(output, format='JPEG', quality=85, optimize=True)
+        output.seek(0)
+
+        original_name = os.path.splitext(os.path.basename(document.file.name))[0] or f'document_{document.id}'
+        thumbnail_name = f'{original_name}_thumbnail.jpg'
+        document.thumbnail.save(thumbnail_name, ContentFile(output.read()), save=False)
+        return True
+    except Exception:
+        logger.warning(
+            '[THUMBNAIL] Failed generating PDF thumbnail',
+            exc_info=True,
+            extra={'document_id': document.id},
+        )
+        return False
+
+
+def _extract_authors_and_categories(metadata):
+    authors = []
+    categories = []
+    if not metadata:
+        return authors, categories
+
+    author_fields = ['meta:author', 'Author', 'creator', 'dc:creator', 'meta:creator']
+    for field in author_fields:
+        value = metadata.get(field)
+        if not value:
+            continue
+        if isinstance(value, list):
+            authors.extend([str(item).strip() for item in value if item])
+        else:
+            authors.extend(
+                [part.strip() for part in str(value).replace(';', ',').split(',') if part.strip()]
+            )
+
+    category_fields = ['meta:keywords', 'Keywords', 'dc:subject', 'subject', 'category', 'categories']
+    for field in category_fields:
+        value = metadata.get(field)
+        if not value:
+            continue
+        if isinstance(value, list):
+            categories.extend([str(item).strip() for item in value if item])
+        else:
+            categories.extend(
+                [part.strip() for part in str(value).replace(';', ',').split(',') if part.strip()]
+            )
+
+    # Preserve order while removing duplicates.
+    return list(dict.fromkeys(authors)), list(dict.fromkeys(categories))
+
+
+@shared_task(bind=True, max_retries=5, default_retry_delay=30)
 def process_document_task(self, doc_id):
     """
-    Async task to process a document:
-    1. Fetch Document from Postgres
-    2. Download file from S3
-    3. Extract text using Apache Tika
-    4. Detect language using langdetect
-    5. Save text and language back to Document model
-    6. Index document in Elasticsearch
+    Process document text extraction and indexing with retry-aware failure handling.
     """
-    logger.info("=" * 80)
-    logger.info(f"[CELERY TASK] Starting processing for document ID: {doc_id}")
-    logger.info(f"[CELERY TASK] Task ID: {self.request.id}")
-    
+    task_id = self.request.id or 'unknown-task'
+    token = set_request_id(f'task:{task_id}')
+    log_extra = {'task_id': task_id, 'document_id': doc_id}
+
+    logger.info('[PROCESS] Started document processing', extra=log_extra)
     try:
-        # 1. Fetch Document from Postgres
-        logger.info(f"[STEP 1] Fetching document {doc_id} from database...")
         document = Document.objects.get(id=doc_id)
-        logger.info(f"[STEP 1] Document found: ID={document.id}, Title={document.title}")
-        logger.info(f"[STEP 1] Current processed status: {document.processed}")
-        logger.info(f"[STEP 1] File path: {document.file.name if document.file else 'None'}")
-        
-        # Skip if already processed
-        if document.processed:
-            logger.info(f"[CELERY TASK] Document {doc_id} already processed, skipping")
-            logger.info("=" * 80)
-            return {"status": "skipped", "reason": "already_processed", "doc_id": doc_id}
-        
-        # 2. Download file from S3
-        logger.info(f"[STEP 2] Checking file attachment...")
+    except Document.DoesNotExist:
+        logger.error('[PROCESS] Document not found', extra=log_extra)
+        increment_metric('document_processing_failure_total', 1.0, reason='document_not_found')
+        reset_request_id(token)
+        return {'status': 'error', 'reason': 'document_not_found', 'doc_id': doc_id}
+
+    document.processing_status = Document.ProcessingStatus.PROCESSING
+    document.processing_error = None
+    document.processing_started_at = timezone.now()
+    document.processing_attempts += 1
+    document.save(
+        update_fields=[
+            'processing_status',
+            'processing_error',
+            'processing_started_at',
+            'processing_attempts',
+        ]
+    )
+
+    try:
         if not document.file:
-            logger.error(f"[STEP 2] Document {doc_id} has no file attached")
-            logger.info("=" * 80)
-            return {"status": "error", "reason": "no_file_attached", "doc_id": doc_id}
-        
-        logger.info(f"[STEP 2] Reading file from storage: {document.file.name}")
-        logger.info(f"[STEP 2] File size: {document.file.size} bytes")
-        
-        # Read file from S3 storage
+            raise ValueError('Document has no attached file')
+
         try:
             file_content = document.file.read()
-            logger.info(f"[STEP 2] File read successfully, content length: {len(file_content)} bytes")
-        except Exception as e:
-            logger.error(f"[STEP 2] Error reading file: {str(e)}", exc_info=True)
-            logger.info("=" * 80)
-            return {"status": "error", "reason": "file_read_failed", "error": str(e), "doc_id": doc_id}
-        
-        # 3. Extract text and metadata using Apache Tika
-        logger.info(f"[STEP 3] Extracting text and metadata using Apache Tika...")
+        except Exception as exc:
+            raise RetriableProcessingError(f'Failed reading file: {exc}') from exc
+
         try:
             parsed = parser.from_buffer(file_content)
-            extracted_text = parsed.get('content', '')
-            metadata = parsed.get('metadata', {})
-            text_length = len(extracted_text) if extracted_text else 0
-            logger.info(f"[STEP 3] Text extraction completed, extracted {text_length} characters")
-            logger.info(f"[STEP 3] Metadata keys: {list(metadata.keys()) if metadata else 'None'}")
-            
-            if not extracted_text:
-                logger.warning(f"[STEP 3] No text extracted from document {doc_id}")
-                logger.info(f"[STEP 3] Marking document as processed (no content to index)")
-                document.processed = True
-                document.save()
-                logger.info(f"[STEP 3] Document {doc_id} marked as processed=True")
-                logger.info("=" * 80)
-                return {"status": "completed", "reason": "no_content_extracted", "doc_id": doc_id}
-        except Exception as e:
-            logger.error(f"[STEP 3] Error extracting text from document {doc_id}: {str(e)}", exc_info=True)
-            logger.info(f"[STEP 3] Marking document as processed (extraction failed)")
-            document.processed = True
-            document.save()
-            logger.info(f"[STEP 3] Document {doc_id} marked as processed=True")
-            logger.info("=" * 80)
-            return {"status": "error", "reason": "text_extraction_failed", "error": str(e), "doc_id": doc_id}
-        
-        # 4. Extract authors and categories from metadata
-        logger.info(f"[STEP 4] Extracting authors and categories from metadata...")
-        authors = []
-        categories = []
-        
-        if metadata:
-            # Extract authors from various metadata fields
-            author_fields = ['meta:author', 'Author', 'creator', 'dc:creator', 'meta:creator']
-            for field in author_fields:
-                if field in metadata:
-                    author_value = metadata[field]
-                    if isinstance(author_value, list):
-                        authors.extend([str(a).strip() for a in author_value if a])
-                    elif author_value:
-                        # Split by comma or semicolon if multiple authors
-                        authors.extend([a.strip() for a in str(author_value).replace(';', ',').split(',') if a.strip()])
-            
-            # Extract categories/tags from metadata
-            category_fields = ['meta:keywords', 'Keywords', 'dc:subject', 'subject', 'category', 'categories']
-            for field in category_fields:
-                if field in metadata:
-                    category_value = metadata[field]
-                    if isinstance(category_value, list):
-                        categories.extend([str(c).strip() for c in category_value if c])
-                    elif category_value:
-                        # Split by comma or semicolon if multiple categories
-                        categories.extend([c.strip() for c in str(category_value).replace(';', ',').split(',') if c.strip()])
-        
-        # Remove duplicates while preserving order
-        authors = list(dict.fromkeys(authors))
-        categories = list(dict.fromkeys(categories))
-        
-        logger.info(f"[STEP 4] Extracted {len(authors)} author(s): {authors}")
-        logger.info(f"[STEP 4] Extracted {len(categories)} categor(ies): {categories}")
-        
-        # 5. Detect language using langdetect
-        logger.info(f"[STEP 5] Detecting language...")
+        except Exception as exc:
+            # Parser failures are treated as terminal to avoid repeated expensive loops.
+            raise ValueError(f'Text extraction failed: {exc}') from exc
+
+        extracted_text = parsed.get('content') or ''
+        metadata = parsed.get('metadata') or {}
+        authors, categories = _extract_authors_and_categories(metadata)
+
         try:
-            detected_language = detect(extracted_text)
-            logger.info(f"[STEP 5] Language detected: {detected_language}")
-        except LangDetectException as e:
-            logger.warning(f"[STEP 5] Could not detect language for document {doc_id}: {str(e)}")
+            detected_language = detect(extracted_text) if extracted_text.strip() else None
+        except LangDetectException:
             detected_language = None
-        
-        # 6. Update Document model
-        logger.info(f"[STEP 6] Updating document model with extracted content...")
+
+        semantic_input = '\n'.join(
+            [
+                document.title or '',
+                document.description or '',
+                extracted_text,
+            ]
+        )
+        semantic_vector = build_embedding(semantic_input, task_type="RETRIEVAL_DOCUMENT")
+        try:
+            _generate_pdf_thumbnail(document, file_content)
+        except Exception:
+            logger.warning(
+                '[THUMBNAIL] Unexpected thumbnail generation failure',
+                exc_info=True,
+                extra={'document_id': document.id},
+            )
+
         with transaction.atomic():
             document.content = extracted_text
             document.language = detected_language
-            document.processed = True
+            document.processed = False
+            document.processing_status = Document.ProcessingStatus.PROCESSING
+            document.processing_error = None
+            document.semantic_vector = semantic_vector
             document.save()
-            
-            # Handle authors - create/get Author instances and link them
-            from .models import Author
+
             for author_name in authors:
-                if author_name and author_name.strip():
-                    author, _ = Author.objects.get_or_create(
-                        name=author_name.strip(),
-                        defaults={'alternate_names': []}
-                    )
-                    document.authors.add(author)
-            
-            # Handle categories - create/get Category instances and link them
-            from .models import Category
+                author, _ = Author.objects.get_or_create(
+                    name=author_name,
+                    defaults={'alternate_names': []},
+                )
+                document.authors.add(author)
+
             for category_name in categories:
-                if category_name and category_name.strip():
-                    category, _ = Category.objects.get_or_create(
-                        name=category_name.strip()
-                    )
-                    document.categories.add(category)
-            
-            logger.info(f"[STEP 6] Document model updated successfully")
-            logger.info(f"[STEP 6] Content length saved: {len(extracted_text)} characters")
-            logger.info(f"[STEP 6] Language saved: {detected_language}")
-            logger.info(f"[STEP 6] Authors saved: {authors}")
-            logger.info(f"[STEP 6] Categories saved: {categories}")
-            logger.info(f"[STEP 6] Processed flag set to: {document.processed}")
-            
-        # 7. Index document in Elasticsearch
-        logger.info(f"[STEP 7] Indexing document in Elasticsearch...")
-        
-        # Create DocumentIndex instance and prepare it with the document
-        doc_index = DocumentIndex(meta={'id': document.id})
-        logger.info(f"[STEP 7] Created DocumentIndex instance with ID: {document.id}")
-        
-        doc_index.prepare(document)
-        logger.info(f"[STEP 7] DocumentIndex prepared with data")
-        logger.info(f"[STEP 7] Index name: {doc_index._index._name}")
-        
-        doc_index.save()
-        logger.info(f"[STEP 7] Document {doc_id} successfully indexed in Elasticsearch")
-        logger.info(f"[STEP 7] Elasticsearch index: {doc_index._index._name}")
-        logger.info(f"[STEP 7] Elasticsearch document ID: {doc_index.meta.id}")
-        
-        # Verify the document was indexed
-        from elasticsearch_dsl import connections
-        es = connections.get_connection()
-        result = es.get(index=doc_index._index._name, id=document.id)
-        logger.info(f"[STEP 7] Verification: Document found in Elasticsearch")
-        logger.info(f"[STEP 7] Verification: Source contains title: {result.get('_source', {}).get('title', 'N/A')}")
-        
-        logger.info(f"[CELERY TASK] Successfully processed document {doc_id}")
-        logger.info(f"[CELERY TASK] Final status - Processed: {document.processed}, Language: {detected_language}")
-        logger.info("=" * 80)
-        
+                category, _ = Category.objects.get_or_create(name=category_name)
+                document.categories.add(category)
+
+        try:
+            index_doc = DocumentIndex(meta={'id': document.id})
+            index_doc.prepare(document)
+            index_doc.save(refresh=True)
+        except Exception as exc:
+            raise RetriableProcessingError(f'Indexing failed: {exc}') from exc
+
+        document.processed = True
+        document.processing_status = Document.ProcessingStatus.SUCCEEDED
+        document.processing_error = None
+        document.processing_completed_at = timezone.now()
+        document.save(
+            update_fields=[
+                'processed',
+                'processing_status',
+                'processing_error',
+                'processing_completed_at',
+            ]
+        )
+
+        increment_metric('document_processing_success_total', 1.0)
+        logger.info(
+            '[PROCESS] Completed successfully',
+            extra={**log_extra, 'status_code': 200},
+        )
         return {
-            "status": "success",
-            "doc_id": doc_id,
-            "content_length": len(extracted_text),
-            "language": detected_language,
-            "authors": authors,
-            "categories": categories,
-            "indexed": True
+            'status': 'success',
+            'doc_id': doc_id,
+            'language': detected_language,
+            'content_length': len(extracted_text),
+            'authors': authors,
+            'categories': categories,
         }
-        
-    except Document.DoesNotExist:
-        logger.error(f"[CELERY TASK] Document {doc_id} not found in database")
-        logger.info("=" * 80)
-        return {"status": "error", "reason": "document_not_found", "doc_id": doc_id}
-    except Exception as e:
-        logger.error(f"[CELERY TASK] Error processing document {doc_id}: {str(e)}", exc_info=True)
-        return {"status": "error", "reason": "processing_failed", "error": str(e), "doc_id": doc_id}
+
+    except RetriableProcessingError as exc:
+        retries = self.request.retries
+        if retries < self.max_retries:
+            countdown = min(30 * (2 ** retries), 600)
+            increment_metric('document_processing_retries_total', 1.0)
+            document.processing_status = Document.ProcessingStatus.PENDING
+            document.processing_error = str(exc)
+            document.processed = False
+            document.save(update_fields=['processing_status', 'processing_error', 'processed'])
+            logger.warning(
+                '[PROCESS] Retrying after transient failure',
+                extra={**log_extra, 'status_code': 503},
+            )
+            raise self.retry(exc=exc, countdown=countdown)
+
+        document.processing_status = Document.ProcessingStatus.FAILED
+        document.processing_error = str(exc)
+        document.processing_completed_at = timezone.now()
+        document.save(
+            update_fields=['processing_status', 'processing_error', 'processing_completed_at']
+        )
+        increment_metric('document_processing_failure_total', 1.0, reason='retries_exhausted')
+        logger.error('[PROCESS] Retries exhausted', extra=log_extra)
+        return {'status': 'error', 'reason': 'retries_exhausted', 'doc_id': doc_id}
+
+    except Exception as exc:
+        document.processing_status = Document.ProcessingStatus.FAILED
+        document.processing_error = str(exc)
+        document.processing_completed_at = timezone.now()
+        document.processed = False
+        document.save(
+            update_fields=[
+                'processing_status',
+                'processing_error',
+                'processing_completed_at',
+                'processed',
+            ]
+        )
+        increment_metric('document_processing_failure_total', 1.0, reason='terminal_error')
+        logger.error('[PROCESS] Terminal failure', exc_info=True, extra=log_extra)
+        return {'status': 'error', 'reason': 'terminal_error', 'error': str(exc), 'doc_id': doc_id}
+
+    finally:
+        reset_request_id(token)

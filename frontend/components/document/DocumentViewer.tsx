@@ -4,6 +4,8 @@ import { DocumentPage as DocumentPageType } from '@/lib/api';
 import DocumentPage from './DocumentPage';
 import DocumentPageSkeleton from './DocumentPageSkeleton';
 import ErrorDisplay from '@/components/ErrorDisplay';
+import { useI18n } from '@/components/i18n/I18nProvider';
+import { useLocalizedPath } from '@/lib/i18n/navigation';
 
 interface DocumentViewerProps {
   pages: DocumentPageType[];
@@ -34,6 +36,9 @@ export default function DocumentViewer({
   loadingBatchPage,
   totalPages
 }: DocumentViewerProps) {
+  const { t } = useI18n();
+  const localizedPath = useLocalizedPath();
+
   const observer = useRef<IntersectionObserver | null>(null);
   const lastPageRef = useRef<HTMLDivElement | null>(null);
   const lastPageNodeRef = useRef<HTMLDivElement | null>(null); // Track the currently observed node
@@ -334,7 +339,7 @@ export default function DocumentViewer({
 
   return (
     <div 
-      className="max-w-4xl mx-auto py-8 px-4"
+      className="mx-auto max-w-5xl px-4 py-8 xl:max-w-6xl"
       dir={textDirection}
     >
       {/* Top sentinel for scroll detection */}
@@ -378,7 +383,6 @@ export default function DocumentViewer({
       
       {isLoading && (
          <div className="space-y-6">
-           {/* Show skeleton loaders instead of spinner */}
            {pages.length === 0 ? (
              // Initial load - show multiple skeletons
              <>
@@ -386,10 +390,10 @@ export default function DocumentViewer({
                <DocumentPageSkeleton />
                <DocumentPageSkeleton />
              </>
-           ) : (
-             // Loading more - show one skeleton
+           ) : pages[0]?.page_number === 1 || !onLoadFirstPage ? (
+             // Loading more at bottom - show one skeleton
              <DocumentPageSkeleton />
-           )}
+           ) : null}
          </div>
       )}
       
@@ -399,8 +403,12 @@ export default function DocumentViewer({
             <svg className="w-8 h-8 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">You've reached the end of the document</p>
-            <p className="text-gray-400 dark:text-gray-500 text-xs">All pages have been loaded</p>
+            <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
+              {t('reader.endReached', 'وصلت إلى نهاية المستند')}
+            </p>
+            <p className="text-gray-400 dark:text-gray-500 text-xs">
+              {t('reader.allLoaded', 'تم تحميل جميع الصفحات')}
+            </p>
           </div>
         </div>
       )}
@@ -413,13 +421,10 @@ export default function DocumentViewer({
             </svg>
           </div>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
-            No Pages Found
+            {t('reader.noPages', 'لا توجد صفحات لهذا المستند حاليًا')}
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mb-2 max-w-md mx-auto">
-            This document doesn't appear to have any pages yet.
-          </p>
-          <p className="text-sm text-gray-500 dark:text-gray-500 mb-8 max-w-md mx-auto">
-            This could mean the document is still being processed, or there was an error loading the content.
+            {t('reader.noPagesHint', 'قد يكون المستند قيد المعالجة أو حدث خطأ أثناء التحميل.')}
           </p>
           {error && (
             <div className="mb-6 max-w-md mx-auto">
@@ -431,20 +436,20 @@ export default function DocumentViewer({
               <button
                 onClick={onRetry}
                 className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm font-medium shadow-sm hover:shadow-md"
-                aria-label="Retry loading pages"
+                aria-label={t('docs.tryAgain', 'إعادة المحاولة')}
               >
-                Try Again
+                {t('docs.tryAgain', 'إعادة المحاولة')}
               </button>
             )}
             <Link
-              href="/documents"
+              href={localizedPath('/documents')}
               className="px-6 py-2.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors text-sm font-medium inline-flex items-center gap-2 shadow-sm hover:shadow-md"
-              aria-label="Go back to document library"
+              aria-label={t('reader.backToLibrary', 'العودة إلى المكتبة')}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
-              Back to Library
+              {t('reader.backToLibrary', 'العودة إلى المكتبة')}
             </Link>
           </div>
         </div>

@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     DocumentListCreateView, DocumentDetailView, DocumentSearchView, 
     DocumentStatusView, DocumentContentPagesView, DocumentInDocumentSearchView,
-    AuthorListView, AuthorDetailView, CategoryListView
+    DocumentSuggestionsView, AuthorListView, AuthorDetailView, CategoryListView
 )
 
 urlpatterns = [
@@ -11,6 +11,7 @@ urlpatterns = [
     path('documents/<int:pk>/pages/', DocumentContentPagesView.as_view(), name='document-pages'),
     path('documents/<int:pk>/search/', DocumentInDocumentSearchView.as_view(), name='document-in-search'),
     path('documents/search/', DocumentSearchView.as_view(), name='document-search'),
+    path('documents/suggest/', DocumentSuggestionsView.as_view(), name='document-suggest'),
     path('documents/<int:doc_id>/status/', DocumentStatusView.as_view(), name='document-status'),
     path('authors/', AuthorListView.as_view(), name='author-list'),
     path('authors/<int:pk>/', AuthorDetailView.as_view(), name='author-detail'),
