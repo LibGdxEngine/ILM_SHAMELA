@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
-import { useParams } from 'next/navigation';
-import Link from 'next/link';
+import { useState, useEffect, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import {
   getDocument,
   getDocumentPages,
@@ -14,12 +13,22 @@ import {
 import DocumentViewer from '@/components/document/DocumentViewer';
 import ReaderBottomBar from '@/components/document/ReaderBottomBar';
 import ReadingProgressBar from '@/components/document/ReadingProgressBar';
+import DocumentHero from '@/components/document/DocumentHero';
+import DocumentHeroSkeleton from '@/components/document/DocumentHeroSkeleton';
+import DocumentPageSkeleton from '@/components/document/DocumentPageSkeleton';
+import CompactReaderHeader from '@/components/document/CompactReaderHeader';
+import SelectionPopover from '@/components/document/SelectionPopover';
 import type { Bookmark, Note } from '@/components/document/readerToolsTypes';
-import type { ReaderTheme, FontSizeKey } from '@/components/document/FontThemeControls';
+import type { ReaderTheme, FontSizeKey, FontWeightKey } from '@/components/document/FontThemeControls';
 import { FONT_SIZE_VALUES } from '@/components/document/FontThemeControls';
 import RequireAuth from '@/components/RequireAuth';
 import { useI18n } from '@/components/i18n/I18nProvider';
-import { useLocalizedPath } from '@/lib/i18n/navigation';
+import { useBookmarks } from '@/lib/reader/useBookmarks';
+import { useNotes } from '@/lib/reader/useNotes';
+import { useHighlights } from '@/lib/reader/useHighlights';
+import { useReaderPreferences } from '@/lib/reader/useReaderPreferences';
+import { useReadingProgress } from '@/lib/reader/useReadingProgress';
+import { migrateReaderLocalStorageForDocument } from '@/lib/reader/migrate';
 
 const PAGE_BATCH_SIZE = 5;
 
@@ -30,35 +39,20 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return tag === 'input' || tag === 'textarea' || element.isContentEditable;
 }
 
-interface ReaderPreferences {
-  fontSize: FontSizeKey;
-  theme: ReaderTheme;
-}
-
-function loadReaderPreferences(): ReaderPreferences {
-  try {
-    const saved = localStorage.getItem('reader_preferences');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return {
-        fontSize: parsed.fontSize || 'medium',
-        theme: parsed.theme || 'light',
-      };
-    }
-  } catch {
-    // ignore
-  }
-  return { fontSize: 'medium', theme: 'light' };
-}
-
-function saveReaderPreferences(prefs: ReaderPreferences) {
-  localStorage.setItem('reader_preferences', JSON.stringify(prefs));
-}
+type BottomBarPanel =
+  | 'search'
+  | 'notes'
+  | 'bookmarks'
+  | 'fontTheme'
+  | 'info'
+  | 'goToPage'
+  | 'more'
+  | null;
 
 export default function DocumentDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const { t } = useI18n();
-  const localizedPath = useLocalizedPath();
   const documentId = parseInt(params.id as string, 10);
 
   const [document, setDocument] = useState<Document | null>(null);
@@ -90,32 +84,125 @@ export default function DocumentDetailPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<DocumentSearchResponse | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
 
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  // API-backed reader resources (Block C/F).
+  const bookmarksHook = useBookmarks(documentId);
+  const notesHook = useNotes(documentId);
+  const highlightsHook = useHighlights(documentId);
+  const preferencesHook = useReaderPreferences();
+  const progressHook = useReadingProgress(documentId);
+
+  // Map API shapes to legacy panel shapes used by Bookmarks/Notes panels.
+  const bookmarks: Bookmark[] = useMemo(
+    () =>
+      bookmarksHook.data.map((b) => ({
+        id: b.id,
+        page: b.page_number,
+        createdAt: Date.parse(b.created_at) || Date.now(),
+        tags: b.tags ?? [],
+        label: b.label,
+      })),
+    [bookmarksHook.data]
+  );
+
+  const notes: Note[] = useMemo(
+    () =>
+      notesHook.data.map((n) => ({
+        id: n.id,
+        page: n.page_number,
+        content: n.body,
+        createdAt: Date.parse(n.created_at) || Date.now(),
+        tags: n.tags ?? [],
+      })),
+    [notesHook.data]
+  );
+
   const [noteInput, setNoteInput] = useState('');
-  const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
+  const [pendingNoteTags, setPendingNoteTags] = useState<string[]>([]);
+  const [bookmarkSelectedTags, setBookmarkSelectedTags] = useState<string[]>([]);
+  const [noteSelectedTags, setNoteSelectedTags] = useState<string[]>([]);
 
-  // Font & theme preferences
+  // Font & theme preferences (with advanced controls).
   const [fontSize, setFontSize] = useState<FontSizeKey>('medium');
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>('light');
+  const [tashkeelEnabled, setTashkeelEnabled] = useState<boolean>(true);
+  const [letterSpacing, setLetterSpacing] = useState<number>(0);
+  const [lineHeight, setLineHeight] = useState<number>(1.8);
+  const [fontWeight, setFontWeight] = useState<FontWeightKey>(400);
 
-  // Load preferences on mount
+  // Hero collapse state driven by IntersectionObserver on the sentinel below the hero.
+  const [isHeroCollapsed, setIsHeroCollapsed] = useState(false);
+  const heroSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Controlled bottom-bar panel so we can auto-open search from URL `?q=`.
+  const [openBottomPanel, setOpenBottomPanel] = useState<BottomBarPanel>(null);
+  const hasSeededQueryFromUrlRef = useRef(false);
+
+  // Hydrate from server-side preferences once the API responds. The hook is
+  // gated on auth, so unauthenticated readers stay on the local defaults
+  // declared above (medium / light / 1.8 / 400 / spacing 0).
+  const hasHydratedPrefsRef = useRef(false);
   useEffect(() => {
-    const prefs = loadReaderPreferences();
-    setFontSize(prefs.fontSize);
-    setReaderTheme(prefs.theme);
+    if (hasHydratedPrefsRef.current) return;
+    const data = preferencesHook.data;
+    if (!data) return;
+    hasHydratedPrefsRef.current = true;
+    setFontSize(data.font_size);
+    setReaderTheme(data.theme);
+    setTashkeelEnabled(data.tashkeel_enabled);
+    setLetterSpacing(data.letter_spacing);
+    setLineHeight(data.line_height);
+    setFontWeight(data.font_weight as FontWeightKey);
+  }, [preferencesHook.data]);
+
+  // Trigger Tier-2 per-document migration on mount.
+  useEffect(() => {
+    if (!documentId || Number.isNaN(documentId)) return;
+    void migrateReaderLocalStorageForDocument(documentId);
+  }, [documentId]);
+
+  // Seed query from URL on first mount so deep-links like `?q=foo` work.
+  useEffect(() => {
+    if (hasSeededQueryFromUrlRef.current) return;
+    hasSeededQueryFromUrlRef.current = true;
+    const initialQuery = searchParams?.get('q') ?? '';
+    if (initialQuery.trim()) {
+      setSearchQuery(initialQuery);
+      setOpenBottomPanel('search');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleFontSizeChange = useCallback((size: FontSizeKey) => {
     setFontSize(size);
-    saveReaderPreferences({ fontSize: size, theme: readerTheme });
-  }, [readerTheme]);
+    void preferencesHook.update({ font_size: size });
+  }, [preferencesHook]);
 
   const handleThemeChange = useCallback((theme: ReaderTheme) => {
     setReaderTheme(theme);
-    saveReaderPreferences({ fontSize, theme });
-  }, [fontSize]);
+    void preferencesHook.update({ theme });
+  }, [preferencesHook]);
+
+  const handleTashkeelChange = useCallback((next: boolean) => {
+    setTashkeelEnabled(next);
+    void preferencesHook.update({ tashkeel_enabled: next });
+  }, [preferencesHook]);
+
+  const handleLetterSpacingChange = useCallback((value: number) => {
+    setLetterSpacing(value);
+    void preferencesHook.update({ letter_spacing: value });
+  }, [preferencesHook]);
+
+  const handleLineHeightChange = useCallback((value: number) => {
+    setLineHeight(value);
+    void preferencesHook.update({ line_height: value });
+  }, [preferencesHook]);
+
+  const handleFontWeightChange = useCallback((weight: FontWeightKey) => {
+    setFontWeight(weight);
+    void preferencesHook.update({ font_weight: weight });
+  }, [preferencesHook]);
 
   const fetchDocument = useCallback(async () => {
     try {
@@ -270,6 +357,7 @@ export default function DocumentDetailPage() {
         if (element) {
           element.scrollIntoView({ behavior: 'smooth' });
           setVisiblePageNum(pageNumber);
+          setHighlightedPage(pageNumber);
         }
         return;
       }
@@ -299,6 +387,7 @@ export default function DocumentDetailPage() {
         window.setTimeout(() => {
           const element = window.document.querySelector(`[data-page="${pageNumber}"]`);
           element?.scrollIntoView({ behavior: 'auto' });
+          setHighlightedPage(pageNumber);
         }, 100);
       } catch (jumpError) {
         console.error('Failed to jump to page', jumpError);
@@ -316,33 +405,70 @@ export default function DocumentDetailPage() {
 
   const handleAddNote = useCallback(() => {
     if (!noteInput.trim()) return;
-    const newNote: Note = {
-      id: Date.now().toString(),
-      page: visiblePageNum,
-      content: noteInput.trim(),
-      createdAt: Date.now(),
-    };
-    setNotes((prev) => [newNote, ...prev]);
+    void notesHook.add({
+      document: documentId,
+      page_number: visiblePageNum,
+      paragraph_id: '',
+      body: noteInput.trim(),
+      tags: pendingNoteTags,
+    });
     setNoteInput('');
-  }, [noteInput, visiblePageNum]);
+    setPendingNoteTags([]);
+  }, [noteInput, visiblePageNum, documentId, pendingNoteTags, notesHook]);
 
-  const handleDeleteNote = useCallback((id: string) => {
-    setNotes((prev) => prev.filter((note) => note.id !== id));
-  }, []);
+  const handleDeleteNote = useCallback(
+    (id: string | number) => {
+      // Only API-backed (numeric) IDs can be deleted server-side. Optimistic
+      // entries created with negative temp IDs are also numeric, so this
+      // catches both. Legacy string IDs from localStorage are no longer
+      // present in the new data path.
+      const numeric = typeof id === 'number' ? id : Number(id);
+      if (Number.isNaN(numeric)) return;
+      void notesHook.remove(numeric);
+    },
+    [notesHook]
+  );
 
   const handleToggleCurrentBookmark = useCallback(() => {
-    setBookmarks((prev) => {
-      const exists = prev.some((bookmark) => bookmark.page === visiblePageNum);
-      if (exists) {
-        return prev.filter((bookmark) => bookmark.page !== visiblePageNum);
+    const existing = bookmarksHook.data.find((b) => b.page_number === visiblePageNum);
+    if (existing) {
+      void bookmarksHook.remove(existing.id);
+    } else {
+      void bookmarksHook.add({
+        document: documentId,
+        page_number: visiblePageNum,
+        paragraph_id: '',
+        label: '',
+        tags: [],
+      });
+    }
+  }, [bookmarksHook, documentId, visiblePageNum]);
+
+  const handleRemoveBookmark = useCallback(
+    (page: number) => {
+      const target = bookmarksHook.data.find((b) => b.page_number === page);
+      if (target) {
+        void bookmarksHook.remove(target.id);
       }
-      return [...prev, { page: visiblePageNum, createdAt: Date.now() }];
+    },
+    [bookmarksHook]
+  );
+
+  const handleShareFromHero = useCallback(() => {
+    const url = `${window.location.href.split('?')[0]}?page=${visiblePageNum}`;
+    navigator.clipboard.writeText(url).catch(() => {
+      // ignore clipboard failure silently
     });
   }, [visiblePageNum]);
 
-  const handleRemoveBookmark = useCallback((page: number) => {
-    setBookmarks((prev) => prev.filter((bookmark) => bookmark.page !== page));
-  }, []);
+  const handleStartReading = useCallback(() => {
+    // Prefer the current page (from any previous session) if known; otherwise page 1.
+    const target = visiblePageNum > 0 ? visiblePageNum : 1;
+    const element = window.document.querySelector(`[data-page="${target}"]`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [visiblePageNum]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -356,56 +482,86 @@ export default function DocumentDetailPage() {
     setVisiblePageNum(1);
     fetchDocument();
     fetchPagesBatch(1, true);
-    setSearchQuery('');
-    setSearchResults(null);
-    setNotes([]);
-    setBookmarks([]);
     setNoteInput('');
-    setHasHydratedLocalData(false);
+    setPendingNoteTags([]);
+    setBookmarkSelectedTags([]);
+    setNoteSelectedTags([]);
+    // Don't reset search query here; it may have been seeded from `?q=`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId]);
 
+  // Save reading progress (Block D.1). The hook itself debounces 5s with
+  // leading + trailing edges so we can fire eagerly on every visible-page
+  // change without spamming the dedicated `reader_progress` throttle.
   useEffect(() => {
-    const notesKey = `doc_${documentId}_notes`;
-    const bookmarksKey = `doc_${documentId}_bookmarks`;
+    if (!visiblePageNum || !totalPages) return;
+    progressHook.save({
+      last_page: visiblePageNum,
+      percent_complete: visiblePageNum / totalPages,
+      scroll_ratio: 0,
+      last_paragraph_id: '',
+    });
+    // progressHook.save is a stable callback from the hook.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visiblePageNum, totalPages]);
 
-    try {
-      const savedNotes = localStorage.getItem(notesKey);
-      const savedBookmarks = localStorage.getItem(bookmarksKey);
-
-      if (savedNotes) {
-        const parsed = JSON.parse(savedNotes) as Note[];
-        if (Array.isArray(parsed)) {
-          setNotes(parsed);
-        }
-      }
-
-      if (savedBookmarks) {
-        const parsed = JSON.parse(savedBookmarks) as Bookmark[];
-        if (Array.isArray(parsed)) {
-          setBookmarks(parsed);
-        }
-      }
-    } catch (storageError) {
-      console.warn('Failed to parse reader local data', storageError);
-      setNotes([]);
-      setBookmarks([]);
-    } finally {
-      setHasHydratedLocalData(true);
+  // Resume on document open (Block D.2). Fires once per document when pages
+  // are loaded, no `?page=` URL override, and there is a saved last_page > 1.
+  const [resumeToast, setResumeToast] = useState<{ page: number } | null>(null);
+  const hasResumedRef = useRef(false);
+  useEffect(() => {
+    if (hasResumedRef.current) return;
+    if (pages.length === 0) return;
+    if (searchParams?.get('page')) {
+      hasResumedRef.current = true;
+      return;
     }
-  }, [documentId]);
+    const lastPage = progressHook.data?.last_page;
+    if (!lastPage || lastPage <= 1) return;
+    if (!pages.some((p) => p.page_number === lastPage)) return;
+    hasResumedRef.current = true;
+    handleGoToPage(lastPage);
+    setResumeToast({ page: lastPage });
+    const timer = window.setTimeout(() => setResumeToast(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [pages, progressHook.data, handleGoToPage, searchParams]);
 
+  // Deep-link scroll (Block F.3). On first mount, parse `#h-{id}` or
+  // `#p-{n}-{i}` and scroll the matching element into view once it renders.
+  const hasDeepLinkedRef = useRef(false);
   useEffect(() => {
-    if (!hasHydratedLocalData) return;
-    const notesKey = `doc_${documentId}_notes`;
-    localStorage.setItem(notesKey, JSON.stringify(notes));
-  }, [documentId, hasHydratedLocalData, notes]);
+    if (hasDeepLinkedRef.current) return;
+    if (pages.length === 0) return;
+    const hash = window.location.hash;
+    if (!hash) return;
 
-  useEffect(() => {
-    if (!hasHydratedLocalData) return;
-    const bookmarksKey = `doc_${documentId}_bookmarks`;
-    localStorage.setItem(bookmarksKey, JSON.stringify(bookmarks));
-  }, [documentId, hasHydratedLocalData, bookmarks]);
+    const highlightMatch = /^#h-(\d+)$/.exec(hash);
+    const paragraphMatch = /^#p-(\d+)-(\d+)$/.exec(hash);
+
+    let targetEl: HTMLElement | null = null;
+    if (highlightMatch) {
+      targetEl = window.document.querySelector<HTMLElement>(`mark[data-hid="${highlightMatch[1]}"]`);
+    } else if (paragraphMatch) {
+      const targetPage = parseInt(paragraphMatch[1], 10);
+      if (pages.some((p) => p.page_number === targetPage)) {
+        targetEl = window.document.querySelector<HTMLElement>(`[data-page="${targetPage}"]`);
+      } else {
+        // Page not loaded yet; jump there first and let the next render handle the pulse.
+        handleGoToPage(targetPage);
+        return;
+      }
+    } else {
+      hasDeepLinkedRef.current = true;
+      return;
+    }
+
+    if (targetEl) {
+      hasDeepLinkedRef.current = true;
+      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      targetEl.classList.add('deep-link-pulse');
+      window.setTimeout(() => targetEl?.classList.remove('deep-link-pulse'), 1500);
+    }
+  }, [pages, handleGoToPage]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -414,7 +570,7 @@ export default function DocumentDetailPage() {
 
       if ((event.ctrlKey || event.metaKey) && key === 'f') {
         event.preventDefault();
-        // Ctrl+F opens search - handled via bottom bar
+        setOpenBottomPanel('search');
         return;
       }
 
@@ -437,7 +593,7 @@ export default function DocumentDetailPage() {
           const themes: ReaderTheme[] = ['light', 'sepia', 'dark'];
           const nextIndex = (themes.indexOf(prev) + 1) % themes.length;
           const next = themes[nextIndex];
-          saveReaderPreferences({ fontSize, theme: next });
+          void preferencesHook.update({ theme: next });
           return next;
         });
       }
@@ -447,24 +603,62 @@ export default function DocumentDetailPage() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [fontSize]);
+  }, [preferencesHook]);
 
   // Apply font size CSS variable and theme attribute
   useEffect(() => {
     const container = window.document.getElementById('document-scroll-container');
     if (container) {
       container.style.setProperty('--reader-font-size', FONT_SIZE_VALUES[fontSize]);
+      container.style.setProperty('--reader-letter-spacing', `${letterSpacing}em`);
+      container.style.setProperty('--reader-line-height', String(lineHeight));
+      container.style.setProperty('--reader-font-weight', String(fontWeight));
       container.setAttribute('data-reader-theme', readerTheme);
     }
-  }, [fontSize, readerTheme]);
+  }, [fontSize, readerTheme, letterSpacing, lineHeight, fontWeight]);
+
+  // IntersectionObserver sentinel drives the hero -> compact header transition.
+  useEffect(() => {
+    if (isLoading || !document) return;
+    const sentinel = heroSentinelRef.current;
+    const scrollContainer = window.document.getElementById('document-scroll-container');
+    if (!sentinel || !scrollContainer) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          // When sentinel leaves the viewport (scrolled past), collapse the hero.
+          setIsHeroCollapsed(!entry.isIntersecting);
+        });
+      },
+      {
+        root: scrollContainer,
+        threshold: 0,
+      }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [isLoading, document]);
+
+  // Clear highlighted page after the pulse animation duration so the same page
+  // can be re-highlighted on a second click.
+  useEffect(() => {
+    if (highlightedPage == null) return;
+    const timer = window.setTimeout(() => setHighlightedPage(null), 1600);
+    return () => window.clearTimeout(timer);
+  }, [highlightedPage]);
 
   if (isLoading || !document) {
     return (
       <RequireAuth>
-        <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
-          <div className="flex flex-col items-center">
-            <div className="mb-4 h-10 w-10 animate-spin rounded-full border-4 border-teal-600 border-t-transparent" />
-            <p className="text-gray-500">{t('reader.loadingDocument', 'Loading document...')}</p>
+        <div className="relative h-full min-h-0 flex flex-col overflow-hidden bg-gradient-to-b from-gray-100 to-slate-100">
+          <div className="flex-1 min-h-0 overflow-y-auto pb-16">
+            <DocumentHeroSkeleton />
+            <div className="mx-auto max-w-5xl px-4 py-8 xl:max-w-6xl space-y-6">
+              <DocumentPageSkeleton />
+              <DocumentPageSkeleton />
+              <DocumentPageSkeleton />
+            </div>
           </div>
         </div>
       </RequireAuth>
@@ -479,42 +673,62 @@ export default function DocumentDetailPage() {
     );
   }
 
+  const isCurrentBookmarked = bookmarks.some((b) => b.page === visiblePageNum);
+
   return (
     <RequireAuth>
       <div className="relative h-full min-h-0 flex flex-col overflow-hidden bg-gradient-to-b from-gray-100 to-slate-100">
         <ReadingProgressBar currentPage={visiblePageNum} totalPages={totalPages} />
 
+        <CompactReaderHeader
+          document={document}
+          currentPage={visiblePageNum}
+          totalPages={totalPages}
+          isVisible={isHeroCollapsed}
+        />
+
+        {resumeToast && (
+          <div className="fixed bottom-24 start-1/2 z-[60] -translate-x-1/2 rounded-lg bg-gray-900 px-4 py-2 text-sm text-white shadow-lg rtl:translate-x-1/2">
+            <span className="me-3">
+              {t('reader.resumedFromPage', 'Resumed from page {page}', { page: resumeToast.page })}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                handleGoToPage(1);
+                setResumeToast(null);
+              }}
+              className="rounded-md bg-white/15 px-2 py-1 text-xs font-medium text-white hover:bg-white/25"
+            >
+              {t('reader.startOver', 'Start over')}
+            </button>
+          </div>
+        )}
+
         <div
-          className="flex-1 min-h-0 overflow-y-auto pb-16"
+          className="flex-1 min-h-0 overflow-y-auto pb-16 relative"
           id="document-scroll-container"
           data-reader-theme={readerTheme}
-          style={{ '--reader-font-size': FONT_SIZE_VALUES[fontSize] } as React.CSSProperties}
+          style={{
+            '--reader-font-size': FONT_SIZE_VALUES[fontSize],
+            '--reader-letter-spacing': `${letterSpacing}em`,
+            '--reader-line-height': String(lineHeight),
+            '--reader-font-weight': String(fontWeight),
+          } as React.CSSProperties}
         >
-          {/* Simplified header */}
-          <div className="sticky top-0 z-20 border-b border-gray-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur md:px-6">
-            <div className="flex items-center justify-between gap-3">
-              <Link
-                href={localizedPath('/documents')}
-                className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-teal-700"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                {t('reader.library', 'Library')}
-              </Link>
+          <DocumentHero
+            document={document}
+            currentPage={visiblePageNum}
+            totalPages={totalPages}
+            isBookmarked={isCurrentBookmarked}
+            onStartReading={handleStartReading}
+            onToggleBookmark={handleToggleCurrentBookmark}
+            onShare={handleShareFromHero}
+            onOpenInfo={() => setOpenBottomPanel('info')}
+          />
 
-              <p className="mx-2 line-clamp-1 flex-1 text-center text-sm font-semibold text-gray-900 md:text-base">
-                {document.title}
-              </p>
-
-              <span className="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600">
-                {t('reader.pageOf', 'Page {current} of {total}', {
-                  current: visiblePageNum,
-                  total: totalPages,
-                })}
-              </span>
-            </div>
-          </div>
+          {/* Sentinel below the hero; IO watches this to flip the compact header. */}
+          <div ref={heroSentinelRef} aria-hidden="true" className="h-px w-full" />
 
           <DocumentViewer
             pages={pages}
@@ -525,6 +739,24 @@ export default function DocumentDetailPage() {
             onPageVisible={setVisiblePageNum}
             onLoadFirstPage={fetchPreviousBatch}
             language={document.language}
+            highlightedPage={highlightedPage}
+            tashkeelEnabled={tashkeelEnabled}
+            highlights={highlightsHook.data}
+          />
+
+          <SelectionPopover
+            enabled
+            onCreateHighlight={(payload) => {
+              void highlightsHook.add({
+                document: documentId,
+                page_number: payload.page_number,
+                paragraph_id: payload.paragraph_id,
+                char_start: payload.char_start,
+                char_end: payload.char_end,
+                color: payload.color,
+                note: '',
+              });
+            }}
           />
         </div>
 
@@ -538,7 +770,14 @@ export default function DocumentDetailPage() {
           onNoteInputChange={setNoteInput}
           onAddNote={handleAddNote}
           onDeleteNote={handleDeleteNote}
+          documentId={documentId}
+          pendingNoteTags={pendingNoteTags}
+          onPendingNoteTagsChange={setPendingNoteTags}
+          noteSelectedTags={noteSelectedTags}
+          onNoteSelectedTagsChange={setNoteSelectedTags}
           bookmarks={bookmarks}
+          bookmarkSelectedTags={bookmarkSelectedTags}
+          onBookmarkSelectedTagsChange={setBookmarkSelectedTags}
           onToggleCurrentBookmark={handleToggleCurrentBookmark}
           onRemoveBookmark={handleRemoveBookmark}
           currentPage={visiblePageNum}
@@ -548,7 +787,18 @@ export default function DocumentDetailPage() {
           theme={readerTheme}
           onFontSizeChange={handleFontSizeChange}
           onThemeChange={handleThemeChange}
+          tashkeelEnabled={tashkeelEnabled}
+          onTashkeelChange={handleTashkeelChange}
+          letterSpacing={letterSpacing}
+          onLetterSpacingChange={handleLetterSpacingChange}
+          lineHeight={lineHeight}
+          onLineHeightChange={handleLineHeightChange}
+          fontWeight={fontWeight}
+          onFontWeightChange={handleFontWeightChange}
+          language={document.language}
           document={document}
+          openPanel={openBottomPanel}
+          onOpenPanelChange={setOpenBottomPanel}
         />
       </div>
     </RequireAuth>

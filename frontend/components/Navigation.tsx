@@ -78,7 +78,7 @@ export default function Navigation() {
   const displayName = user?.first_name || user?.email.split('@')[0] || '';
   const initial = user?.first_name?.[0] || user?.email?.[0]?.toUpperCase() || '?';
   const inactiveMobileLinkClass =
-    'text-stone-700 hover:bg-amber-100 hover:text-stone-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white';
+    'text-olive-gray hover:bg-warm-sand hover:text-near-black dark:text-warm-silver dark:hover:bg-dark-surface dark:hover:text-ivory';
 
   return (
     <nav className={navTheme.shell}>
@@ -125,7 +125,7 @@ export default function Navigation() {
                 </svg>
                 <span className="max-w-[6rem] truncate sm:max-w-none">{localeLabel(locale)}</span>
                 <svg
-                  className={`h-4 w-4 text-stone-500 transition-transform duration-200 dark:text-gray-400 ${isLangDropdownOpen ? 'rotate-180' : ''}`}
+                  className={`h-4 w-4 text-stone-gray transition-transform duration-200 ${isLangDropdownOpen ? 'rotate-180' : ''}`}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -146,7 +146,7 @@ export default function Navigation() {
                       >
                         {localeLabel(supportedLocale)}
                         {locale === supportedLocale && (
-                          <svg className="ms-auto h-4 w-4 text-amber-700 dark:text-amber-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden>
+                          <svg className="ms-auto h-4 w-4 text-terracotta" fill="currentColor" viewBox="0 0 20 20" aria-hidden>
                             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                           </svg>
                         )}
@@ -161,7 +161,7 @@ export default function Navigation() {
 
             <div className="hidden items-center gap-2 md:flex">
               {isLoading ? (
-                <div className="h-8 w-8 animate-pulse rounded-full bg-amber-100 dark:bg-gray-700" />
+                <div className="h-8 w-8 animate-pulse rounded-full bg-warm-sand dark:bg-dark-surface" />
               ) : isAuthenticated && user ? (
                 <div className="relative" ref={userDropdownRef}>
                   <button
@@ -174,7 +174,7 @@ export default function Navigation() {
                     <div className={navTheme.userAvatar}>{initial}</div>
                     <span className={navTheme.userName}>{displayName}</span>
                     <svg
-                      className={`h-4 w-4 text-stone-500 transition-transform duration-200 dark:text-gray-400 ${isUserDropdownOpen ? 'rotate-180' : ''}`}
+                      className={`h-4 w-4 text-stone-gray transition-transform duration-200 ${isUserDropdownOpen ? 'rotate-180' : ''}`}
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -187,15 +187,15 @@ export default function Navigation() {
                   {isUserDropdownOpen && (
                     <div className={navTheme.userMenu} style={{ insetInlineEnd: 0 }} role="menu">
                       <div className={navTheme.userMenuHeader}>
-                        <p className="text-sm font-semibold text-stone-900 dark:text-white">
+                        <p className="text-sm font-medium text-near-black dark:text-ivory">
                           {user.first_name} {user.last_name}
                         </p>
-                        <p className="truncate text-xs text-stone-500 dark:text-gray-400">{user.email}</p>
+                        <p className="truncate text-xs text-stone-gray">{user.email}</p>
                       </div>
                       <Link
                         href={localizedPath('/profile')}
                         onClick={closeAllMenus}
-                        className="flex w-full items-center gap-2 px-4 py-2 text-start text-sm font-medium text-stone-700 transition-colors hover:bg-amber-50 dark:text-gray-200 dark:hover:bg-gray-700"
+                        className="flex w-full items-center gap-2 px-4 py-2 text-start text-sm font-medium text-charcoal-warm transition-colors hover:bg-warm-sand dark:text-warm-silver dark:hover:bg-dark-warm"
                         role="menuitem"
                       >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -206,7 +206,7 @@ export default function Navigation() {
                       <button
                         type="button"
                         onClick={handleLogout}
-                        className="flex w-full items-center gap-2 px-4 py-2 text-start text-sm font-medium text-red-700 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                        className="flex w-full items-center gap-2 px-4 py-2 text-start text-sm font-medium text-error-crimson transition-colors hover:bg-error-crimson/5"
                         role="menuitem"
                       >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -272,17 +272,17 @@ export default function Navigation() {
 
             <div className={navTheme.mobileAuthWrap}>
               {isLoading ? (
-                <div className="h-10 animate-pulse rounded-xl bg-amber-100 dark:bg-gray-800" />
+                <div className="h-10 animate-pulse rounded-xl bg-warm-sand dark:bg-dark-surface" />
               ) : isAuthenticated && user ? (
                 <>
                   <div className={navTheme.mobileUserCard}>
-                    <p className="text-sm font-semibold text-stone-900 dark:text-white">{displayName}</p>
-                    <p className="truncate text-xs text-stone-500 dark:text-gray-400">{user.email}</p>
+                    <p className="text-sm font-medium text-near-black dark:text-ivory">{displayName}</p>
+                    <p className="truncate text-xs text-stone-gray">{user.email}</p>
                   </div>
                   <Link
                     href={localizedPath('/profile')}
                     onClick={closeAllMenus}
-                    className="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:border-amber-400 hover:bg-amber-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                    className="inline-flex items-center justify-center rounded-xl border border-border-warm bg-ivory px-4 py-2.5 text-sm font-medium text-charcoal-warm transition-all hover:bg-warm-sand dark:border-dark-surface dark:bg-dark-surface dark:text-warm-silver"
                   >
                     {t('nav.profile', 'الملف الشخصي')}
                   </Link>
@@ -295,7 +295,7 @@ export default function Navigation() {
                   <Link
                     href={localizedPath('/auth/login')}
                     onClick={closeAllMenus}
-                    className="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:border-amber-400 hover:bg-amber-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                    className="inline-flex items-center justify-center rounded-xl border border-border-warm bg-ivory px-4 py-2.5 text-sm font-medium text-charcoal-warm transition-all hover:bg-warm-sand dark:border-dark-surface dark:bg-dark-surface dark:text-warm-silver"
                   >
                     {t('nav.signIn', 'تسجيل الدخول')}
                   </Link>

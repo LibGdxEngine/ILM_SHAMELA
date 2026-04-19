@@ -13,10 +13,16 @@ from tika import parser
 from core.metrics import increment_metric
 from core.request_id import reset_request_id, set_request_id
 from .documents import DocumentIndex
-from .models import Author, Category, Document
-from .semantic import build_embedding
+from .models import Author, Category, Document, DocumentChunk
+from .semantic import build_batch_embedding, build_embedding
+from .utils import split_document_content_into_pages
+from . import ocr as ocr_registry
+from .ocr import OCRUnavailable
 
 logger = logging.getLogger(__name__)
+
+MIN_PDF_TEXT_CHARS = 100
+MIN_PDF_CHARS_PER_PAGE = 100
 
 
 class RetriableProcessingError(Exception):
@@ -26,6 +32,15 @@ class RetriableProcessingError(Exception):
 def _is_pdf(document):
     file_name = (document.file.name or '').lower()
     return file_name.endswith('.pdf')
+
+
+def _count_pdf_pages(file_content):
+    try:
+        from pdf2image import pdfinfo_from_bytes
+        info = pdfinfo_from_bytes(file_content)
+        return int(info.get('Pages', 0)) or None
+    except Exception:
+        return None
 
 
 def _generate_pdf_thumbnail(document, file_content):
@@ -162,6 +177,65 @@ def process_document_task(self, doc_id):
         metadata = parsed.get('metadata') or {}
         authors, categories = _extract_authors_and_categories(metadata)
 
+        ocr_pages: list | None = None
+        engine_used: str = ''
+        if _is_pdf(document):
+            requested = (document.ocr_engine or Document.OCREngine.AUTO).strip() or Document.OCREngine.AUTO
+            engine_name: str | None = None
+
+            if requested == Document.OCREngine.NONE:
+                engine_name = None
+            elif requested == Document.OCREngine.AUTO:
+                tika_chars = len(extracted_text.strip())
+                pdf_page_count = _count_pdf_pages(file_content)
+                chars_per_page = (tika_chars / pdf_page_count) if pdf_page_count else tika_chars
+                needs_ocr = tika_chars < MIN_PDF_TEXT_CHARS or chars_per_page < MIN_PDF_CHARS_PER_PAGE
+                if needs_ocr and ocr_registry.is_any_engine_configured():
+                    engine_name = ocr_registry.DEFAULT_ENGINE
+                    logger.info(
+                        '[OCR] Auto fallback — tika text insufficient, using default engine',
+                        extra={
+                            'document_id': document.id,
+                            'tika_chars': tika_chars,
+                            'pdf_pages': pdf_page_count,
+                            'chars_per_page': round(chars_per_page, 1),
+                            'engine': engine_name,
+                        },
+                    )
+            else:
+                engine_name = requested
+                logger.info(
+                    '[OCR] Explicit engine requested, overriding tika output',
+                    extra={'document_id': document.id, 'engine': engine_name},
+                )
+
+            if engine_name:
+                try:
+                    engine = ocr_registry.get_engine(engine_name)
+                    ocr_pages = engine.parse(file_content, document.file.name)
+                    extracted_text = '\n\f\n'.join(p['content'] for p in ocr_pages)
+                    engine_used = engine_name
+                    logger.info(
+                        '[OCR] Engine %s extracted text',
+                        engine_name,
+                        extra={
+                            'document_id': document.id,
+                            'page_count': len(ocr_pages),
+                            'char_count': len(extracted_text),
+                            'engine': engine_name,
+                        },
+                    )
+                except OCRUnavailable as exc:
+                    if requested == Document.OCREngine.AUTO:
+                        logger.warning(
+                            '[OCR] Engine %s unavailable, continuing with original text: %s',
+                            engine_name, exc,
+                            extra={'document_id': document.id, 'engine': engine_name},
+                        )
+                    else:
+                        # Admin explicitly asked for this engine — fail loudly so they see it.
+                        raise
+
         try:
             detected_language = detect(extracted_text) if extracted_text.strip() else None
         except LangDetectException:
@@ -175,6 +249,25 @@ def process_document_task(self, doc_id):
             ]
         )
         semantic_vector = build_embedding(semantic_input, task_type="RETRIEVAL_DOCUMENT")
+
+        # Per-chunk embeddings for in-document semantic search
+        if ocr_pages:
+            pages = ocr_pages
+        else:
+            pages = split_document_content_into_pages(extracted_text)
+        chunk_texts = [p['content'] for p in pages]
+        chunk_embeddings = build_batch_embedding(chunk_texts, task_type="RETRIEVAL_DOCUMENT")
+        chunk_objects = [
+            DocumentChunk(
+                document=document,
+                chunk_index=idx,
+                page_number=p['page_number'],
+                content=p['content'],
+                embedding=chunk_embeddings[idx] if idx < len(chunk_embeddings) else [],
+            )
+            for idx, p in enumerate(pages)
+        ]
+
         try:
             _generate_pdf_thumbnail(document, file_content)
         except Exception:
@@ -191,7 +284,13 @@ def process_document_task(self, doc_id):
             document.processing_status = Document.ProcessingStatus.PROCESSING
             document.processing_error = None
             document.semantic_vector = semantic_vector
+            document.ocr_engine_used = engine_used
             document.save()
+
+            # Idempotent: clear old chunks then bulk-insert new ones
+            DocumentChunk.objects.filter(document=document).delete()
+            if chunk_objects:
+                DocumentChunk.objects.bulk_create(chunk_objects, batch_size=500)
 
             for author_name in authors:
                 author, _ = Author.objects.get_or_create(

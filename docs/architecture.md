@@ -2,7 +2,7 @@
 
 ## Service Topology
 - `frontend` (Next.js): UI and proxy for `/api/*` and `/media/*`.
-- `nginx`: TLS termination and reverse proxy.
+- `caddy`: TLS termination and reverse proxy.
 - `backend` (Django + DRF): API, auth, metadata, reader/search endpoints.
 - `celery_worker`: async processing pipeline.
 - `db` (PostgreSQL): source of truth for users/documents/metadata.

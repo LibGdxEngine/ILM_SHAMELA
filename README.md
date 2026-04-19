@@ -21,7 +21,7 @@ docker compose up --build
 ```
 3. Open:
 - Frontend: `https://localhost`
-- Backend API root (via nginx): `https://localhost/api/`
+- Backend API root (via Caddy): `https://localhost/api/`
 - Health checks:
   - `https://localhost/api/health/live/`
   - `https://localhost/api/health/ready/`

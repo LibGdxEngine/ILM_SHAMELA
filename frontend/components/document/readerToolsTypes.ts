@@ -1,13 +1,17 @@
 export type ReaderTool = 'search' | 'notes' | 'bookmarks';
 
+export interface Bookmark {
+  id?: number;
+  page: number;
+  createdAt: number;
+  tags: string[];
+  label?: string;
+}
+
 export interface Note {
-  id: string;
+  id: string | number;
   page: number;
   content: string;
   createdAt: number;
-}
-
-export interface Bookmark {
-  page: number;
-  createdAt: number;
+  tags: string[];
 }

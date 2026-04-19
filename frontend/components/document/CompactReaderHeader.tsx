@@ -1,0 +1,80 @@
+'use client';
+
+import Link from 'next/link';
+import { useMemo } from 'react';
+import { Document, normalizeMediaUrl } from '@/lib/api';
+import { useI18n } from '@/components/i18n/I18nProvider';
+import { useLocalizedPath } from '@/lib/i18n/navigation';
+
+interface CompactReaderHeaderProps {
+  document: Document;
+  currentPage: number;
+  totalPages: number;
+  isVisible: boolean;
+}
+
+export default function CompactReaderHeader({
+  document,
+  currentPage,
+  totalPages,
+  isVisible,
+}: CompactReaderHeaderProps) {
+  const { t } = useI18n();
+  const localizedPath = useLocalizedPath();
+
+  const coverUrl = useMemo(
+    () => normalizeMediaUrl(document.cover_photo_url) || normalizeMediaUrl(document.thumbnail_url),
+    [document.cover_photo_url, document.thumbnail_url]
+  );
+
+  const monogram = (document.title?.trim()?.charAt(0) || '?').toUpperCase();
+
+  return (
+    <div
+      className={`fixed inset-x-0 top-[3px] z-40 transform border-b border-border-cream bg-white/95 shadow-sm backdrop-blur transition-transform duration-300 ease-out ${
+        isVisible ? 'translate-y-0' : '-translate-y-full'
+      }`}
+      aria-hidden={!isVisible}
+    >
+      <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-2 md:px-6">
+        <Link
+          href={localizedPath('/documents')}
+          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-olive-gray transition-colors hover:bg-warm-sand/60 hover:text-terracotta"
+          aria-label={t('reader.backToLibrary', 'Back to library')}
+        >
+          <svg
+            className="h-4 w-4 rtl:-scale-x-100"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+        </Link>
+
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <div className="relative h-11 w-8 flex-shrink-0 overflow-hidden rounded ring-1 ring-teal-600/10">
+            {coverUrl ? (
+              <img src={coverUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-terracotta/80 text-xs font-serif text-ivory">
+                <bdi>{monogram}</bdi>
+              </div>
+            )}
+          </div>
+          <p className="line-clamp-1 min-w-0 flex-1 text-sm font-semibold text-near-black md:text-base">
+            <bdi>{document.title}</bdi>
+          </p>
+        </div>
+
+        <span className="rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-olive-gray">
+          {t('reader.pageOf', 'Page {current} of {total}', {
+            current: currentPage,
+            total: totalPages,
+          })}
+        </span>
+      </div>
+    </div>
+  );
+}

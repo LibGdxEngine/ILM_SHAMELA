@@ -39,7 +39,7 @@ urlpatterns = [
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 else:
-    # Also serve media in non-debug mode since we're behind nginx
+    # Also serve media in non-debug mode since we're behind Caddy
     # and files are on the local filesystem (not S3)
     from django.views.static import serve
     from django.urls import re_path

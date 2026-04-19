@@ -149,6 +149,13 @@ export interface UploadDocumentParams {
   written_date?: string;
   language?: string;
   cover_photo?: File;
+  ocr_engine?: string;
+}
+
+export interface OCREngine {
+  id: string;
+  label: string;
+  available: boolean;
 }
 
 export interface SearchResponse {
@@ -191,12 +198,16 @@ export interface DocumentSearchMatch {
   page_number: number;
   snippet: string;
   score?: number;
+  score_lexical?: number;
+  score_semantic?: number | null;  // null = no chunks for this doc (hide badge)
+  score_final?: number;
 }
 
 export interface DocumentSearchResponse {
   matches: DocumentSearchMatch[];
   total_matches: number;
   query: string;
+  has_semantic?: boolean;
 }
 
 export interface SearchSuggestionsResponse {
@@ -309,6 +320,10 @@ export async function uploadDocument(
 
   if (params.cover_photo) {
     formData.append('cover_photo', params.cover_photo);
+  }
+
+  if (params.ocr_engine) {
+    formData.append('ocr_engine', params.ocr_engine);
   }
 
   return new Promise((resolve, reject) => {
@@ -541,6 +556,31 @@ export async function searchInDocument(
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || error.message || 'Search failed');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get the list of OCR engines available for document processing.
+ */
+export async function getOCREngines(): Promise<OCREngine[]> {
+  const basePath = '/api/search_engine/ocr-engines/';
+  const url = API_BASE_URL
+    ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
+    : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || error.message || 'Failed to fetch OCR engines');
   }
 
   return response.json();

@@ -39,7 +39,7 @@ DEBUG = env_bool('DEBUG', False)
 ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', ['localhost', '127.0.0.1', 'backend'])
 
 # Security settings for HTTPS reverse proxy
-# Trust the X-Forwarded-Proto header from nginx
+# Trust the X-Forwarded-Proto header from the reverse proxy (Caddy)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # CSRF settings - required for Django 4.0+
@@ -91,6 +91,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'core.middleware.APITrailingSlashMiddleware',
     'core.middleware.RequestIDMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
@@ -226,6 +227,7 @@ REST_FRAMEWORK = {
         'dj_rest_auth': '20/min',
         'upload': '30/hour',
         'search': '600/hour',
+        'reader_progress': '30/min',
     },
 }
 

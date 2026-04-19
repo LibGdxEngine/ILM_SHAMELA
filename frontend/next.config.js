@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Preserve trailing slashes so proxied /api/*/ requests keep the slash Django requires
+  skipTrailingSlashRedirect: true,
   // Only use standalone output in production builds
   ...(process.env.NODE_ENV === 'production' && { output: 'standalone' }),
   /**

@@ -1,0 +1,51 @@
+# MonkeyOCR microservice — wraps https://github.com/Yuliang-Liu/MonkeyOCR
+# Uses a CPU-friendly base; will use GPU if available via nvidia runtime.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HF_HUB_ENABLE_HF_TRANSFER=1 \
+    TRANSFORMERS_OFFLINE=0
+
+# System deps: git for cloning, poppler for PDF, build tools for any C extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        build-essential \
+        poppler-utils \
+        libgl1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt
+
+# Clone MonkeyOCR (pinned to main; consider pinning to a commit for reproducibility)
+RUN git clone --depth 1 https://github.com/Yuliang-Liu/MonkeyOCR.git /opt/MonkeyOCR
+
+WORKDIR /opt/MonkeyOCR
+
+# Install MonkeyOCR's deps. The repo's requirements may pin torch versions;
+# we let it install whatever it asks for. This step is heavy.
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install -r requirements.txt || true \
+    && pip install -e . || true
+
+# Our wrapper deps
+RUN pip install fastapi uvicorn[standard] python-multipart huggingface_hub
+
+# Pre-download the small model so the first request isn't blocked by a multi-GB download.
+# Failure here is non-fatal — we fall back to runtime download — to keep the build tractable.
+RUN python tools/download_model.py -n MonkeyOCR-pro-1.2B || \
+    echo "[BUILD] Model pre-download failed, will retry at runtime"
+
+# Copy our wrapper service
+COPY service.py /opt/service.py
+
+EXPOSE 7860
+
+CMD ["uvicorn", "service:app", "--host", "0.0.0.0", "--port", "7860", "--app-dir", "/opt"]
