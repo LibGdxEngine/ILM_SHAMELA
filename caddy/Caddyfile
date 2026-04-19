@@ -1,0 +1,55 @@
+{
+	# Disable automatic HTTP->HTTPS redirects (we define them explicitly below)
+	auto_https disable_redirects
+}
+
+# HTTP: redirect to HTTPS
+:80 {
+	redir https://{host}{uri} permanent
+}
+
+# HTTPS: catch-all with internal self-signed cert
+:443 {
+	tls internal
+
+	encode zstd gzip
+
+	request_body {
+		max_size 100MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		X-XSS-Protection "1; mode=block"
+	}
+
+	# Django static files
+	handle_path /static/* {
+		root * /var/www/staticfiles
+		file_server
+		header Cache-Control "public, immutable, max-age=2592000"
+	}
+
+	# Django admin
+	handle /admin/* {
+		reverse_proxy backend:8000
+	}
+
+	# Django media
+	handle /media/* {
+		header Cache-Control "public, immutable, max-age=604800"
+		reverse_proxy backend:8000
+	}
+
+	# Django API
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else -> Next.js frontend
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

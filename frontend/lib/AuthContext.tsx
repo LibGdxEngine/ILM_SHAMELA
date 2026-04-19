@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import {
   User,
   login as apiLogin,
@@ -13,6 +13,7 @@ import {
   RegisterRequest,
   UserProfileUpdateRequest,
 } from './auth';
+import { migrateAllReaderLocalStorage } from './reader/migrate';
 
 interface AuthContextType {
   user: User | null;
@@ -31,6 +32,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // StrictMode mounts effects twice in dev; this ref ensures the
+  // localStorage sweep runs only once per signed-in session.
+  const migrationStartedRef = useRef(false);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -55,6 +59,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
     checkAuth();
   }, []);
+
+  // Once authenticated, push any legacy reader localStorage data to the API.
+  // Best-effort: the helper itself swallows errors and sets a flag to prevent
+  // re-running on subsequent renders or page loads.
+  useEffect(() => {
+    if (!user || migrationStartedRef.current) return;
+    migrationStartedRef.current = true;
+    void migrateAllReaderLocalStorage();
+  }, [user]);
 
   const login = useCallback(async (credentials: LoginRequest) => {
     setIsLoading(true);

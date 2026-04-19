@@ -87,6 +87,56 @@ services:
       - search_net
     restart: "no"
 
+  ocr-tesseract:
+    build:
+      context: ./ocr_services/tesseract
+      dockerfile: Dockerfile
+    container_name: search_ocr_tesseract
+    environment:
+      - OCR_LANG=${OCR_LANG:-ara+eng+fas+urd}
+      - OCR_DPI=${OCR_DPI:-200}
+    ports:
+      - "7860:7860"
+    networks:
+      - search_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  ocr-chandra:
+    build:
+      context: ./ocr_services/chandra
+      dockerfile: Dockerfile
+    container_name: search_ocr_chandra
+    profiles: ["gpu"]
+    environment:
+      - CHANDRA_METHOD=${CHANDRA_METHOD:-hf}
+      - CHANDRA_TIMEOUT=${CHANDRA_TIMEOUT:-1800}
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - ocr_chandra_models:/root/.cache/huggingface
+    ports:
+      - "7861:7860"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+    networks:
+      - search_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -125,6 +175,12 @@ services:
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,https://localhost:3000}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OCR_TESSERACT_URL=${OCR_TESSERACT_URL:-http://ocr-tesseract:7860}
+      - OCR_CHANDRA_URL=${OCR_CHANDRA_URL:-http://ocr-chandra:7860}
+      - OCR_DEFAULT_ENGINE=${OCR_DEFAULT_ENGINE:-tesseract}
+      - OCR_TIMEOUT=${OCR_TIMEOUT:-1800}
+      - MAX_DOCUMENT_FILE_SIZE_MB=${MAX_DOCUMENT_FILE_SIZE_MB:-100}
     depends_on:
       db:
         condition: service_healthy
@@ -164,6 +220,11 @@ services:
       - DEBUG=${DEBUG:-false}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,https://localhost:3000}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OCR_TESSERACT_URL=${OCR_TESSERACT_URL:-http://ocr-tesseract:7860}
+      - OCR_CHANDRA_URL=${OCR_CHANDRA_URL:-http://ocr-chandra:7860}
+      - OCR_DEFAULT_ENGINE=${OCR_DEFAULT_ENGINE:-tesseract}
+      - OCR_TIMEOUT=${OCR_TIMEOUT:-1800}
     depends_on:
       db:
         condition: service_healthy
@@ -172,6 +233,8 @@ services:
       es:
         condition: service_healthy
       backend:
+        condition: service_started
+      ocr-tesseract:
         condition: service_started
     networks:
       - search_net
@@ -202,7 +265,7 @@ services:
       # Frontend (Next.js) server-side code runs inside this container.
       # It should talk directly to the Django backend service over the Docker network.
       # The frontend browser code will still use relative URLs (see frontend/lib/api.ts),
-      # which nginx will proxy from https://localhost/api -> http://backend:8000/.
+      # which Caddy will proxy from https://localhost/api -> http://backend:8000/.
       - ENVIRONMENT=${ENVIRONMENT:-prod}
       - NEXT_PUBLIC_API_URL=http://backend:8000
       - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
@@ -212,16 +275,16 @@ services:
       - search_net
     restart: unless-stopped
 
-  nginx:
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
-    container_name: search_nginx
+  caddy:
+    image: caddy:2-alpine
+    container_name: search_caddy
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/certs:/etc/nginx/certs
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
       - staticfiles:/var/www/staticfiles:ro
     depends_on:
       - backend
@@ -236,6 +299,9 @@ volumes:
   redis_data:
   minio_data:
   staticfiles:
+  ocr_chandra_models:
+  caddy_data:
+  caddy_config:
 
 networks:
   search_net:

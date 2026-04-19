@@ -4,7 +4,7 @@ interface ReaderPopoverProps {
   isOpen: boolean;
   onClose: () => void;
   children: React.ReactNode;
-  width?: 'wide' | 'narrow';
+  width?: 'wide' | 'narrow' | 'xl';
 }
 
 export default function ReaderPopover({ isOpen, onClose, children, width = 'wide' }: ReaderPopoverProps) {
@@ -35,7 +35,7 @@ export default function ReaderPopover({ isOpen, onClose, children, width = 'wide
 
   if (!isOpen) return null;
 
-  const widthClass = width === 'wide' ? 'w-80' : 'w-64';
+  const widthClass = width === 'xl' ? 'w-[420px]' : width === 'wide' ? 'w-80' : 'w-64';
 
   return (
     <div

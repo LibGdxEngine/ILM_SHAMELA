@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { DocumentPage as DocumentPageType } from '@/lib/api';
+import type { ApiHighlight } from '@/lib/api/reader';
 import DocumentPage from './DocumentPage';
 import DocumentPageSkeleton from './DocumentPageSkeleton';
 import ErrorDisplay from '@/components/ErrorDisplay';
@@ -20,13 +21,16 @@ interface DocumentViewerProps {
   onRetry?: () => void;
   loadingBatchPage?: number | null;
   totalPages?: number;
+  highlightedPage?: number | null;
+  tashkeelEnabled?: boolean;
+  highlights?: ApiHighlight[];
 }
 
-export default function DocumentViewer({ 
-  pages, 
-  isLoading, 
-  hasMore, 
-  searchQuery, 
+export default function DocumentViewer({
+  pages,
+  isLoading,
+  hasMore,
+  searchQuery,
   onLoadMore,
   onPageVisible,
   onLoadFirstPage,
@@ -34,7 +38,10 @@ export default function DocumentViewer({
   error,
   onRetry,
   loadingBatchPage,
-  totalPages
+  totalPages,
+  highlightedPage,
+  tashkeelEnabled = true,
+  highlights = []
 }: DocumentViewerProps) {
   const { t } = useI18n();
   const localizedPath = useLocalizedPath();
@@ -83,6 +90,22 @@ export default function DocumentViewer({
   useEffect(() => {
     pagesRef.current = pages;
   }, [pages]);
+
+  // Stamp a temporary `data-search-hit` attribute on the page wrapper when a
+  // search result is clicked. CSS in globals.css applies the pulse animation.
+  useEffect(() => {
+    if (highlightedPage == null) return;
+    const node = pageRefs.current.get(highlightedPage);
+    if (!node) return;
+    node.setAttribute('data-search-hit', 'true');
+    const timer = window.setTimeout(() => {
+      node.removeAttribute('data-search-hit');
+    }, 1500);
+    return () => {
+      window.clearTimeout(timer);
+      node.removeAttribute('data-search-hit');
+    };
+  }, [highlightedPage]);
 
   // Infinite scroll observer - recreate when node or state changes
   const lastElementRef = useCallback((node: HTMLDivElement | null) => {
@@ -371,11 +394,13 @@ export default function DocumentViewer({
             }}
             data-page={page.page_number}
           >
-            <DocumentPage 
+            <DocumentPage
               pageNumber={page.page_number}
               content={page.content}
               searchQuery={searchQuery}
               language={language}
+              tashkeelEnabled={tashkeelEnabled}
+              highlights={highlights.filter((h) => h.page_number === page.page_number)}
             />
           </div>
         );

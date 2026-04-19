@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { uploadDocument, UploadResponse, getAuthors, Author, UploadDocumentParams, getCategories, Category } from '@/lib/api';
+import { uploadDocument, UploadResponse, getAuthors, Author, UploadDocumentParams, getCategories, Category, getOCREngines, OCREngine } from '@/lib/api';
 import { useI18n } from '@/components/i18n/I18nProvider';
 
 interface UploadZoneProps {
@@ -35,6 +35,8 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
   const [language, setLanguage] = useState('');
   const [coverPhoto, setCoverPhoto] = useState<File | null>(null);
   const [coverPhotoPreview, setCoverPhotoPreview] = useState<string | null>(null);
+  const [ocrEngine, setOcrEngine] = useState('auto');
+  const [ocrEngines, setOcrEngines] = useState<OCREngine[]>([]);
 
   // Authors search state
   const [availableAuthors, setAvailableAuthors] = useState<Author[]>([]);
@@ -98,6 +100,16 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     };
 
     fetchCategories();
+  }, []);
+
+  // Fetch available OCR engines on mount
+  useEffect(() => {
+    getOCREngines()
+      .then(setOcrEngines)
+      .catch((error) => {
+        console.error('Failed to fetch OCR engines:', error);
+        setOcrEngines([]);
+      });
   }, []);
 
   // Close authors dropdown when clicking outside
@@ -330,6 +342,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
         written_date: writtenDate.trim() || undefined,
         language: language || undefined,
         cover_photo: coverPhoto || undefined,
+        ocr_engine: ocrEngine || undefined,
       };
 
       const response: UploadResponse = await uploadDocument(uploadParams, (progress) => {
@@ -378,6 +391,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     setLanguage('');
     setCoverPhoto(null);
     setCoverPhotoPreview(null);
+    setOcrEngine('auto');
     setUploadStatus('idle');
     setUploadMessage('');
     setUploadProgress(0);
@@ -786,6 +800,40 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
                 <option value="ja">{t('upload.languageName.ja', '日本語')}</option>
                 <option value="tr">{t('upload.languageName.tr', 'Türkçe')}</option>
               </select>
+            </div>
+
+            {/* OCR Engine */}
+            <div>
+              <label htmlFor="ocr_engine" className="block text-sm font-medium text-gray-700 mb-1">
+                {t('upload.ocrEngine', 'محرك التعرف الضوئي (OCR)')}
+              </label>
+              <select
+                id="ocr_engine"
+                value={ocrEngine}
+                onChange={(e) => setOcrEngine(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                disabled={isUploading}
+              >
+                {ocrEngines.length === 0 ? (
+                  <option value="auto">
+                    {t('upload.ocrEngineOption.auto', 'تلقائي (موصى به)')}
+                  </option>
+                ) : (
+                  ocrEngines.map((engine) => (
+                    <option
+                      key={engine.id}
+                      value={engine.id}
+                      disabled={!engine.available}
+                    >
+                      {t(`upload.ocrEngineOption.${engine.id}`, engine.label)}
+                      {!engine.available ? ` — ${t('upload.ocrEngineUnavailable', 'غير متاح')}` : ''}
+                    </option>
+                  ))
+                )}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                {t('upload.ocrEngineHint', "اختر كيفية معالجة ملفات PDF الممسوحة ضوئيًا. خيار \"تلقائي\" يشغّل OCR عند الحاجة فقط.")}
+              </p>
             </div>
 
             {/* Cover Photo */}

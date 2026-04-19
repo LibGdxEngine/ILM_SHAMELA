@@ -1,11 +1,15 @@
 // Auth API layer for dj-rest-auth backend integration
 
+import { getCsrfToken } from './csrf';
+
 export interface User {
   pk: number;
   email: string;
   first_name: string;
   last_name: string;
   username: string;
+  name?: string;
+  avatar?: string | null;
 }
 
 export interface LoginRequest {
@@ -25,6 +29,11 @@ export interface UserProfileUpdateRequest {
   email?: string;
   first_name?: string;
   last_name?: string;
+  name?: string;
+  avatar?: string | null;
+  current_password?: string;
+  new_password?: string;
+  new_password_confirm?: string;
 }
 
 export interface AuthResponse {
@@ -43,6 +52,11 @@ export interface AuthError {
   first_name?: string[];
   last_name?: string[];
   username?: string[];
+  avatar?: string[];
+  current_password?: string[];
+  new_password?: string[];
+  new_password_confirm?: string[];
+  name?: string[];
   [key: string]: string[] | string | undefined;
 }
 
@@ -141,20 +155,7 @@ export async function register(data: RegisterRequest): Promise<User> {
   return getUser();
 }
 
-// Helper to get cookie by name
-function getCookie(name: string): string | null {
-  if (typeof document === 'undefined') {
-    return null;
-  }
-  const cookies = document.cookie.split(';');
-  for (let i = 0; i < cookies.length; i++) {
-    const cookie = cookies[i].trim();
-    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-      return decodeURIComponent(cookie.substring(name.length + 1));
-    }
-  }
-  return null;
-}
+// Cookie/CSRF helpers live in `./csrf` and are imported above.
 
 // Helper to delete cookie by name
 function deleteCookie(name: string): void {
@@ -187,7 +188,7 @@ async function ensureCsrfToken(): Promise<void> {
  * Logout the current user
  */
 export async function logout(): Promise<void> {
-  const csrfToken = getCookie('csrftoken');
+  const csrfToken = getCsrfToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -241,7 +242,7 @@ export async function getUser(): Promise<User> {
 export async function updateUserProfile(data: UserProfileUpdateRequest): Promise<User> {
   await ensureCsrfToken();
 
-  const csrfToken = getCookie('csrftoken');
+  const csrfToken = getCsrfToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -263,12 +264,23 @@ export async function updateUserProfile(data: UserProfileUpdateRequest): Promise
       email: error.email?.[0],
       first_name: error.first_name?.[0],
       last_name: error.last_name?.[0],
+      avatar: error.avatar?.[0],
+      current_password: error.current_password?.[0],
+      new_password: error.new_password?.[0],
+      new_password_confirm: error.new_password_confirm?.[0],
+      name: error.name?.[0],
     };
     const message =
       error.detail ||
+      error.non_field_errors?.[0] ||
       fieldErrors.email ||
       fieldErrors.first_name ||
       fieldErrors.last_name ||
+      fieldErrors.avatar ||
+      fieldErrors.current_password ||
+      fieldErrors.new_password ||
+      fieldErrors.new_password_confirm ||
+      fieldErrors.name ||
       'Failed to update profile';
     throw new AuthValidationError(message, fieldErrors);
   }

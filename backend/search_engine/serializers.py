@@ -270,7 +270,13 @@ class DocumentSerializer(serializers.ModelSerializer):
         required=False,
         help_text="List of alternate names for the document"
     )
-    
+    ocr_engine = serializers.ChoiceField(
+        choices=Document.OCREngine.choices,
+        required=False,
+        default=Document.OCREngine.AUTO,
+        help_text="OCR engine to use for this document (auto/none/tesseract/chandra)"
+    )
+
     class Meta:
         model = Document
         fields = [
@@ -297,6 +303,8 @@ class DocumentSerializer(serializers.ModelSerializer):
             'description',
             'written_date',
             'alternate_names',
+            'ocr_engine',
+            'ocr_engine_used',
         ]
         read_only_fields = [
             'id',
@@ -309,6 +317,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             'processing_completed_at',
             'authors',
             'categories',
+            'ocr_engine_used',
         ]
     
     def validate(self, attrs):

@@ -5,6 +5,27 @@ from .metrics import increment_metric
 from .request_id import reset_request_id, set_request_id
 
 
+class APITrailingSlashMiddleware:
+    """Append a trailing slash to /api/* requests in-place (no redirect).
+
+    Why: the Next.js dev-server proxy strips trailing slashes from `:path*`
+    rewrites, so a POST from the browser to `/api/auth/registration/` arrives
+    at Django as `/api/auth/registration`. Django's APPEND_SLASH redirect
+    can't preserve POST bodies, producing a 500. Rewriting path_info before
+    URL resolution sidesteps the redirect entirely.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        path = request.path_info
+        if path.startswith('/api/') and not path.endswith('/'):
+            request.path_info = path + '/'
+            request.path = request.path + '/'
+        return self.get_response(request)
+
+
 class RequestIDMiddleware:
     """Attach request IDs and emit basic request metrics."""
 

@@ -1,29 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Document, normalizeMediaUrl } from '@/lib/api';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { useI18n } from '@/components/i18n/I18nProvider';
 
 interface BookCardProps {
   document: Document;
-  formatDate: (date: string) => string;
+  formatDate?: (date: string) => string;
 }
 
-// Generate a consistent color based on string hash
 function stringToColor(str: string): { primary: string; secondary: string } {
   const colors = [
-    { primary: '#6366f1', secondary: '#818cf8' }, // Indigo
-    { primary: '#8b5cf6', secondary: '#a78bfa' }, // Violet
-    { primary: '#ec4899', secondary: '#f472b6' }, // Pink
-    { primary: '#14b8a6', secondary: '#2dd4bf' }, // Teal
-    { primary: '#f59e0b', secondary: '#fbbf24' }, // Amber
-    { primary: '#10b981', secondary: '#34d399' }, // Emerald
-    { primary: '#3b82f6', secondary: '#60a5fa' }, // Blue
-    { primary: '#ef4444', secondary: '#f87171' }, // Red
-    { primary: '#06b6d4', secondary: '#22d3ee' }, // Cyan
-    { primary: '#84cc16', secondary: '#a3e635' }, // Lime
+    { primary: '#c96442', secondary: '#d97757' },
+    { primary: '#4d4c48', secondary: '#87867f' },
+    { primary: '#30302e', secondary: '#5e5d59' },
+    { primary: '#a16207', secondary: '#d4a853' },
+    { primary: '#7c4a2b', secondary: '#c96442' },
+    { primary: '#3d3d3a', secondary: '#b0aea5' },
   ];
 
   let hash = 0;
@@ -33,135 +29,199 @@ function stringToColor(str: string): { primary: string; secondary: string } {
   return colors[Math.abs(hash) % colors.length];
 }
 
-// Generate SVG pattern for book cover
 function generateCoverPattern(title: string): string {
   const colors = stringToColor(title);
   return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="200" height="280" viewBox="0 0 200 280">
+    <svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300">
       <defs>
         <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" style="stop-color:${colors.primary};stop-opacity:1" />
           <stop offset="100%" style="stop-color:${colors.secondary};stop-opacity:1" />
         </linearGradient>
-        <pattern id="pattern" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
-          <circle cx="20" cy="20" r="3" fill="rgba(255,255,255,0.1)"/>
-        </pattern>
       </defs>
-      <rect width="200" height="280" fill="url(#grad)"/>
-      <rect width="200" height="280" fill="url(#pattern)"/>
-      <g transform="translate(60, 100)">
-        <path d="M80 0H10C4.477 0 0 4.477 0 10v60c0 5.523 4.477 10 10 10h70c5.523 0 10-4.477 10-10V10c0-5.523-4.477-10-10-10z" fill="rgba(255,255,255,0.2)"/>
-        <path d="M75 15H15c-2.761 0-5 2.239-5 5v40c0 2.761 2.239 5 5 5h60c2.761 0 5-2.239 5-5V20c0-2.761-2.239-5-5-5z" fill="rgba(255,255,255,0.15)"/>
-        <path d="M45 30v20M35 40h20" stroke="rgba(255,255,255,0.4)" stroke-width="3" stroke-linecap="round"/>
-      </g>
+      <rect width="200" height="300" fill="url(#grad)"/>
+      <rect x="24" y="40" width="152" height="1" fill="rgba(250,249,245,0.35)"/>
+      <rect x="24" y="258" width="152" height="1" fill="rgba(250,249,245,0.35)"/>
     </svg>
   `;
 }
 
-export default function BookCard({ document, formatDate }: BookCardProps) {
+function categoryName(c: unknown): string | null {
+  if (!c) return null;
+  if (typeof c === 'string') return c;
+  if (typeof c === 'object' && c !== null && 'name' in c) {
+    const n = (c as { name?: unknown }).name;
+    return typeof n === 'string' ? n : null;
+  }
+  return null;
+}
+
+function usePitch(doc: Document): string {
+  const { t } = useI18n();
+  const category = doc.categories?.map(categoryName).find(Boolean) ?? null;
+  const author = doc.authors?.[0]?.name ?? null;
+
+  if (author && category) {
+    return t('docs.card.pitchByAuthor', 'By {author}, in {category}.', {
+      author,
+      category,
+    });
+  }
+  if (author) {
+    return t('docs.card.pitchJustAuthor', 'By {author}.', { author });
+  }
+  if (category) {
+    return t('docs.card.pitchFallback', 'A book in {category}.', { category });
+  }
+  return '';
+}
+
+export default function BookCard({ document }: BookCardProps) {
   const { t } = useI18n();
   const localizedPath = useLocalizedPath();
+  const router = useRouter();
 
-  // Use cover_photo_url if available, otherwise generate a fallback pattern
   const coverSvg = generateCoverPattern(document.title);
   const coverDataUrl = `data:image/svg+xml,${encodeURIComponent(coverSvg)}`;
   const [imageError, setImageError] = useState(false);
-  
-  // Normalize the cover photo URL to use frontend proxy if needed
+  const [bookmarked, setBookmarked] = useState(false);
+
   const coverPhotoUrl = normalizeMediaUrl(document.cover_photo_url);
+  const pitch = usePitch(document);
 
   const isReady = document.processing_status
     ? document.processing_status === 'succeeded'
     : document.processed;
 
+  const bookmarkKey = `ilm.bookmarks.${document.id}`;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setBookmarked(window.localStorage.getItem(bookmarkKey) === '1');
+  }, [bookmarkKey]);
+
+  const toggleBookmark = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setBookmarked((prev) => {
+        const next = !prev;
+        try {
+          if (next) window.localStorage.setItem(bookmarkKey, '1');
+          else window.localStorage.removeItem(bookmarkKey);
+        } catch {}
+        return next;
+      });
+    },
+    [bookmarkKey]
+  );
+
+  const openAsk = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      router.push(localizedPath(`/documents/${document.id}?ask=1`));
+    },
+    [router, localizedPath, document.id]
+  );
+
   return (
-    <Link
-      href={localizedPath(`/documents/${document.id}`)}
-      className="group block bg-white dark:bg-gray-800 rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden transform hover:-translate-y-1"
-    >
-      {/* Book Cover */}
-      <div className="relative aspect-[3/4] overflow-hidden bg-gray-100 dark:bg-gray-700">
-        {coverPhotoUrl && !imageError ? (
-          <img
-            src={coverPhotoUrl}
-            alt={document.title}
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            onError={() => setImageError(true)}
-          />
-        ) : (
-          <div
-            className="absolute inset-0 bg-cover bg-center transition-transform duration-300 group-hover:scale-105"
-            style={{ backgroundImage: `url("${coverDataUrl}")` }}
-          />
-        )}
-        
-        {/* Processing Status Badge */}
-        <div className="absolute top-3 right-3">
-          <span
-            className={`px-2 py-1 text-xs font-medium rounded-full backdrop-blur-sm ${
-              isReady
-                ? 'bg-green-500/80 text-white'
-                : 'bg-yellow-500/80 text-white'
-            }`}
+    <div className="group relative">
+      <Link
+        href={localizedPath(`/documents/${document.id}`)}
+        className="block bg-ivory dark:bg-dark-surface rounded-xl border border-border-cream dark:border-dark-surface shadow-whisper hover:shadow-[0_10px_28px_rgba(20,20,19,0.08)] hover:border-ring-warm dark:hover:border-[#4d4c48] transition-all duration-300 overflow-hidden transform hover:-translate-y-0.5"
+      >
+        <div className="relative aspect-[2/3] overflow-hidden bg-warm-sand dark:bg-[#3d3d3a]">
+          {coverPhotoUrl && !imageError ? (
+            <img
+              src={coverPhotoUrl}
+              alt={document.title}
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <div
+              className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-[1.02]"
+              style={{ backgroundImage: `url("${coverDataUrl}")` }}
+            />
+          )}
+
+          {/* Language pill — logical-start side */}
+          {document.language && (
+            <div className="absolute top-3 start-3">
+              <span className="px-2 py-0.5 text-[10.5px] tracking-wide rounded-full bg-ivory/90 dark:bg-near-black/70 text-charcoal-warm dark:text-warm-silver backdrop-blur-md uppercase ring-1 ring-ring-warm dark:ring-[#4d4c48]">
+                {document.language}
+              </span>
+            </div>
+          )}
+
+          {/* Processing state (only when not ready — less visual noise) */}
+          {!isReady && (
+            <div className="absolute top-3 end-3">
+              <span className="px-2 py-0.5 text-[10.5px] tracking-wide rounded-full bg-terracotta/90 text-ivory backdrop-blur-md">
+                {t('book.processing', 'قيد المعالجة')}
+              </span>
+            </div>
+          )}
+
+          {/* Ask-about-this — hover reveal, bottom end */}
+          <button
+            type="button"
+            onClick={openAsk}
+            className="absolute bottom-3 end-3 px-3 py-1.5 text-[12px] rounded-full bg-near-black/80 text-ivory backdrop-blur-md opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 focus:opacity-100 focus:translate-y-0 transition-all duration-200 ring-1 ring-white/10 hover:bg-near-black"
+            aria-label={t('docs.card.askAbout', 'اسأل عن هذا الكتاب')}
           >
-            {isReady ? `✓ ${t('book.ready', 'جاهز')}` : `⏳ ${t('book.processing', 'قيد المعالجة')}`}
-          </span>
+            {t('docs.card.askAbout', 'اسأل عن هذا الكتاب')}
+          </button>
         </div>
 
-        {/* Language Badge */}
-        {document.language && (
-          <div className="absolute top-3 left-3">
-            <span className="px-2 py-1 text-xs font-medium rounded-full bg-white/80 dark:bg-gray-900/80 text-gray-800 dark:text-gray-200 backdrop-blur-sm uppercase">
-              {document.language}
-            </span>
-          </div>
-        )}
-      </div>
+        <div className="p-4">
+          <h3 className="font-serif text-[1.1rem] leading-[1.3] font-medium text-near-black dark:text-ivory line-clamp-2 group-hover:text-terracotta dark:group-hover:text-[#d97757] transition-colors">
+            {document.title}
+          </h3>
 
-      {/* Book Info */}
-      <div className="p-4 flex flex-col min-h-[140px]">
-        {/* Title */}
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white line-clamp-2 mb-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-          {document.title}
-        </h3>
+          {document.authors && document.authors.length > 0 && (
+            <p className="mt-1 text-[13px] text-olive-gray dark:text-warm-silver line-clamp-1">
+              {document.authors.map((a) => a.name).join('، ')}
+            </p>
+          )}
 
-        {/* Authors */}
-        {document.authors && document.authors.length > 0 && (
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-1">
-            <span className="font-medium">{t('book.by', 'بقلم')}:</span> {document.authors.map(a => a.name).join(', ')}
-          </p>
-        )}
-
-        {/* Categories */}
-        {document.categories && document.categories.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {document.categories.slice(0, 3).map((category) => (
-              <span
-                key={typeof category === 'string' ? category : category.id}
-                className="px-2 py-0.5 text-xs bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full"
-              >
-                {typeof category === 'string' ? category : category.name}
-              </span>
-            ))}
-            {document.categories.length > 3 && (
-              <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full">
-                +{document.categories.length - 3}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Spacer to push date to bottom */}
-        <div className="flex-grow"></div>
-
-        {/* Date */}
-        <div className="flex items-center text-xs text-gray-500 dark:text-gray-500 pt-2 border-t border-gray-100 dark:border-gray-700 mt-auto">
-          <svg className="w-4 h-4 mx-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          {formatDate(document.uploaded_at)}
+          {pitch && (
+            <p className="mt-2 text-[12.5px] text-stone-gray leading-[1.55] line-clamp-1">
+              {pitch}
+            </p>
+          )}
         </div>
-      </div>
-    </Link>
+      </Link>
+
+      {/* Bookmark button — above the link surface */}
+      <button
+        type="button"
+        onClick={toggleBookmark}
+        aria-pressed={bookmarked}
+        aria-label={t('docs.card.bookmark', 'حفظ')}
+        className={`absolute top-3 ${
+          document.language ? 'start-[4.5rem]' : 'start-3'
+        } w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md ring-1 transition-all duration-200 ${
+          bookmarked
+            ? 'bg-terracotta text-ivory ring-terracotta/60 opacity-100'
+            : 'bg-ivory/90 dark:bg-near-black/70 text-charcoal-warm dark:text-warm-silver ring-ring-warm dark:ring-[#4d4c48] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-ivory'
+        }`}
+      >
+        <svg
+          className="w-4 h-4"
+          fill={bookmarked ? 'currentColor' : 'none'}
+          stroke="currentColor"
+          strokeWidth={2}
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-4-7 4V5z"
+          />
+        </svg>
+      </button>
+    </div>
   );
 }

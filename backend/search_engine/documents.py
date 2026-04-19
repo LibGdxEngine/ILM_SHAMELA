@@ -1,6 +1,8 @@
 from django_elasticsearch_dsl import Document, fields
 from django_elasticsearch_dsl.registries import registry
+from elasticsearch_dsl import field as es_field
 from .models import Document as DocumentModel
+from .semantic import VECTOR_DIMENSIONS
 
 
 @registry.register_document
@@ -44,12 +46,13 @@ class DocumentIndex(Document):
         },
         multi=True
     )
+    semantic_vector = es_field.DenseVector(dims=VECTOR_DIMENSIONS)
 
     class Index:
         name = 'documents'
         settings = {
             'number_of_shards': 1,
-            'number_of_replicas': 0
+            'number_of_replicas': 0,
         }
 
     class Django:
@@ -99,5 +102,11 @@ class DocumentIndex(Document):
                 instance.alternate_names.values_list('name', flat=True))
         else:
             self.alternate_names = []
+
+        vec = instance.semantic_vector or []
+        if len(vec) == VECTOR_DIMENSIONS and any(vec):
+            self.semantic_vector = vec
+        else:
+            self.semantic_vector = None
 
         return data

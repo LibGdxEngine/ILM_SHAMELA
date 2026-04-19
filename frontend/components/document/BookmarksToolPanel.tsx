@@ -1,9 +1,12 @@
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { Bookmark } from './readerToolsTypes';
+import TagChipInput from './TagChipInput';
 
 interface BookmarksToolPanelProps {
   bookmarks: Bookmark[];
   currentPage: number;
+  selectedTags: string[];
+  onSelectedTagsChange: (next: string[]) => void;
   onToggleCurrentBookmark: () => void;
   onRemoveBookmark: (page: number) => void;
   onGoToPage: (page: number) => void;
@@ -12,12 +15,32 @@ interface BookmarksToolPanelProps {
 export default function BookmarksToolPanel({
   bookmarks,
   currentPage,
+  selectedTags,
+  onSelectedTagsChange,
   onToggleCurrentBookmark,
   onRemoveBookmark,
   onGoToPage,
 }: BookmarksToolPanelProps) {
   const { t } = useI18n();
   const isBookmarked = bookmarks.some((bookmark) => bookmark.page === currentPage);
+
+  const filteredBookmarks =
+    selectedTags.length === 0
+      ? bookmarks
+      : bookmarks.filter((bookmark) =>
+          selectedTags.every((tag) =>
+            bookmark.tags.some((existing) => existing.toLowerCase() === tag.toLowerCase())
+          )
+        );
+
+  const toggleFilterTag = (tag: string) => {
+    const lower = tag.toLowerCase();
+    if (selectedTags.includes(lower)) {
+      onSelectedTagsChange(selectedTags.filter((existing) => existing !== lower));
+    } else {
+      onSelectedTagsChange([...selectedTags, lower]);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -42,22 +65,34 @@ export default function BookmarksToolPanel({
         </button>
       </div>
 
+      <div>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          {t('reader.tagFilter', 'Filter by tag')}
+        </h3>
+        <TagChipInput
+          value={selectedTags}
+          onChange={onSelectedTagsChange}
+          placeholder={t('reader.tagPlaceholder', 'Add tag and press Enter')}
+          ariaLabel={t('reader.tagFilter', 'Filter by tag')}
+        />
+      </div>
+
       <div className="flex min-h-0 flex-1 flex-col">
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
           {t('sidebar.savedPages', 'Saved pages')}
         </h3>
-        {bookmarks.length === 0 ? (
+        {filteredBookmarks.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center">
             <p className="text-sm text-gray-500">{t('sidebar.noBookmarks', 'No saved pages')}</p>
           </div>
         ) : (
           <div className="min-h-0 overflow-y-auto pe-1">
             <div className="grid grid-cols-2 gap-3">
-              {bookmarks
+              {filteredBookmarks
                 .slice()
                 .sort((a, b) => a.page - b.page)
                 .map((bookmark) => (
-                  <div key={bookmark.page} className="group relative rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                  <div key={bookmark.id ?? bookmark.page} className="group relative rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
                     <button
                       type="button"
                       onClick={() => onGoToPage(bookmark.page)}
@@ -68,6 +103,30 @@ export default function BookmarksToolPanel({
                         {t('reader.pageLabel', 'Page {page}', { page: bookmark.page })}
                       </p>
                     </button>
+                    {bookmark.tags.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {bookmark.tags.map((tag) => {
+                          const isActive = selectedTags.includes(tag.toLowerCase());
+                          return (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleFilterTag(tag);
+                              }}
+                              className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                                isActive
+                                  ? 'bg-teal-600 text-white'
+                                  : 'bg-teal-100 text-teal-800 hover:bg-teal-200'
+                              }`}
+                            >
+                              {tag}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => onRemoveBookmark(bookmark.page)}
