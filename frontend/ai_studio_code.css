@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-bg text-text font-geist antialiased;
+    background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(192, 133, 82, 0.08), transparent 70%),
+      radial-gradient(ellipse 60% 40% at 90% 30%, rgba(192, 133, 82, 0.04), transparent 60%);
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+  }
+
+  ::selection {
+    @apply bg-accent-soft text-accent-2;
+  }
+}
+
+@layer components {
+  .nav-link {
+    @apply text-[13.5px] text-text-2 tracking-wide transition-colors relative hover:text-text;
+  }
+  .nav-link::after {
+    @apply content-[''] absolute -bottom-1 left-1/2 w-0 h-[1px] bg-accent transition-all duration-300;
+  }
+  .nav-link:hover::after {
+    @apply w-full left-0;
+  }
+
+  .btn-primary {
+    @apply bg-gradient-to-b from-accent-2 to-accent text-[#1a0e05] font-medium rounded-full px-5 py-2.5 text-[13.5px] transition-all duration-200 shadow-[0_4px_20px_-4px_rgba(192,133,82,0.4),inset_0_1px_0_rgba(255,255,255,0.2)] hover:-translate-y-[1px] hover:shadow-[0_8px_28px_-4px_rgba(192,133,82,0.55),inset_0_1px_0_rgba(255,255,255,0.25)];
+  }
+
+  .btn-ghost {
+    @apply border border-border-strong text-text rounded-full px-5 py-2.5 text-[13.5px] bg-white/5 transition-all duration-200 hover:bg-white/10 hover:border-accent;
+  }
+
+  .section-eyebrow {
+    @apply text-[11.5px] tracking-[0.16em] uppercase text-accent font-medium inline-flex items-center gap-2.5;
+  }
+  .section-eyebrow::before {
+    @apply content-[''] w-6 h-[1px] bg-accent;
+  }
+}
+
+/* Specific complex masks kept in plain CSS for ease */
+.search-shell::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 24px;
+  padding: 1px;
+  background: linear-gradient(180deg, rgba(192, 133, 82, 0.25), transparent 50%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}

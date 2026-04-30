@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Manrope, Noto_Naskh_Arabic, Source_Serif_4 } from "next/font/google";
+import { Amiri, Fraunces, Manrope, Noto_Naskh_Arabic, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 import Navigation from "@/components/Navigation";
 import { AuthProvider } from "@/lib/AuthContext";
@@ -25,6 +25,19 @@ const sourceSerif = Source_Serif_4({
   variable: "--font-serif",
 });
 
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600"],
+  style: ["normal", "italic"],
+  variable: "--font-fraunces",
+});
+
+const amiri = Amiri({
+  subsets: ["arabic"],
+  weight: ["400", "700"],
+  variable: "--font-amiri",
+});
+
 export const metadata: Metadata = {
   title: arDictionary["meta.title"],
   description: arDictionary["meta.description"],
@@ -37,13 +50,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang={defaultLocale} dir={localeToDirection(defaultLocale)} suppressHydrationWarning>
-      <body className={`${manrope.variable} ${notoNaskhArabic.variable} ${sourceSerif.variable}`}>
+      <body className={`${manrope.variable} ${notoNaskhArabic.variable} ${sourceSerif.variable} ${fraunces.variable} ${amiri.variable}`}>
         <AuthProvider>
           <QueryProvider>
             <I18nProvider>
               <HtmlLangDirSync />
               <div className="flex flex-col h-screen">
-                <Navigation />
+                {/* <Navigation /> */}
                 <div className="flex-1 min-h-0 overflow-y-auto">
                   {children}
                 </div>

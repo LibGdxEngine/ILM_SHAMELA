@@ -449,6 +449,311 @@ mark {
   }
 }
 
+/* ─── Landing page (dark "library") shell ─── */
+/* Applied to the landing <main> wrapper so its dark theme + grain texture
+   stays scoped to the landing page only and never leaks into other routes. */
+.landing-shell {
+  --accent: #c08552;
+  --accent-2: #d8a373;
+  @apply bg-bg text-text font-geist antialiased;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(192, 133, 82, 0.08), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 90% 30%, rgba(192, 133, 82, 0.04), transparent 60%);
+}
+
+.landing-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+.landing-shell ::selection {
+  @apply bg-accent-soft text-accent-2;
+}
+
+@layer components {
+  .landing-shell .nav-link {
+    @apply text-[13.5px] text-text-2 tracking-wide transition-colors relative hover:text-text;
+  }
+  .landing-shell .nav-link::after {
+    @apply content-[''] absolute -bottom-1 left-1/2 w-0 h-[1px] bg-accent transition-all duration-300;
+  }
+  .landing-shell .nav-link:hover::after {
+    @apply w-full left-0;
+  }
+
+  .landing-shell .btn-primary {
+    @apply bg-gradient-to-b from-accent-2 to-accent text-[#1a0e05] font-medium rounded-full px-5 py-2.5 text-[13.5px] transition-all duration-200 shadow-[0_4px_20px_-4px_rgba(192,133,82,0.4),inset_0_1px_0_rgba(255,255,255,0.2)] hover:-translate-y-[1px] hover:shadow-[0_8px_28px_-4px_rgba(192,133,82,0.55),inset_0_1px_0_rgba(255,255,255,0.25)];
+  }
+
+  .landing-shell .btn-ghost {
+    @apply border border-border-strong text-text rounded-full px-5 py-2.5 text-[13.5px] bg-white/5 transition-all duration-200 hover:bg-white/10 hover:border-accent;
+  }
+
+  .landing-shell .section-eyebrow {
+    @apply text-[11.5px] tracking-[0.16em] uppercase text-accent font-medium inline-flex items-center gap-2.5;
+  }
+  .landing-shell .section-eyebrow::before {
+    @apply content-[''] w-6 h-[1px] bg-accent;
+  }
+}
+
+.landing-shell .search-shell::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 24px;
+  padding: 1px;
+  background: linear-gradient(180deg, rgba(192, 133, 82, 0.25), transparent 50%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.landing-shell .hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─── Auth pages (login + register) shell ─── */
+/* Two-column dark copper layout with framer-motion stagger. The shell sets
+   its own CSS custom properties so the auth pages don't inherit ambient
+   light-theme tokens, and scopes its component rules so they don't leak. */
+.auth-shell {
+  --bg: #0b0907;
+  --bg-2: #110d0a;
+  --card: #15110d;
+  --card-2: #1c1712;
+  --border: #2a2218;
+  --border-strong: #3a2f23;
+  --text: #f3ecdf;
+  --text-2: #b8ad99;
+  --text-3: #7a7060;
+  --accent: #c08552;
+  --accent-2: #d9a373;
+  --accent-soft: rgba(192, 133, 82, 0.12);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-login-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.auth-shell ::selection {
+  background: var(--accent-soft);
+  color: var(--accent-2);
+}
+
+.auth-left {
+  background:
+    radial-gradient(ellipse 80% 60% at 30% 20%, rgba(192, 133, 82, 0.1), transparent 60%),
+    radial-gradient(ellipse 70% 50% at 70% 90%, rgba(192, 133, 82, 0.06), transparent 60%),
+    linear-gradient(180deg, #110d0a, #0b0907);
+  border-right: 1px solid var(--border);
+}
+
+.auth-left-stars {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23c08552' fill-opacity='0.04'%3E%3Cpath d='M30 0L37.5 22.5L60 30L37.5 37.5L30 60L22.5 37.5L0 30L22.5 22.5z'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+.auth-brand-letter {
+  font-family: var(--font-fraunces);
+  color: var(--accent-2);
+}
+
+.auth-brand-name {
+  font-family: var(--font-fraunces);
+}
+
+.auth-brand-italic {
+  font-style: italic;
+  color: var(--text-2);
+  font-feature-settings: 'ss01';
+}
+
+.auth-verse {
+  font-family: var(--font-amiri);
+  color: var(--text);
+  text-shadow: 0 2px 30px rgba(192, 133, 82, 0.15);
+}
+
+.auth-verse-translation {
+  font-family: var(--font-fraunces);
+  color: var(--text-2);
+  font-feature-settings: 'ss01';
+}
+
+.auth-verse-citation {
+  color: var(--text-3);
+}
+
+.auth-left-footer {
+  color: var(--text-3);
+}
+
+.auth-back-home {
+  color: var(--text-3);
+}
+.auth-back-home:hover {
+  color: var(--text-2);
+}
+
+.auth-eyebrow {
+  color: var(--accent);
+  font-weight: 500;
+}
+.auth-eyebrow-line {
+  width: 24px;
+  height: 1px;
+  background: var(--accent);
+}
+
+.auth-headline {
+  font-family: var(--font-fraunces);
+  font-weight: 300;
+}
+.auth-headline-em {
+  font-style: italic;
+  color: var(--accent-2);
+  font-feature-settings: 'ss01';
+  font-weight: 400;
+}
+
+.auth-subhead {
+  color: var(--text-2);
+}
+
+.auth-divider-line {
+  background: var(--border);
+}
+.auth-divider-label {
+  color: var(--text-3);
+}
+
+.auth-error {
+  background: rgba(220, 80, 80, 0.08);
+  border: 1px solid rgba(220, 80, 80, 0.4);
+  color: #f5b8b8;
+}
+
+.auth-field-label {
+  color: var(--text-3);
+}
+
+.auth-field-hint {
+  color: var(--text-3);
+}
+
+.auth-link {
+  color: var(--accent-2);
+  transition: color 0.2s ease;
+}
+.auth-link-strong {
+  color: var(--accent-2);
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.auth-input {
+  font-family: var(--font-fraunces);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.auth-input::placeholder {
+  color: var(--text-3);
+}
+.auth-input:focus {
+  border-color: var(--accent);
+  background: rgba(192, 133, 82, 0.04);
+  box-shadow: 0 0 0 4px rgba(192, 133, 82, 0.08);
+}
+.auth-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-password-toggle {
+  color: var(--text-3);
+}
+.auth-password-toggle:hover {
+  color: var(--text-2);
+}
+
+.auth-checkbox-box {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+}
+.auth-checkbox-box.is-checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.auth-checkbox-label {
+  color: var(--text-2);
+}
+
+.auth-social-button {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.auth-social-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: var(--accent);
+}
+.auth-social-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-cta {
+  color: var(--text-2);
+}
+
+.auth-fineprint {
+  color: var(--text-3);
+}
+
+.auth-shell .btn-primary {
+  background: linear-gradient(180deg, var(--accent-2), var(--accent));
+  color: #1a0e05;
+  font-weight: 500;
+  border-radius: 14px;
+  padding: 14px 22px;
+  font-size: 14.5px;
+  letter-spacing: 0.005em;
+  transition: box-shadow 0.2s ease;
+  box-shadow:
+    0 4px 20px -4px rgba(192, 133, 82, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.auth-shell .btn-primary:hover:not(:disabled) {
+  box-shadow:
+    0 8px 28px -4px rgba(192, 133, 82, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.auth-shell .ornament {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--accent);
+}
+.auth-shell .ornament .line {
+  height: 1px;
+  width: 40px;
+  background: linear-gradient(90deg, transparent, var(--accent));
+}
+.auth-shell .ornament .line.r {
+  background: linear-gradient(90deg, var(--accent), transparent);
+}
+
 /* Subtle parchment pattern — retained for Navigation backdrop */
 .islamic-pattern-bg {
   background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23d4a853' stroke-width='0.5' opacity='0.18'%3E%3Cpath d='M30 0L60 30L30 60L0 30Z'/%3E%3Cpath d='M30 10L50 30L30 50L10 30Z'/%3E%3Ccircle cx='30' cy='30' r='8'/%3E%3Cpath d='M30 0V60M0 30H60'/%3E%3Cpath d='M0 0L60 60M60 0L0 60'/%3E%3C/g%3E%3C/svg%3E");
