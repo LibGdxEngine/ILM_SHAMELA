@@ -3,10 +3,55 @@
 import { Suspense, useEffect, useState, FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { motion, Variants } from 'framer-motion';
+import { Fraunces, Amiri, Manrope } from 'next/font/google';
 
 import { useAuth } from '@/lib/AuthContext';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
+
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600'],
+  style: ['normal', 'italic'],
+  variable: '--font-fraunces',
+});
+const amiri = Amiri({
+  subsets: ['arabic'],
+  weight: ['400', '700'],
+  variable: '--font-amiri',
+});
+const manropeFont = Manrope({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600'],
+  variable: '--font-login-sans',
+});
+
+const stagger: Variants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.06, delayChildren: 0.1 },
+  },
+};
+
+const item: Variants = {
+  hidden: { opacity: 0, y: 14 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] },
+  },
+};
+
+const leftPanel: Variants = {
+  hidden: { opacity: 0, x: -20 },
+  show: {
+    opacity: 1,
+    x: 0,
+    transition: { duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.05 },
+  },
+};
 
 export default function LoginPage() {
   return (
@@ -23,10 +68,11 @@ function LoginPageContent() {
   const { t, locale } = useI18n();
   const localizedPath = useLocalizedPath();
 
+  const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
@@ -41,7 +87,6 @@ function LoginPageContent() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
-
     try {
       await login({ email, password });
       const next = searchParams.get('next');
@@ -68,141 +113,357 @@ function LoginPageContent() {
   };
 
   return (
-    <div className="w-full max-w-md">
-      <div className="mb-8 text-center">
-        <Link href={localizedPath('/')} className="mb-4 inline-flex items-center justify-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-700 shadow-lg">
-            <span className="text-xl font-bold text-white">{t('brand.word2', 'علم').charAt(0)}</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-            {t('brand.word1', 'مكتبة')} <span className="text-amber-700 dark:text-amber-400">{t('brand.word2', 'علم')}</span>
-          </h1>
+    <div
+      className={`auth-shell ${fraunces.variable} ${amiri.variable} ${manropeFont.variable} min-h-screen w-full grid lg:grid-cols-2`}
+    >
+      <motion.aside
+        variants={leftPanel}
+        initial="hidden"
+        animate="show"
+        className="auth-left hidden lg:flex flex-col justify-between p-12 relative overflow-hidden"
+      >
+        <div className="auth-left-stars absolute inset-0 pointer-events-none opacity-40" />
+
+        <Link href={localizedPath('/')} className="relative z-10 flex items-center gap-2 w-fit">
+          <span className="auth-brand-letter text-[26px] leading-none">ع</span>
+          <span className="auth-brand-name text-[19px] tracking-tight">
+            ILM <em className="auth-brand-italic">Shamela</em>
+          </span>
         </Link>
-        <p className="text-gray-600 dark:text-gray-300">{t('login.welcome', 'مرحبًا بعودتك. سجّل دخولك للمتابعة.')}</p>
-      </div>
 
-      <div className="rounded-2xl border border-gray-100 bg-white p-8 shadow-xl dark:border-gray-700 dark:bg-gray-800">
-        {error && (
-          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/30">
-            <p className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-              <svg className="h-4 w-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              {error}
-            </p>
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={handleGoogleLogin}
-          disabled={isLoading}
-          className="flex w-full items-center justify-center gap-3 rounded-xl border border-gray-300 bg-white px-4 py-3 font-medium text-gray-700 transition-colors duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+        <motion.div
+          variants={stagger}
+          initial="hidden"
+          animate="show"
+          className="relative z-10 max-w-lg"
         >
-          <svg className="h-5 w-5" viewBox="0 0 24 24">
-            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-          </svg>
-          {t('login.googleContinue', 'المتابعة عبر Google')}
-        </button>
+          <motion.div variants={item} className="ornament mb-10">
+            <span className="line" />
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" />
+            </svg>
+            <span className="line r" />
+          </motion.div>
 
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-200 dark:border-gray-600" />
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="bg-white px-4 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-              {t('login.orEmail', 'أو المتابعة بالبريد الإلكتروني')}
+          <motion.p
+            variants={item}
+            className="auth-verse text-[64px] leading-[1.4] font-bold"
+            dir="rtl"
+          >
+            ﴿ اقْرَأْ بِاسْمِ رَبِّكَ
+            <br />
+            الَّذِي خَلَقَ ﴾
+          </motion.p>
+
+          <motion.p variants={item} className="auth-verse-translation mt-8 text-[16px] leading-relaxed italic max-w-md">
+            {t('login.verseTranslation', '“Read in the name of your Lord who created.”')}
+          </motion.p>
+
+          <motion.p variants={item} className="auth-verse-citation mt-2 text-[12px] tracking-[0.18em] uppercase">
+            {t('login.verseCitation', 'Sūrat Al-ʿAlaq · 96:1')}
+          </motion.p>
+        </motion.div>
+
+        <div className="auth-left-footer relative z-10 flex items-center justify-between text-[11px] tracking-[0.16em] uppercase">
+          <span>{t('login.leftFooter', 'The library, after hours')}</span>
+          <span>{t('login.leftPage', 'Page · 01')}</span>
+        </div>
+      </motion.aside>
+
+      <main className="auth-right flex flex-col px-6 sm:px-10 lg:px-16 py-10 lg:py-12 relative">
+        <div className="lg:hidden mb-12">
+          <Link href={localizedPath('/')} className="flex items-center gap-2 w-fit">
+            <span className="auth-brand-letter text-[24px] leading-none">ع</span>
+            <span className="auth-brand-name text-[18px]">
+              ILM <em className="auth-brand-italic">Shamela</em>
             </span>
-          </div>
+          </Link>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              {t('login.email', 'البريد الإلكتروني')}
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-gray-900 transition-colors duration-200 placeholder-gray-500 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-              placeholder={t('auth.placeholder.email', 'you@example.com')}
-              disabled={isLoading}
-            />
-          </div>
+        <Link
+          href={localizedPath('/')}
+          className="auth-back-home absolute top-8 right-8 hidden lg:flex items-center gap-2 text-[13px] transition-colors"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+          {t('login.backHome', 'Back to home')}
+        </Link>
 
-          <div>
-            <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              {t('login.password', 'كلمة المرور')}
-            </label>
-            <div className="relative">
-              <input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 pe-12 text-gray-900 transition-colors duration-200 placeholder-gray-500 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/30 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-                placeholder={t('auth.placeholder.password', '••••••••')}
-                disabled={isLoading}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-inline-end-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              >
-                {showPassword ? (
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                  </svg>
-                ) : (
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                )}
-              </button>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full btn-solid-brand"
-          >
-            {isLoading ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                {t('login.signingIn', 'جارٍ تسجيل الدخول...')}
+        <motion.div
+          variants={stagger}
+          initial="hidden"
+          animate="show"
+          className="flex-1 flex items-center justify-center"
+        >
+          <div className="w-full max-w-md">
+            <motion.div variants={item} className="mb-7">
+              <span className="auth-eyebrow inline-flex items-center gap-2.5 text-[11.5px] tracking-[0.16em] uppercase">
+                <span className="auth-eyebrow-line block" />
+                {t('login.eyebrow', 'Sign in')}
               </span>
-            ) : (
-              t('login.signIn', 'تسجيل الدخول')
-            )}
-          </button>
-        </form>
+            </motion.div>
 
-        <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
-          {t('login.noAccount', 'ليس لديك حساب؟')}{' '}
-          <Link
-            href={localizedPath('/auth/register')}
-            className="font-medium text-amber-700 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300"
-          >
-            {t('login.createAccount', 'إنشاء حساب')}
-          </Link>
-        </p>
-      </div>
+            <motion.h1 variants={item} className="auth-headline text-[44px] leading-[1.05] tracking-[-0.02em] mb-4">
+              {t('login.headlineLead', 'Welcome')}{' '}
+              <em className="auth-headline-em">{t('login.headlineEmphasis', 'back.')}</em>
+            </motion.h1>
+
+            <motion.p variants={item} className="auth-subhead text-[15px] leading-relaxed mb-9">
+              {t('login.subhead', 'Resume your reading where you left off — your notes, highlights, and citations are waiting.')}
+            </motion.p>
+
+            <motion.div variants={item} className="space-y-2.5 mb-7">
+              <SocialButton
+                onClick={handleGoogleLogin}
+                disabled={isLoading}
+                icon={<GoogleIcon />}
+                label={t('login.googleContinue', 'المتابعة عبر Google')}
+              />
+            </motion.div>
+
+            <motion.div variants={item} className="auth-divider flex items-center gap-4 mb-7">
+              <span className="auth-divider-line flex-1 h-px" />
+              <span className="auth-divider-label text-[11px] tracking-[0.16em] uppercase">
+                {t('login.orEmail', 'أو بالبريد الإلكتروني')}
+              </span>
+              <span className="auth-divider-line flex-1 h-px" />
+            </motion.div>
+
+            {error && (
+              <motion.div
+                variants={item}
+                role="alert"
+                className="auth-error mb-5 rounded-[12px] px-4 py-3 text-[13px]"
+              >
+                {error}
+              </motion.div>
+            )}
+
+            <form onSubmit={handleSubmit}>
+              <motion.div variants={item} className="mb-4">
+                <label htmlFor="email" className="auth-field-label block text-[12px] tracking-[0.08em] uppercase mb-2">
+                  {t('login.email', 'البريد الإلكتروني')}
+                </label>
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder={t('auth.placeholder.email', 'you@example.com')}
+                  disabled={isLoading}
+                  autoComplete="email"
+                />
+              </motion.div>
+
+              <motion.div variants={item} className="mb-3">
+                <div className="flex items-center justify-between mb-2">
+                  <label htmlFor="password" className="auth-field-label text-[12px] tracking-[0.08em] uppercase">
+                    {t('login.password', 'كلمة المرور')}
+                  </label>
+                  <Link href="/forgot-password" className="auth-link text-[12px] hover:underline underline-offset-4">
+                    {t('login.forgot', 'Forgot it?')}
+                  </Link>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={t('auth.placeholder.password', '••••••••')}
+                    disabled={isLoading}
+                    autoComplete="current-password"
+                    className="pr-12"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="auth-password-toggle absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors"
+                  >
+                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </div>
+              </motion.div>
+
+              <motion.label
+                variants={item}
+                className="flex items-center gap-2.5 mb-7 cursor-pointer select-none w-fit"
+              >
+                <span
+                  className={`auth-checkbox-box relative w-[18px] h-[18px] rounded-[5px] flex items-center justify-center transition-colors ${
+                    remember ? 'is-checked' : ''
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                  {remember && (
+                    <motion.svg
+                      initial={{ scale: 0, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ duration: 0.18, ease: 'easeOut' }}
+                      width="11"
+                      height="11"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#1a0e05"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M20 6 9 17l-5-5" />
+                    </motion.svg>
+                  )}
+                </span>
+                <span className="auth-checkbox-label text-[13.5px]">
+                  {t('login.rememberMe', 'Keep me signed in for 30 days')}
+                </span>
+              </motion.label>
+
+              <motion.div variants={item}>
+                <motion.button
+                  type="submit"
+                  disabled={isLoading}
+                  whileHover={isLoading ? undefined : { y: -1 }}
+                  whileTap={isLoading ? undefined : { y: 0, scale: 0.99 }}
+                  transition={{ duration: 0.15 }}
+                  className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
+                >
+                  {isLoading ? (
+                    <>
+                      <Spinner /> {t('login.openingLibrary', 'Opening the library…')}
+                    </>
+                  ) : (
+                    <>
+                      {t('login.signIn', 'تسجيل الدخول')}
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M5 12h14M13 5l7 7-7 7" />
+                      </svg>
+                    </>
+                  )}
+                </motion.button>
+              </motion.div>
+            </form>
+
+            <motion.p variants={item} className="auth-cta mt-9 text-center text-[14px]">
+              {t('login.signupCta', 'New to ILM Shamela?')}{' '}
+              <Link
+                href={localizedPath('/auth/register')}
+                className="auth-link-strong hover:underline underline-offset-4"
+              >
+                {t('login.signupAction', 'Create an account →')}
+              </Link>
+            </motion.p>
+          </div>
+        </motion.div>
+
+        <motion.div
+          variants={item}
+          initial="hidden"
+          animate="show"
+          transition={{ delay: 0.7 }}
+          className="auth-fineprint mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11.5px] tracking-[0.06em]"
+        >
+          <span>✦ {t('login.fineEncrypted', 'End-to-end encrypted')}</span>
+          <span>✦ {t('login.fineNoTraining', 'No training on your reading')}</span>
+          <span>✦ {t('login.fineDeletion', 'Account deletion in one click')}</span>
+        </motion.div>
+      </main>
     </div>
+  );
+}
+
+function Input(
+  props: React.InputHTMLAttributes<HTMLInputElement> & { className?: string }
+) {
+  const { className = '', ...rest } = props;
+  return (
+    <input
+      {...rest}
+      className={`auth-input w-full px-4 py-3.5 rounded-[12px] text-[15px] outline-none transition-all ${className}`}
+    />
+  );
+}
+
+function SocialButton({
+  onClick,
+  icon,
+  label,
+  disabled,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      whileHover={disabled ? undefined : { y: -1 }}
+      whileTap={disabled ? undefined : { y: 0, scale: 0.99 }}
+      transition={{ duration: 0.15 }}
+      className="auth-social-button w-full flex items-center justify-center gap-3 px-5 py-3.5 rounded-[12px] text-[14px]"
+    >
+      {icon}
+      {label}
+    </motion.button>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 48 48" aria-hidden>
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.3-.4-3.5z" />
+      <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 16 19 13 24 13c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2c-2 1.4-4.5 2.4-7.2 2.4-5.3 0-9.7-3.4-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4 5.5l6.2 5.2c-.4.4 6.5-4.7 6.5-14.7 0-1.3-.1-2.3-.4-3.5z" />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+      <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+      <line x1="2" y1="2" x2="22" y2="22" />
+    </svg>
+  );
+}
+
+function Spinner() {
+  return (
+    <motion.svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      animate={{ rotate: 360 }}
+      transition={{ duration: 0.9, ease: 'linear', repeat: Infinity }}
+    >
+      <path d="M21 12a9 9 0 1 1-6.22-8.56" />
+    </motion.svg>
   );
 }
