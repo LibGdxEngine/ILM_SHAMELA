@@ -150,23 +150,14 @@ const featureCards = [
 export default function Home() {
   const router = useRouter();
   const localizedPath = useLocalizedPath();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated } = useAuth();
   const shelfRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const typingText = useTypingText(TYPING_PHRASES, query.length > 0);
 
   const documentsHref = localizedPath("/documents");
   const registerHref = localizedPath("/auth/register");
-  const loginHref = localizedPath("/auth/login");
-  const profileHref = localizedPath("/profile");
   const startReadingHref = isAuthenticated ? documentsHref : registerHref;
-
-  const displayName =
-    (user?.first_name && user.first_name.trim()) ||
-    user?.username ||
-    user?.email?.split("@")[0] ||
-    "";
-  const avatarInitial = (displayName[0] || user?.email?.[0] || "U").toUpperCase();
 
   const goToLibrary = (q?: string) => {
     const trimmed = (q ?? "").trim();
@@ -187,7 +178,7 @@ export default function Home() {
   return (
     <main className="landing-shell min-h-screen">
       {/* NAVBAR */}
-      <nav className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#0f0c09]/55 backdrop-blur-xl border border-white/5 rounded-full pl-5 pr-2 py-2 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.03)] flex items-center gap-9 whitespace-nowrap">
+      <nav className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#0f0c09]/55 backdrop-blur-xl border border-white/5 rounded-full px-6 py-2 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.03)] flex items-center gap-9 whitespace-nowrap">
         <Link href={localizedPath("/")} className="flex items-center gap-2">
           <span className="font-fraunces text-[20px] text-accent-2">ع</span>
           <span className="font-fraunces text-[16px] tracking-tight">
@@ -198,39 +189,11 @@ export default function Home() {
           <Link href="#why" className="nav-link">Why ILM</Link>
           <Link href={documentsHref} className="nav-link">Library</Link>
           <Link href="#how" className="nav-link">How it works</Link>
+          <Link href="#cta" className="nav-link">Get started</Link>
         </div>
-        <div className="ml-auto flex items-center gap-2.5">
-          {isAuthenticated ? (
-            <Link
-              href={profileHref}
-              className="group flex items-center gap-2 pl-1 pr-3.5 py-1 rounded-full border border-transparent hover:border-border-strong hover:bg-white/5 transition-colors"
-              aria-label={displayName ? `Profile — ${displayName}` : "Profile"}
-            >
-              {user?.avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={user.avatar}
-                  alt=""
-                  className="w-7 h-7 rounded-full object-cover border border-border-strong"
-                />
-              ) : (
-                <span className="w-7 h-7 rounded-full bg-gradient-to-br from-accent-2 to-accent flex items-center justify-center text-[#1a0e05] font-fraunces text-[12px] font-semibold leading-none shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]">
-                  {avatarInitial}
-                </span>
-              )}
-              <span className="hidden sm:inline font-fraunces text-[13.5px] text-text max-w-[120px] truncate">
-                {displayName || "Profile"}
-              </span>
-            </Link>
-          ) : (
-            <Link href={loginHref} className="nav-link px-2">
-              Sign in
-            </Link>
-          )}
-          <Link href={documentsHref} className="btn-primary">
-            Open Library
-          </Link>
-        </div>
+        <Link href={documentsHref} className="btn-primary ml-auto">
+          Open Library
+        </Link>
       </nav>
 
       {/* HERO */}
