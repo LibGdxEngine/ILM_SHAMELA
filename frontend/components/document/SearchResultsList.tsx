@@ -45,32 +45,32 @@ export default function SearchResultsList({
             aria-selected={isActive}
             onClick={() => onActivate(match.page_number, index)}
             onMouseEnter={() => onHover?.(index)}
-            className={`w-full rounded-xl border p-3 text-start transition-all ${
+            className={`w-full rounded-[14px] border p-3 text-start transition-all ${
               isActive
-                ? 'border-teal-400 bg-teal-50 ring-2 ring-teal-400'
-                : 'border-gray-200 bg-white hover:border-teal-300 hover:bg-teal-50/40'
+                ? 'border-accent bg-accent-soft shadow-[0_0_0_3px_rgba(192,133,82,0.18)]'
+                : 'border-border bg-white/[0.02] hover:border-accent/50 hover:bg-accent-soft/40'
             }`}
           >
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
-              <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-800">
+              <span className="rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent-2">
                 {t('reader.pageLabel', 'Page {page}', { page: match.page_number })}
               </span>
               {match.score_semantic != null && (
                 <span
-                  className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
+                  className="rounded-full border border-border-strong bg-white/[0.04] px-2 py-0.5 text-[11px] text-text-2"
                   title="Semantic relevance"
                 >
-                  ✦ {Math.round(match.score_semantic * 100)}%
+                  <span className="text-accent" aria-hidden>✦</span> {Math.round(match.score_semantic * 100)}%
                 </span>
               )}
               {match.score_final != null && match.score_semantic != null && (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">
+                <span className="rounded-full border border-border bg-white/[0.03] px-2 py-0.5 text-[11px] text-text-3">
                   {Math.round(match.score_final * 100)}
                 </span>
               )}
             </div>
             <p
-              className="line-clamp-3 text-sm leading-6 text-gray-700"
+              className="line-clamp-3 text-[13px] leading-[1.65] text-text-2 font-fraunces"
               dangerouslySetInnerHTML={{ __html: match.snippet }}
             />
           </button>

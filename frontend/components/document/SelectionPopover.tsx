@@ -205,7 +205,7 @@ export default function SelectionPopover({ enabled, onCreateHighlight }: Selecti
         left: state.left,
         transform: 'translate(-50%, -100%)',
       }}
-      className="z-50 flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1.5 shadow-lg"
+      className="z-50 flex items-center gap-1 rounded-full border border-border-strong bg-card-2/95 backdrop-blur-md px-2 py-1.5 shadow-[0_10px_30px_-8px_rgba(0,0,0,0.5)]"
     >
       {COLORS.map((color) => (
         <button
@@ -217,7 +217,7 @@ export default function SelectionPopover({ enabled, onCreateHighlight }: Selecti
             setState(null);
           }}
           aria-label={t(`reader.color.${color}`, color)}
-          className={`h-5 w-5 rounded-full border border-gray-300 transition-transform hover:scale-110 ${COLOR_CLASS[color]}`}
+          className={`h-5 w-5 rounded-full border border-white/30 transition-transform hover:scale-110 ${COLOR_CLASS[color]}`}
         />
       ))}
       <button
@@ -227,7 +227,7 @@ export default function SelectionPopover({ enabled, onCreateHighlight }: Selecti
           setState(null);
         }}
         aria-label={t('reader.closePanel', 'Close')}
-        className="ms-1 rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+        className="ms-1 rounded-full p-1 text-text-3 hover:bg-white/[0.05] hover:text-text"
       >
         <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
