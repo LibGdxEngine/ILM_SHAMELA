@@ -294,16 +294,6 @@ mark {
   color: #5c4b37 !important;
 }
 
-/* Hero surface should feel continuous with the sepia canvas. */
-[data-reader-theme="sepia"] [data-hero-root] {
-  background: linear-gradient(to bottom, #faf4e8, #f5ecd9) !important;
-  color: #5c4b37;
-}
-
-[data-reader-theme="sepia"] [data-hero-root] h1 {
-  color: #3d2f1f;
-}
-
 [data-reader-theme="dark"] {
   --reader-bg: #1a1a2e;
   --reader-text: #d4d4d8;
@@ -325,16 +315,6 @@ mark {
 
 [data-reader-theme="dark"] article header span {
   color: #9ca3af !important;
-}
-
-[data-reader-theme="dark"] [data-hero-root] {
-  background: linear-gradient(to bottom, #1a1a2e, #222240) !important;
-  color: #d4d4d8;
-  border-bottom-color: rgba(255, 255, 255, 0.08);
-}
-
-[data-reader-theme="dark"] [data-hero-root] h1 {
-  color: #f3f4f6;
 }
 
 /* User-created highlight colors. Each `<mark data-color="...">` gets a

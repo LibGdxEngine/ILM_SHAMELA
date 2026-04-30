@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 
 import RequireAuth from '@/components/RequireAuth';
+import LanguageSwitcher from '@/components/i18n/LanguageSwitcher';
 import { useAuth } from '@/lib/AuthContext';
 import { AuthValidationError } from '@/lib/auth';
 import { useI18n } from '@/components/i18n/I18nProvider';
@@ -353,6 +354,7 @@ export default function ProfilePage() {
               )}
               {t('nav.signOut', 'Sign out')}
             </button>
+            <LanguageSwitcher />
           </div>
         </div>
 

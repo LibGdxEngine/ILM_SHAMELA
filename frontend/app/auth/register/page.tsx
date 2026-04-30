@@ -9,6 +9,7 @@ import { Fraunces, Amiri, Manrope } from 'next/font/google';
 import { useAuth } from '@/lib/AuthContext';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
+import LanguageSwitcher from '@/components/i18n/LanguageSwitcher';
 
 const fraunces = Fraunces({
   subsets: ['latin'],
@@ -177,15 +178,18 @@ export default function RegisterPage() {
           </Link>
         </div>
 
-        <Link
-          href={localizedPath('/')}
-          className="auth-back-home absolute top-8 right-8 hidden lg:flex items-center gap-2 text-[13px] transition-colors"
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-          {t('login.backHome', 'Back to home')}
-        </Link>
+        <div className="absolute top-8 right-8 hidden lg:flex items-center gap-5">
+          <Link
+            href={localizedPath('/')}
+            className="auth-back-home flex items-center gap-2 text-[13px] transition-colors"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            {t('login.backHome', 'Back to home')}
+          </Link>
+          <LanguageSwitcher />
+        </div>
 
         <motion.div
           variants={stagger}

@@ -64,20 +64,20 @@ export default function TagChipInput({
 
   return (
     <div
-      className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-200 bg-white p-1.5"
+      className="flex flex-wrap items-center gap-1.5 rounded-[12px] border border-border bg-white/[0.02] p-1.5 transition-colors focus-within:border-accent focus-within:bg-accent-soft/30"
       aria-label={ariaLabel ?? t('reader.tags', 'Tags')}
     >
       {value.map((tag, index) => (
         <span
           key={`${tag}-${index}`}
-          className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800"
+          className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-[11.5px] font-medium text-accent-2"
         >
           {tag}
           <button
             type="button"
             onClick={() => removeAt(index)}
             aria-label={`${t('reader.removeTag', 'Remove tag')}: ${tag}`}
-            className="rounded-full text-teal-600 hover:bg-teal-200 hover:text-teal-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+            className="rounded-full text-accent-2 hover:bg-accent/25 hover:text-text focus:outline-none focus:ring-1 focus:ring-accent"
           >
             <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
@@ -97,7 +97,7 @@ export default function TagChipInput({
           }
         }}
         placeholder={placeholder ?? t('reader.tagPlaceholder', 'Add tag and press Enter')}
-        className="min-w-[6rem] flex-1 bg-transparent px-2 py-1 text-xs text-gray-700 outline-none placeholder:text-gray-400"
+        className="min-w-[6rem] flex-1 bg-transparent px-2 py-1 text-[12px] text-text outline-none placeholder:text-text-3"
       />
     </div>
   );

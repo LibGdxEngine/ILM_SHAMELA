@@ -183,13 +183,13 @@ export default function ReaderBottomBar({
     <>
       {/* Copied toast */}
       {showCopiedToast && (
-        <div className="fixed bottom-20 start-1/2 z-[60] -translate-x-1/2 rounded-lg bg-gray-900 px-4 py-2 text-sm text-white shadow-lg rtl:translate-x-1/2">
+        <div className="fixed bottom-20 start-1/2 z-[60] -translate-x-1/2 rounded-full border border-accent/40 bg-accent-soft px-4 py-2 text-[13px] text-accent-2 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)] backdrop-blur-md rtl:translate-x-1/2">
           {t('reader.linkCopied', 'Link copied to clipboard')}
         </div>
       )}
 
       <div
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur"
+        className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-bg/85 backdrop-blur-xl"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="mx-auto flex max-w-5xl items-center justify-around px-2 py-2">
@@ -297,8 +297,8 @@ export default function ReaderBottomBar({
               width="narrow"
               title={t('reader.goToPage', 'Go to page')}
             >
-              <form onSubmit={handleGoToPageSubmit} className="space-y-2">
-                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <form onSubmit={handleGoToPageSubmit} className="space-y-3">
+                <label className="block text-[11px] tracking-[0.18em] uppercase text-accent font-medium">
                   {t('reader.goToPage', 'Go to page')}
                 </label>
                 <input
@@ -311,13 +311,13 @@ export default function ReaderBottomBar({
                     setPageInputError(null);
                   }}
                   placeholder={`1 - ${totalPages}`}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200"
+                  className="w-full rounded-[12px] border border-border bg-white/[0.02] px-3.5 py-2.5 text-[14px] font-fraunces text-text placeholder:text-text-3 outline-none transition-all focus:border-accent focus:bg-accent-soft focus:shadow-[0_0_0_4px_rgba(192,133,82,0.08)]"
                   autoFocus
                 />
-                {pageInputError && <p className="text-xs text-red-500">{pageInputError}</p>}
+                {pageInputError && <p className="text-[12px] text-red-300">{pageInputError}</p>}
                 <button
                   type="submit"
-                  className="w-full rounded-lg bg-teal-600 px-3 py-2 text-sm font-medium text-white hover:bg-teal-700"
+                  className="btn-primary w-full !rounded-[12px] !text-[13px] !py-2.5"
                 >
                   {t('reader.go', 'Go')}
                 </button>
@@ -460,14 +460,14 @@ function OverflowItem({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-start text-sm font-medium text-gray-700 transition-colors hover:border-teal-300 hover:bg-teal-50/40"
+      className="flex w-full items-center justify-between gap-3 rounded-[14px] border border-border bg-white/[0.02] px-4 py-3 text-start text-[13.5px] font-medium text-text transition-all hover:border-accent hover:bg-accent-soft hover:text-accent-2"
     >
       <span className="flex items-center gap-3">
-        <span className="text-teal-700">{icon}</span>
+        <span className="text-accent-2">{icon}</span>
         <span>{label}</span>
       </span>
       {badge !== undefined && (
-        <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+        <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-[#1a0e05]">
           {badge}
         </span>
       )}
@@ -494,15 +494,17 @@ function BarButton({
     <button
       type="button"
       onClick={onClick}
-      className={`relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-3 text-xs transition-colors ${
-        isActive ? 'text-teal-700' : 'text-gray-500 hover:text-gray-700'
+      className={`relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-[10px] px-3 text-xs transition-colors ${
+        isActive
+          ? 'text-accent-2 bg-accent-soft shadow-[inset_0_0_0_1px_rgba(192,133,82,0.25)]'
+          : 'text-text-3 hover:text-text'
       }`}
       aria-label={label}
     >
       <span className="relative">
         {icon}
         {badge !== undefined && (
-          <span className="absolute -top-1.5 -end-2 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+          <span className="absolute -top-1.5 -end-2 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-[#1a0e05]">
             {badge}
           </span>
         )}
@@ -529,26 +531,28 @@ function ReaderInfoPopoverContent({
 
   return (
     <div>
-      <div className="mb-4 space-y-3">
+      <div className="mb-5 space-y-4">
         <section>
-          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <h3 className="mb-1.5 text-[11px] tracking-[0.18em] uppercase text-accent font-medium">
             {t('sidebar.title', 'Title')}
           </h3>
-          <p className="text-sm font-medium leading-6 text-gray-900">{readerDocument.title}</p>
+          <p className="font-fraunces text-[15px] leading-6 text-text">{readerDocument.title}</p>
         </section>
 
         {readerDocument.authors && readerDocument.authors.length > 0 && (
           <section>
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <h3 className="mb-1.5 text-[11px] tracking-[0.18em] uppercase text-accent font-medium">
               {t('sidebar.authors', 'Authors')}
             </h3>
-            <p className="text-sm text-gray-700">{readerDocument.authors.map((a) => a.name).join(', ')}</p>
+            <p className="text-[13px] text-text-2 font-fraunces italic">
+              {readerDocument.authors.map((a) => a.name).join(', ')}
+            </p>
           </section>
         )}
 
         {readerDocument.categories && readerDocument.categories.length > 0 && (
           <section>
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <h3 className="mb-1.5 text-[11px] tracking-[0.18em] uppercase text-accent font-medium">
               {t('sidebar.categories', 'Categories')}
             </h3>
             <div className="flex flex-wrap gap-1.5">
@@ -556,7 +560,10 @@ function ReaderInfoPopoverContent({
                 const key = typeof category === 'string' ? category : String(category.id);
                 const name = typeof category === 'string' ? category : category.name;
                 return (
-                  <span key={key} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700">
+                  <span
+                    key={key}
+                    className="rounded-full border border-border-strong bg-white/[0.04] px-2.5 py-0.5 text-[11.5px] text-text-2"
+                  >
                     {name}
                   </span>
                 );
@@ -566,21 +573,21 @@ function ReaderInfoPopoverContent({
         )}
 
         <section>
-          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <h3 className="mb-1.5 text-[11px] tracking-[0.18em] uppercase text-accent font-medium">
             {t('sidebar.details', 'Details')}
           </h3>
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
-              <span className="block text-[10px] uppercase text-gray-500">
+            <div className="rounded-[12px] border border-border bg-white/[0.02] p-2.5">
+              <span className="block text-[10px] tracking-[0.12em] uppercase text-text-3">
                 {t('sidebar.uploaded', 'Uploaded')}
               </span>
-              <span className="text-xs font-semibold text-gray-800">{uploadedDate}</span>
+              <span className="text-[12.5px] font-medium text-text mt-0.5 block">{uploadedDate}</span>
             </div>
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
-              <span className="block text-[10px] uppercase text-gray-500">
+            <div className="rounded-[12px] border border-border bg-white/[0.02] p-2.5">
+              <span className="block text-[10px] tracking-[0.12em] uppercase text-text-3">
                 {t('docs.language', 'Language')}
               </span>
-              <span className="text-xs font-semibold text-gray-800">
+              <span className="text-[12.5px] font-medium text-text mt-0.5 block">
                 {readerDocument.language || t('sidebar.unknown', 'Unknown')}
               </span>
             </div>
