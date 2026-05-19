@@ -12,36 +12,36 @@ interface BookCardProps {
   formatDate?: (date: string) => string;
 }
 
-function stringToColor(str: string): { primary: string; secondary: string } {
-  const colors = [
-    { primary: '#c96442', secondary: '#d97757' },
-    { primary: '#4d4c48', secondary: '#87867f' },
-    { primary: '#30302e', secondary: '#5e5d59' },
-    { primary: '#a16207', secondary: '#d4a853' },
-    { primary: '#7c4a2b', secondary: '#c96442' },
-    { primary: '#3d3d3a', secondary: '#b0aea5' },
-  ];
+const COVER_PALETTE = [
+  { from: '#2a1a10', to: '#4a2818', text: '#e8d4b4' },
+  { from: '#1a2a2e', to: '#2c4145', text: '#d4e0e2' },
+  { from: '#2e1a26', to: '#4a2c3e', text: '#e6d2dc' },
+  { from: '#1a2818', to: '#2a4424', text: '#d4e2cc' },
+  { from: '#2e2418', to: '#4a3a24', text: '#ecdcb8' },
+  { from: '#1f1a2c', to: '#2e2848', text: '#d8d4e6' },
+];
 
+function paletteFor(str: string) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
   }
-  return colors[Math.abs(hash) % colors.length];
+  return COVER_PALETTE[Math.abs(hash) % COVER_PALETTE.length];
 }
 
 function generateCoverPattern(title: string): string {
-  const colors = stringToColor(title);
+  const palette = paletteFor(title);
   return `
     <svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300">
       <defs>
         <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style="stop-color:${colors.primary};stop-opacity:1" />
-          <stop offset="100%" style="stop-color:${colors.secondary};stop-opacity:1" />
+          <stop offset="0%" style="stop-color:${palette.from};stop-opacity:1" />
+          <stop offset="100%" style="stop-color:${palette.to};stop-opacity:1" />
         </linearGradient>
       </defs>
       <rect width="200" height="300" fill="url(#grad)"/>
-      <rect x="24" y="40" width="152" height="1" fill="rgba(250,249,245,0.35)"/>
-      <rect x="24" y="258" width="152" height="1" fill="rgba(250,249,245,0.35)"/>
+      <rect x="24" y="40" width="152" height="1" fill="rgba(232,212,180,0.25)"/>
+      <rect x="24" y="258" width="152" height="1" fill="rgba(232,212,180,0.25)"/>
     </svg>
   `;
 }
@@ -129,72 +129,80 @@ export default function BookCard({ document }: BookCardProps) {
     <div className="group relative">
       <Link
         href={localizedPath(`/documents/${document.id}`)}
-        className="block bg-ivory dark:bg-dark-surface rounded-xl border border-border-cream dark:border-dark-surface shadow-whisper hover:shadow-[0_10px_28px_rgba(20,20,19,0.08)] hover:border-ring-warm dark:hover:border-[#4d4c48] transition-all duration-300 overflow-hidden transform hover:-translate-y-0.5"
+        className="block bg-gradient-to-b from-card-2 to-card rounded-[18px] border border-border hover:border-accent/40 shadow-[0_4px_20px_-8px_rgba(0,0,0,0.5)] hover:shadow-[0_12px_36px_-12px_rgba(192,133,82,0.25)] transition-all duration-300 overflow-hidden transform hover:-translate-y-1"
       >
-        <div className="relative aspect-[2/3] overflow-hidden bg-warm-sand dark:bg-[#3d3d3a]">
+        <div className="relative aspect-[2/3] overflow-hidden bg-bg-2">
           {coverPhotoUrl && !imageError ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={coverPhotoUrl}
               alt={document.title}
-              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
               onError={() => setImageError(true)}
             />
           ) : (
             <div
-              className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-[1.02]"
+              className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-[1.03]"
               style={{ backgroundImage: `url("${coverDataUrl}")` }}
             />
           )}
 
+          {/* Subtle bottom gradient for legibility */}
+          <div
+            className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent pointer-events-none"
+            aria-hidden
+          />
+
           {/* Language pill — logical-start side */}
           {document.language && (
             <div className="absolute top-3 start-3">
-              <span className="px-2 py-0.5 text-[10.5px] tracking-wide rounded-full bg-ivory/90 dark:bg-near-black/70 text-charcoal-warm dark:text-warm-silver backdrop-blur-md uppercase ring-1 ring-ring-warm dark:ring-[#4d4c48]">
+              <span className="px-2 py-0.5 text-[10.5px] tracking-[0.12em] rounded-full bg-bg/80 text-text-2 backdrop-blur-md uppercase border border-border-strong">
                 {document.language}
               </span>
             </div>
           )}
 
-          {/* Processing state (only when not ready — less visual noise) */}
+          {/* Processing state */}
           {!isReady && (
             <div className="absolute top-3 end-3">
-              <span className="px-2 py-0.5 text-[10.5px] tracking-wide rounded-full bg-terracotta/90 text-ivory backdrop-blur-md">
+              <span className="px-2 py-0.5 text-[10.5px] tracking-[0.08em] rounded-full bg-accent/85 text-[#1a0e05] backdrop-blur-md font-medium">
                 {t('book.processing', 'قيد المعالجة')}
               </span>
             </div>
           )}
 
-          {/* Ask-about-this — hover reveal, bottom end */}
+          {/* Ask-about-this — hover reveal */}
           <button
             type="button"
             onClick={openAsk}
-            className="absolute bottom-3 end-3 px-3 py-1.5 text-[12px] rounded-full bg-near-black/80 text-ivory backdrop-blur-md opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 focus:opacity-100 focus:translate-y-0 transition-all duration-200 ring-1 ring-white/10 hover:bg-near-black"
+            className="absolute bottom-3 end-3 px-3 py-1.5 text-[11.5px] rounded-full bg-bg/85 text-text border border-border-strong backdrop-blur-md opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 focus:opacity-100 focus:translate-y-0 transition-all duration-200 hover:border-accent hover:text-accent-2"
             aria-label={t('docs.card.askAbout', 'اسأل عن هذا الكتاب')}
           >
+            <span aria-hidden className="text-accent me-1">✦</span>
             {t('docs.card.askAbout', 'اسأل عن هذا الكتاب')}
           </button>
         </div>
 
         <div className="p-4">
-          <h3 className="font-serif text-[1.1rem] leading-[1.3] font-medium text-near-black dark:text-ivory line-clamp-2 group-hover:text-terracotta dark:group-hover:text-[#d97757] transition-colors">
+          <h3 className="font-fraunces text-[17px] leading-[1.3] text-text line-clamp-2 group-hover:text-accent-2 transition-colors">
             {document.title}
           </h3>
 
           {document.authors && document.authors.length > 0 && (
-            <p className="mt-1 text-[13px] text-olive-gray dark:text-warm-silver line-clamp-1">
+            <p className="mt-1.5 text-[12.5px] text-text-2 line-clamp-1 font-fraunces italic">
               {document.authors.map((a) => a.name).join('، ')}
             </p>
           )}
 
           {pitch && (
-            <p className="mt-2 text-[12.5px] text-stone-gray leading-[1.55] line-clamp-1">
+            <p className="mt-2 text-[12px] text-text-3 leading-[1.55] line-clamp-1">
               {pitch}
             </p>
           )}
         </div>
       </Link>
 
-      {/* Bookmark button — above the link surface */}
+      {/* Bookmark button */}
       <button
         type="button"
         onClick={toggleBookmark}
@@ -202,10 +210,10 @@ export default function BookCard({ document }: BookCardProps) {
         aria-label={t('docs.card.bookmark', 'حفظ')}
         className={`absolute top-3 ${
           document.language ? 'start-[4.5rem]' : 'start-3'
-        } w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md ring-1 transition-all duration-200 ${
+        } w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border transition-all duration-200 ${
           bookmarked
-            ? 'bg-terracotta text-ivory ring-terracotta/60 opacity-100'
-            : 'bg-ivory/90 dark:bg-near-black/70 text-charcoal-warm dark:text-warm-silver ring-ring-warm dark:ring-[#4d4c48] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-ivory'
+            ? 'bg-accent text-[#1a0e05] border-accent opacity-100 shadow-[0_4px_14px_-4px_rgba(192,133,82,0.5)]'
+            : 'bg-bg/80 text-text-2 border-border-strong opacity-0 group-hover:opacity-100 focus:opacity-100 hover:border-accent hover:text-accent-2'
         }`}
       >
         <svg

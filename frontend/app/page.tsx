@@ -1,871 +1,624 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 
-import { useAuth } from '@/lib/AuthContext';
-import { useLocalizedPath } from '@/lib/i18n/navigation';
-import { useI18n } from '@/components/i18n/I18nProvider';
-import ContinueReadingShelf from '@/components/ContinueReadingShelf';
+import { useAuth } from "@/lib/AuthContext";
+import { useLocalizedPath } from "@/lib/i18n/navigation";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import LanguageSwitcher from "@/components/i18n/LanguageSwitcher";
 
-type ShelfBook = {
-  title: string;
-  author: string;
-  pitch: string;
-  accent: 'terracotta' | 'ink' | 'moss' | 'ochre';
-};
+function useTypingText(phrases: string[], paused: boolean) {
+  const [text, setText] = useState('');
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-const shelfAccentClass: Record<ShelfBook['accent'], string> = {
-  terracotta: 'from-[#c96442] to-[#7c4a2b]',
-  ink: 'from-[#2c3a4a] to-[#141413]',
-  moss: 'from-[#3a4a34] to-[#1f2a1b]',
-  ochre: 'from-[#a16207] to-[#4d3210]',
-};
+  useEffect(() => {
+    if (paused) return;
+    const current = phrases[phraseIndex] ?? '';
+    const fullyTyped = text === current;
+    const fullyErased = text.length === 0;
+
+    let delay: number;
+    if (!isDeleting && fullyTyped) {
+      delay = 1800;
+    } else if (isDeleting && fullyErased) {
+      delay = 350;
+    } else {
+      delay = isDeleting ? 25 : 55;
+    }
+
+    const timer = setTimeout(() => {
+      if (!isDeleting && !fullyTyped) {
+        setText(current.slice(0, text.length + 1));
+      } else if (!isDeleting && fullyTyped) {
+        setIsDeleting(true);
+      } else if (isDeleting && !fullyErased) {
+        setText(current.slice(0, text.length - 1));
+      } else {
+        setIsDeleting(false);
+        setPhraseIndex((i) => (i + 1) % phrases.length);
+      }
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [text, phraseIndex, isDeleting, paused, phrases]);
+
+  return text;
+}
+
+const FadeIn = ({
+  children,
+  delay = 0,
+  className = "",
+  dir,
+}: {
+  children: React.ReactNode;
+  delay?: number;
+  className?: string;
+  dir?: "ltr" | "rtl";
+}) => (
+  <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true, margin: "-10%" }}
+    transition={{ duration: 0.8, ease: [0.2, 0.8, 0.2, 1], delay }}
+    className={className}
+    dir={dir}
+  >
+    {children}
+  </motion.div>
+);
+
+const SHELF_BOOK_VISUALS = [
+  { bg: "from-[#2a1a10] to-[#4a2818]", color: "text-[#e8d4b4]" },
+  { bg: "from-[#1a2a2e] to-[#2c4145]", color: "text-[#d4e0e2]" },
+  { bg: "from-[#2e1a26] to-[#4a2c3e]", color: "text-[#e6d2dc]" },
+  { bg: "from-[#1a2818] to-[#2a4424]", color: "text-[#d4e2cc]" },
+  { bg: "from-[#2e2418] to-[#4a3a24]", color: "text-[#ecdcb8]" },
+  { bg: "from-[#1f1a2c] to-[#2e2848]", color: "text-[#d8d4e6]" },
+];
+
+const FEATURE_CARD_ICONS = [
+  <path key="multilingual" d="m5 8 6 6 6-6M19 12h2M3 12h2M12 3v2M12 19v2" />,
+  (
+    <g key="privacy">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </g>
+  ),
+  (
+    <g key="citations">
+      <path d="M16 4h4v4" />
+      <path d="m20 4-7 7" />
+      <path d="M8 20H4v-4" />
+      <path d="m4 20 7-7" />
+    </g>
+  ),
+  (
+    <g key="manuscript">
+      <path d="M2 3h20v14H2z" />
+      <path d="M2 7h20" />
+      <path d="M8 21h8" />
+      <path d="M12 17v4" />
+    </g>
+  ),
+];
 
 export default function Home() {
+  const router = useRouter();
   const localizedPath = useLocalizedPath();
   const { t } = useI18n();
-  const { isAuthenticated, isLoading } = useAuth();
-  const year = new Date().getFullYear();
+  const { isAuthenticated, user } = useAuth();
+  const shelfRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
 
-  /* ─── Hero AI search demo ─── */
-  const demoQueries = useMemo(
+  const typingPhrases = useMemo(
+    () => [
+      t('home.typing.1', 'What does Ibn Khaldun say about ʿumrān?'),
+      t('home.typing.2', 'Compare hadith chains in al-Bukhari'),
+      t('home.typing.3', 'Tafsir of Surah al-Kahf'),
+      t('home.typing.4', 'ما رأي ابن خلدون في العمران؟'),
+      t('home.typing.5', 'Books like al-Ṭabaqāt al-Kubrā, but shorter'),
+    ],
+    [t]
+  );
+  const typingText = useTypingText(typingPhrases, query.length > 0);
+
+  const trySuggestions = useMemo(
     () => [
       {
-        q: t(
-          'landing.demo.q1',
-          'كتب تشبه "الطبقات الكبرى" لكن أقصر'
-        ),
-        a: t(
-          'landing.demo.a1',
-          'اقترحت ٤ كتب تراجم موجزة، رتّبتها حسب التغطية الزمنية وعدد الصفحات — أبرزها "المختصر في أخبار البشر" لأبي الفداء.'
-        ),
+        label: t('home.try.1.label', '↗ Compare hadith chains in al-Bukhari'),
+        query: t('home.try.1.query', 'Compare hadith chains in al-Bukhari'),
+        fontClass: 'font-fraunces',
       },
       {
-        q: t(
-          'landing.demo.q2',
-          'اشرح لي نهاية الفصل الرابع من كتاب الفصوص'
-        ),
-        a: t(
-          'landing.demo.a2',
-          'الفصل يختم بربط مفهوم الأسماء الإلهية بالأعيان الثابتة، مع مقارنة بين روايتَي النسخة الدمشقية والقونوية للمخطوط.'
-        ),
+        label: t('home.try.2.label', '↗ Tafsir of Surah al-Kahf'),
+        query: t('home.try.2.query', 'Tafsir of Surah al-Kahf'),
+        fontClass: 'font-fraunces',
       },
       {
-        q: t(
-          'landing.demo.q3',
-          'ابحث عن مقاطع يذكر فيها المؤلف "العدل والإحسان"'
-        ),
-        a: t(
-          'landing.demo.a3',
-          'وجدت ٧ مقاطع في ٣ كتب — أعلاها مطابقةً فصل في "إحياء علوم الدين" يربط المفهوم بآداب الولاية العامة.'
-        ),
+        label: t('home.try.3.label', '↗ ما رأي ابن خلدون في العمران؟'),
+        query: t('home.try.3.query', 'ما رأي ابن خلدون في العمران؟'),
+        fontClass: 'font-amiri',
       },
     ],
     [t]
   );
 
-  const [demoIndex, setDemoIndex] = useState(0);
-  const [demoTyping, setDemoTyping] = useState('');
-  const [demoUserInput, setDemoUserInput] = useState('');
-  const [isDemoPaused, setIsDemoPaused] = useState(false);
-  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const demoPausedRef = useRef(false);
+  const shelfBooks = useMemo(
+    () =>
+      SHELF_BOOK_VISUALS.map((visual, i) => ({
+        ...visual,
+        meta: t(`home.shelf.book.${i + 1}.meta`, ''),
+        title: t(`home.shelf.book.${i + 1}.title`, ''),
+      })),
+    [t]
+  );
 
-  useEffect(() => {
-    demoPausedRef.current = isDemoPaused;
-  }, [isDemoPaused]);
+  const featureCards = useMemo(
+    () => [
+      {
+        title: t('home.feature.multilingual.title', 'Multilingual mastery'),
+        desc: t('home.feature.multilingual.desc', 'Native handling of Arabic, English, Urdu, and Turkish — including diacritics, ligatures, and right-to-left context.'),
+        icon: FEATURE_CARD_ICONS[0],
+      },
+      {
+        title: t('home.feature.privacy.title', 'Privacy by design'),
+        desc: t('home.feature.privacy.desc', 'Your queries, notes, and uploads stay encrypted. No training on your reading, ever. You own the corpus you build.'),
+        icon: FEATURE_CARD_ICONS[1],
+      },
+      {
+        title: t('home.feature.citations.title', 'Citation-first answers'),
+        desc: t('home.feature.citations.desc', "Every reply links to the exact line in the exact edition. If a claim isn't in the corpus, ILM tells you so."),
+        icon: FEATURE_CARD_ICONS[2],
+      },
+      {
+        title: t('home.feature.manuscript.title', 'Manuscript-grade rendering'),
+        desc: t('home.feature.manuscript.desc', 'Beautiful typography with proper kashida justification, marginalia support, and footnote linking.'),
+        icon: FEATURE_CARD_ICONS[3],
+      },
+    ],
+    [t]
+  );
 
-  useEffect(() => {
-    const current = demoQueries[demoIndex]?.a ?? '';
-    setDemoTyping('');
-    let i = 0;
-    const tick = () => {
-      if (demoPausedRef.current) {
-        typingTimerRef.current = setTimeout(tick, 220);
-        return;
-      }
-      i += 1;
-      setDemoTyping(current.slice(0, i));
-      if (i < current.length) {
-        typingTimerRef.current = setTimeout(tick, 18);
-      } else {
-        typingTimerRef.current = setTimeout(() => {
-          setDemoIndex((prev) => (prev + 1) % demoQueries.length);
-        }, 3800);
-      }
-    };
-    typingTimerRef.current = setTimeout(tick, 550);
-    return () => {
-      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-    };
-  }, [demoIndex, demoQueries]);
+  const categories = useMemo(
+    () => [
+      { cat: t('home.shelf.category.tafsir', 'Tafsīr'), count: 412 },
+      { cat: t('home.shelf.category.hadith', 'Hadīth'), count: 638 },
+      { cat: t('home.shelf.category.fiqh', 'Fiqh'), count: 521 },
+      { cat: t('home.shelf.category.tarikh', 'Tārīkh'), count: 287 },
+      { cat: t('home.shelf.category.adab', 'Adab'), count: 196 },
+      { cat: t('home.shelf.category.falsafa', 'Falsafa'), count: 134 },
+    ],
+    [t]
+  );
 
-  const onSubmitDemoSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Route the user to the real library with the query pre-filled.
-    const q = (demoUserInput || demoQueries[demoIndex]?.q || '').trim();
-    const url = q
-      ? `${localizedPath('/documents')}?q=${encodeURIComponent(q)}`
-      : localizedPath('/documents');
-    window.location.href = url;
+  const documentsHref = localizedPath("/documents");
+  const registerHref = localizedPath("/auth/register");
+  const loginHref = localizedPath("/auth/login");
+  const profileHref = localizedPath("/profile");
+  const startReadingHref = isAuthenticated ? documentsHref : registerHref;
+
+  const displayName =
+    (user?.first_name && user.first_name.trim()) ||
+    user?.username ||
+    user?.email?.split("@")[0] ||
+    "";
+  const avatarInitial = (displayName[0] || user?.email?.[0] || "U").toUpperCase();
+
+  const goToLibrary = (q?: string) => {
+    const trimmed = (q ?? "").trim();
+    router.push(trimmed ? `${documentsHref}?q=${encodeURIComponent(trimmed)}` : documentsHref);
   };
 
-  /* ─── Section datasets ─── */
-  const valueCards = [
-    {
-      title: t('landing.values.rare.title', 'اكتشاف نادر'),
-      proof: t('landing.values.rare.proof', '+12K صفحة مفهرسة'),
-      description: t(
-        'landing.values.rare.description',
-        'نصوص مخطوطة وكتب مجهولة التداول، مرتبة لتصل إلى ما تبحث عنه بسرعة.'
-      ),
-      icon: (
-        <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden>
-          <path
-            d="M16 3.5L19 12.5L28.5 16L19 19.5L16 28.5L13 19.5L3.5 16L13 12.5Z"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ),
-    },
-    {
-      title: t('landing.values.focused.title', 'قراءة مركزة'),
-      proof: t('landing.values.focused.proof', 'قراءة وبحث في موضع واحد'),
-      description: t(
-        'landing.values.focused.description',
-        'واجهة قراءة هادئة تدعم البحث داخل الكتاب والتنقل الدقيق بين الصفحات.'
-      ),
-      icon: (
-        <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden>
-          <path
-            d="M4 6C4 6 10 4 16 4C22 4 28 6 28 6V28C28 28 22 26 16 26C10 26 4 28 4 28V6Z"
-            stroke="currentColor"
-            strokeWidth="1.5"
-          />
-          <path d="M16 4V26" stroke="currentColor" strokeWidth="1.25" />
-        </svg>
-      ),
-    },
-    {
-      title: t('landing.values.organized.title', 'تنظيم معرفي'),
-      proof: t('landing.values.organized.proof', 'مؤلفون وتصنيفات وعناوين بديلة'),
-      description: t(
-        'landing.values.organized.description',
-        'تصنيفات ومؤلفون وعناوين بديلة تساعدك على بناء مكتبة بحثية متماسكة.'
-      ),
-      icon: (
-        <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden>
-          <rect x="4" y="8" width="7" height="20" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-          <rect x="13" y="5" width="7" height="23" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-          <rect x="22" y="10" width="6" height="18" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
-      ),
-    },
-  ];
+  const onSubmitSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    goToLibrary(query);
+  };
 
-  const shelves: { label: string; books: ShelfBook[] }[] = [
-    {
-      label: t('landing.shelves.staff', 'اختيارات المحررين'),
-      books: [
-        {
-          title: t('landing.shelves.book1.title', 'رحلة ابن بطوطة'),
-          author: t('landing.shelves.book1.author', 'محمد بن عبد الله بن بطوطة'),
-          pitch: t(
-            'landing.shelves.book1.pitch',
-            'توثيق رحلة عبر ثلاث قارات، موجز ذكي لأسلوب السرد.'
-          ),
-          accent: 'terracotta',
-        },
-        {
-          title: t('landing.shelves.book2.title', 'مقدمة ابن خلدون'),
-          author: t('landing.shelves.book2.author', 'عبد الرحمن بن خلدون'),
-          pitch: t(
-            'landing.shelves.book2.pitch',
-            'فلسفة العمران الاجتماعي — مفاتيح قراءة عصرية.'
-          ),
-          accent: 'ink',
-        },
-        {
-          title: t('landing.shelves.book3.title', 'الفهرست'),
-          author: t('landing.shelves.book3.author', 'ابن النديم'),
-          pitch: t(
-            'landing.shelves.book3.pitch',
-            'خارطة معرفة القرن العاشر — مرجع للبحث التراثي.'
-          ),
-          accent: 'moss',
-        },
-        {
-          title: t('landing.shelves.book4.title', 'طبقات الأطباء'),
-          author: t('landing.shelves.book4.author', 'ابن أبي أصيبعة'),
-          pitch: t(
-            'landing.shelves.book4.pitch',
-            'سير علماء الطب — تصفح بالزمن والمدرسة.'
-          ),
-          accent: 'ochre',
-        },
-      ],
-    },
-    {
-      label: t('landing.shelves.winter', 'قراءات هادئة'),
-      books: [
-        {
-          title: t('landing.shelves.book5.title', 'إحياء علوم الدين'),
-          author: t('landing.shelves.book5.author', 'أبو حامد الغزالي'),
-          pitch: t(
-            'landing.shelves.book5.pitch',
-            'تصفح موضوعي مع فهرسة معاصرة للفصول.'
-          ),
-          accent: 'moss',
-        },
-        {
-          title: t('landing.shelves.book6.title', 'البيان والتبيين'),
-          author: t('landing.shelves.book6.author', 'الجاحظ'),
-          pitch: t(
-            'landing.shelves.book6.pitch',
-            'أسلوب أدبي خالص — بحث سريع عن الأمثال والحكم.'
-          ),
-          accent: 'terracotta',
-        },
-        {
-          title: t('landing.shelves.book7.title', 'تاريخ الطبري'),
-          author: t('landing.shelves.book7.author', 'محمد بن جرير الطبري'),
-          pitch: t(
-            'landing.shelves.book7.pitch',
-            'مسار زمني تفاعلي — اقفز لأي سنة هجرية.'
-          ),
-          accent: 'ink',
-        },
-        {
-          title: t('landing.shelves.book8.title', 'الكامل في الأدب'),
-          author: t('landing.shelves.book8.author', 'المبرد'),
-          pitch: t(
-            'landing.shelves.book8.pitch',
-            'لغة، بلاغة، وشعر — مقتطفات بحسب المزاج.'
-          ),
-          accent: 'ochre',
-        },
-      ],
-    },
-  ];
-
-  const howItWorks = [
-    {
-      title: t('landing.how.item1.title', 'حدد مقطعًا — احصل على السياق'),
-      text: t(
-        'landing.how.item1.text',
-        'مرّر على جملة، فتظهر لك الخلفية التاريخية والمراجع المتقاطعة من كتب أخرى.'
-      ),
-    },
-    {
-      title: t('landing.how.item2.title', 'اسأل عن شخصية'),
-      text: t(
-        'landing.how.item2.text',
-        'تعرف على من هو المذكور في النص، مع سيرة موجزة وروابط إلى كتب ترجمته.'
-      ),
-    },
-    {
-      title: t('landing.how.item3.title', 'اطلب تحليلًا موضوعيًا'),
-      text: t(
-        'landing.how.item3.text',
-        'استخلص أفكار الكتاب أو فصل منه، مع ذكر المراجع داخل النص.'
-      ),
-    },
-    {
-      title: t('landing.how.item4.title', 'تقاطع مع أعمال أخرى'),
-      text: t(
-        'landing.how.item4.text',
-        'قارن المفهوم الواحد كما تناوله أكثر من مؤلف عبر العصور.'
-      ),
-    },
-  ];
-
-  const trustStats = [
-    {
-      value: '+12K',
-      label: t('landing.trust.indexedPages', 'صفحة نصية مفهرسة'),
-      detail: t('landing.trust.indexedPages.detail', 'آخر تحديث: مايو ٢٠٢٦'),
-    },
-    {
-      value: '4',
-      label: t('landing.trust.languages', 'لغات مدعومة'),
-      detail: t('landing.trust.languages.detail', 'العربية، الإنجليزية، الفارسية، والأوردية'),
-    },
-    {
-      value: '98%',
-      label: t('landing.trust.processingSuccess', 'نجاح معالجة المستندات'),
-      detail: t('landing.trust.processingSuccess.detail', 'مستندات اكتملت معالجتها دون تدخل يدوي'),
-    },
-    {
-      value: '24/7',
-      label: t('landing.trust.access', 'وصول مستمر للمكتبة'),
-      detail: t('landing.trust.access.detail', 'القراءة والبحث متاحان بعد الفهرسة'),
-    },
-  ];
-
-  const testimonials = [
-    {
-      quote: t(
-        'landing.testimonials.item1.quote',
-        'طلبت منها أن تجد لي كتبًا في فقه المعاملات أقصر من ٢٠٠ صفحة — وأعطتني قائمة مرتبة.'
-      ),
-      author: t('landing.testimonials.item1.author', 'باحثة في التراث - الرياض'),
-    },
-    {
-      quote: t(
-        'landing.testimonials.item2.quote',
-        'تنظيم الملاحظات مع البحث داخل النص وفّر علي ساعات طويلة أثناء التحضير العلمي.'
-      ),
-      author: t('landing.testimonials.item2.author', 'طالب دراسات عليا - القاهرة'),
-    },
-    {
-      quote: t(
-        'landing.testimonials.item3.quote',
-        'الواجهة العربية والاتجاه من اليمين لليسار تجعل القراءة طبيعية دون أي تشويش بصري.'
-      ),
-      author: t('landing.testimonials.item3.author', 'قارئ مستقل - الدوحة'),
-    },
-  ];
-
-  /* ─── Class helpers ─── */
-  const primaryCta =
-    'inline-flex items-center justify-center rounded-xl bg-terracotta px-6 py-3 text-sm font-medium text-ivory shadow-[0_0_0_1px_#c96442] transition-all hover:bg-terracotta-soft hover:shadow-[0_6px_24px_-6px_rgba(201,100,66,0.6)] focus:outline-none focus:ring-2 focus:ring-focus-blue focus:ring-offset-2 focus:ring-offset-parchment';
-  const secondaryCta =
-    'inline-flex items-center justify-center rounded-xl border border-border-warm bg-ivory px-6 py-3 text-sm font-medium text-charcoal-warm shadow-ring-cream transition-shadow hover:shadow-ring-warm focus:outline-none focus:ring-2 focus:ring-focus-blue focus:ring-offset-2 focus:ring-offset-parchment dark:border-dark-surface dark:bg-dark-surface dark:text-warm-silver';
-  const invertedCta =
-    'inline-flex items-center justify-center rounded-xl bg-ivory px-6 py-3 text-sm font-medium text-near-black shadow-ring-warm transition-shadow hover:shadow-ring-deep focus:outline-none focus:ring-2 focus:ring-focus-blue focus:ring-offset-2 focus:ring-offset-near-black';
-  const darkSecondaryCta =
-    'inline-flex items-center justify-center rounded-xl border border-dark-surface bg-transparent px-6 py-3 text-sm font-medium text-warm-silver transition-colors hover:border-terracotta/50 hover:text-ivory focus:outline-none focus:ring-2 focus:ring-focus-blue focus:ring-offset-2 focus:ring-offset-near-black';
-  const overline = 'text-[11px] font-medium uppercase tracking-[0.18em] text-stone-gray';
+  const scrollShelf = (direction: "left" | "right") => {
+    if (shelfRef.current) {
+      shelfRef.current.scrollBy({ left: direction === "left" ? -400 : 400, behavior: "smooth" });
+    }
+  };
 
   return (
-    <main className="bg-parchment text-near-black dark:bg-near-black dark:text-ivory">
-      {/* ─── HERO ─── */}
-      <section className="relative px-6 pt-14 pb-20 md:px-10 md:pt-20 md:pb-28">
-        {/* subtle paper-grain decorative texture */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.35] dark:opacity-[0.15]"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle at 20% 10%, rgba(201,100,66,0.06), transparent 40%), radial-gradient(circle at 80% 70%, rgba(20,20,19,0.04), transparent 45%)',
-          }}
-        />
-        <div className="relative mx-auto flex max-w-4xl flex-col items-center text-center">
-          <span
-            className={`inline-flex items-center ${overline} rounded-full border border-border-warm bg-ivory px-3 py-1 dark:border-dark-surface dark:bg-dark-surface`}
-          >
-            <span className="me-2 inline-block h-1.5 w-1.5 rounded-full bg-terracotta" />
-            {t('landing.heroEyebrow', 'قراءة عميقة. بحث أذكى.')}
+    <main className="landing-shell min-h-screen">
+      {/* NAVBAR */}
+      <nav className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#0f0c09]/55 backdrop-blur-xl border border-white/5 rounded-full pl-5 pr-2 py-2 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.03)] flex items-center gap-9 whitespace-nowrap">
+        <Link href={localizedPath("/")} className="flex items-center gap-2">
+          <span className="font-fraunces text-[20px] text-accent-2">ع</span>
+          <span className="font-fraunces text-[16px] tracking-tight">
+            ILM <em className="italic text-text-2">Shamela</em>
           </span>
-          <h1 className="mt-7 max-w-3xl font-serif text-4xl font-medium leading-[1.08] tracking-tight text-near-black dark:text-ivory md:text-[64px]">
-            {t('landing.heroTitle', 'اقرأ بعمق، وابحث بذكاء داخل التراث.')}
-          </h1>
-          <p className="mt-6 max-w-2xl font-serif text-lg leading-[1.6] text-olive-gray dark:text-warm-silver md:text-xl">
-            {t(
-              'landing.heroSubtitle',
-              'مكتبة علم تمنحك مخطوطات نادرة، وبحثًا دلاليًا يفهم سؤالك كما يفهمه أمين مكتبة متمرّس.'
-            )}
-          </p>
-
-          {/* Interactive AI search bar */}
-          <form onSubmit={onSubmitDemoSearch} className="mt-10 w-full max-w-2xl">
-            <div className="group relative rounded-2xl border border-border-warm bg-ivory p-1.5 shadow-whisper transition-all focus-within:border-terracotta/40 focus-within:shadow-[0_10px_40px_-12px_rgba(201,100,66,0.35)] dark:border-dark-surface dark:bg-dark-surface">
-              <div className="flex items-center gap-2">
-                <span className="ps-3 text-terracotta" aria-hidden>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M11 3a8 8 0 105.293 14.293l4.207 4.207 1.414-1.414-4.207-4.207A8 8 0 0011 3zm0 2a6 6 0 110 12 6 6 0 010-12z"
-                      fill="currentColor"
-                    />
-                  </svg>
-                </span>
-                <input
-                  type="text"
-                  value={demoUserInput}
-                  onChange={(e) => setDemoUserInput(e.target.value)}
-                  placeholder={demoQueries[demoIndex]?.q ?? ''}
-                  className="min-w-0 flex-1 bg-transparent px-2 py-3 font-sans text-base text-near-black placeholder:text-stone-gray focus:outline-none dark:text-ivory md:text-[15px]"
-                  aria-label={t('landing.hero.searchAria', 'اسأل عن كتاب أو فكرة')}
+        </Link>
+        <div className="hidden md:flex items-center gap-7">
+          <Link href="#why" className="nav-link">{t('home.nav.why', 'Why ILM')}</Link>
+          <Link href={documentsHref} className="nav-link">{t('home.nav.library', 'Library')}</Link>
+          <Link href="#how" className="nav-link">{t('home.nav.how', 'How it works')}</Link>
+        </div>
+        <div className="ml-auto flex items-center gap-2.5">
+          <LanguageSwitcher variant="compact" />
+          {isAuthenticated ? (
+            <Link
+              href={profileHref}
+              className="group flex items-center gap-2 pl-1 pr-3.5 py-1 rounded-full border border-transparent hover:border-border-strong hover:bg-white/5 transition-colors"
+              aria-label={displayName ? `${t('nav.profile', 'Profile')} — ${displayName}` : t('nav.profile', 'Profile')}
+            >
+              {user?.avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={user.avatar}
+                  alt=""
+                  className="w-7 h-7 rounded-full object-cover border border-border-strong"
                 />
-                <button
-                  type="submit"
-                  className="me-1 inline-flex items-center gap-1.5 rounded-xl bg-near-black px-4 py-2.5 text-sm font-medium text-ivory transition-colors hover:bg-charcoal-warm dark:bg-ivory dark:text-near-black dark:hover:bg-warm-silver"
-                >
-                  {t('landing.hero.ask', 'اسأل')}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <path d="M5 12h14m-6-6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+              ) : (
+                <span className="w-7 h-7 rounded-full bg-gradient-to-br from-accent-2 to-accent flex items-center justify-center text-[#1a0e05] font-fraunces text-[12px] font-semibold leading-none shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]">
+                  {avatarInitial}
+                </span>
+              )}
+              <span className="hidden sm:inline font-fraunces text-[13.5px] text-text max-w-[120px] truncate">
+                {displayName || t('nav.profile', 'Profile')}
+              </span>
+            </Link>
+          ) : (
+            <Link href={loginHref} className="nav-link px-2">
+              {t('nav.signIn', 'Sign in')}
+            </Link>
+          )}
+          <Link href={documentsHref} className="btn-primary">
+            {t('home.nav.openLibrary', 'Open Library')}
+          </Link>
+        </div>
+      </nav>
+
+      {/* HERO */}
+      <section className="pt-44 pb-32 px-6">
+        <div className="max-w-6xl mx-auto">
+          <FadeIn className="text-center">
+            <span className="inline-flex items-center gap-2 text-[12px] tracking-[0.12em] uppercase text-accent-2 bg-accent-soft border border-accent/20 px-3.5 py-1.5 rounded-full mb-8">
+              <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3" fill="currentColor" /></svg>
+              {t('home.hero.badge', 'Now indexing classical & modern works')}
+            </span>
+          </FadeIn>
+
+          <FadeIn delay={0.1}>
+            <h1 className="font-fraunces font-light text-[clamp(48px,7.5vw,104px)] leading-[0.96] tracking-tight text-center max-w-5xl mx-auto text-text">
+              {t('home.hero.titleLead', 'A library')}<br />
+              <span dangerouslySetInnerHTML={{ __html: t('home.hero.titleEm', 'that <em class="italic text-accent-2 font-normal">reads</em> with you.') }} />
+            </h1>
+          </FadeIn>
+
+          <FadeIn delay={0.2}>
+            <p className="text-center mt-8 max-w-xl mx-auto text-[17px] leading-relaxed text-text-2">
+              {t('home.hero.subtitle', 'ILM Shamela indexes 1,400 years of scholarship across four languages — then answers your questions with a citation, never a guess.')}
+            </p>
+          </FadeIn>
+
+          {/* Search Interface */}
+          <FadeIn delay={0.3} className="max-w-3xl mx-auto mt-14">
+            <form
+              onSubmit={onSubmitSearch}
+              className="search-shell bg-gradient-to-b from-card-2/90 to-card/90 border border-border rounded-[24px] p-1.5 shadow-2xl relative"
+            >
+              <div className="flex items-center gap-3 px-4">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
+                  <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+                </svg>
+                <div className="relative flex-1 min-w-0">
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    className="bg-transparent border-none outline-none font-fraunces text-lg text-text w-full py-3.5 px-2"
+                    aria-label={t('home.hero.searchAria', 'Search the library')}
+                  />
+                  {query.length === 0 && (
+                    <div
+                      aria-hidden
+                      className="absolute inset-0 flex items-center px-2 pointer-events-none font-fraunces italic text-lg text-text-3 truncate"
+                    >
+                      <span className="truncate">{typingText}</span>
+                      <span className="ml-0.5 inline-block text-accent-2 animate-cursor-blink">▍</span>
+                    </div>
+                  )}
+                </div>
+                <button type="submit" className="btn-primary flex-shrink-0 flex items-center gap-2">
+                  {t('home.hero.askButton', 'Ask')}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 5l7 7-7 7" /></svg>
                 </button>
               </div>
-              {/* Simulated streaming response */}
-              <div className="mt-1.5 rounded-xl bg-parchment/60 px-4 py-3 text-start font-serif text-[15px] leading-[1.65] text-charcoal-warm dark:bg-near-black/40 dark:text-warm-silver">
-                <div className="mb-1 flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.2em] text-stone-gray">
-                  <div className="flex items-center gap-2">
-                    <span className={`inline-block h-1.5 w-1.5 rounded-full bg-terracotta ${isDemoPaused ? '' : 'animate-pulse'}`} />
-                    {t('landing.hero.thinking', 'يستنبط من المكتبة')}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsDemoPaused((paused) => !paused)}
-                    aria-pressed={isDemoPaused}
-                    className="rounded-full border border-border-warm px-2 py-1 font-sans text-[10px] font-medium text-charcoal-warm transition-colors hover:border-terracotta/50 hover:text-terracotta focus:outline-none focus:ring-2 focus:ring-focus-blue dark:border-dark-surface dark:text-warm-silver"
-                  >
-                    {isDemoPaused ? t('landing.hero.resume', 'تشغيل') : t('landing.hero.pause', 'إيقاف')}
-                  </button>
-                </div>
-                <span aria-live={isDemoPaused ? 'off' : 'polite'}>{demoTyping}</span>
-                <span className={`ms-0.5 inline-block h-[1em] w-[2px] bg-terracotta align-middle ${isDemoPaused ? 'opacity-40' : 'animate-pulse'}`} aria-hidden />
-              </div>
-            </div>
-            <p className="mt-3 text-xs text-stone-gray">
-              {t('landing.hero.hint', 'جرّب: "فقه المعاملات في أقل من ٢٠٠ صفحة"، أو "اشرح مفهوم العمران عند ابن خلدون".')}
-            </p>
-          </form>
+            </form>
 
-          <div className="mt-8 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:items-center">
-            <Link href={localizedPath('/documents')} className={`${primaryCta} w-full sm:w-auto`}>
-              {t('landing.ctaPrimary', 'ادخل إلى المكتبة')}
-            </Link>
-            {!isLoading && !isAuthenticated && (
-              <Link href={localizedPath('/auth/register')} className={`${secondaryCta} w-full sm:w-auto`}>
-                {t('landing.ctaTertiary', 'أنشئ حسابًا مجانيًا')}
-              </Link>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ─── LIVE AI DEMO STRIP ─── */}
-      <section className="border-t border-border-cream px-6 py-12 md:px-10 md:py-16 dark:border-dark-surface">
-        <div className="mx-auto max-w-6xl">
-          <p className={overline}>{t('landing.section.demos', 'ماذا يمكن أن تسأل؟')}</p>
-          <h2 className="mt-3 max-w-3xl font-serif text-2xl font-medium leading-[1.25] text-near-black dark:text-ivory md:text-[32px]">
-            {t(
-              'landing.demoHeadline',
-              'بحث دلالي، تلخيص لفصل، أو مقارنة بين مؤلّفَين — الأمر لك.'
-            )}
-          </h2>
-          <div className="mt-8 flex flex-wrap gap-2.5">
-            {demoQueries.map((item, idx) => (
-              <button
-                key={item.q}
-                type="button"
-                onClick={() => {
-                  setDemoIndex(idx);
-                  setDemoUserInput('');
-                }}
-                aria-pressed={idx === demoIndex}
-                className={`group inline-flex items-center gap-2 rounded-full border px-4 py-2 font-sans text-sm transition-all ${
-                  idx === demoIndex
-                    ? 'border-terracotta bg-terracotta/10 text-terracotta shadow-[0_0_0_3px_rgba(201,100,66,0.08)]'
-                    : 'border-border-warm bg-ivory text-charcoal-warm hover:border-terracotta/40 hover:text-near-black dark:border-dark-surface dark:bg-dark-surface dark:text-warm-silver'
-                }`}
-              >
-                <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-stone-gray">
-                  {idx + 1 < 10 ? `0${idx + 1}` : idx + 1}
-                </span>
-                <span className="max-w-[28ch] truncate">{item.q}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ─── CONTINUE READING (auth-only) ─── */}
-      <section className="border-t border-border-cream px-6 py-12 md:px-10 md:py-16 dark:border-dark-surface">
-        <ContinueReadingShelf />
-      </section>
-
-      {/* ─── VALUES ─── */}
-      <section className="border-t border-border-cream px-6 py-20 md:px-10 md:py-24 dark:border-dark-surface">
-        <div className="mx-auto max-w-6xl">
-          <div className="max-w-2xl">
-            <p className={overline}>{t('landing.section.values', 'لماذا مكتبة علم؟')}</p>
-            <h2 className="mt-3 font-serif text-3xl font-medium leading-[1.2] text-near-black dark:text-ivory md:text-[44px]">
-              {t('landing.valuesHeadline', 'مكتبة تُصمَّم حول القارئ، لا حول الخوارزمية.')}
-            </h2>
-          </div>
-          <div className="mt-12 grid gap-6 md:grid-cols-3">
-            {valueCards.map((card) => (
-              <article
-                key={card.title}
-                className="group rounded-2xl border border-border-cream bg-ivory p-7 shadow-whisper transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_40px_-16px_rgba(20,20,19,0.15)] dark:border-dark-surface dark:bg-dark-surface"
-              >
-                <div className="mb-5 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-warm-sand text-terracotta transition-colors group-hover:bg-terracotta group-hover:text-ivory dark:bg-dark-warm dark:text-terracotta-soft">
-                  {card.icon}
-                </div>
-                <h3 className="font-serif text-[24px] font-medium leading-[1.2] text-near-black dark:text-ivory">
-                  {card.title}
-                </h3>
-                <p className="mt-3 font-sans text-sm leading-[1.65] text-olive-gray dark:text-warm-silver">
-                  {card.description}
-                </p>
-                <p className="mt-5 inline-flex rounded-full border border-border-warm bg-parchment px-3 py-1 font-sans text-xs font-medium text-charcoal-warm dark:border-dark-warm dark:bg-near-black dark:text-warm-silver">
-                  {card.proof}
-                </p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ─── EDITORIAL SHELVES ─── */}
-      <section className="border-t border-border-cream px-6 py-20 md:px-10 md:py-24 dark:border-dark-surface">
-        <div className="mx-auto max-w-6xl">
-          <div className="flex flex-wrap items-end justify-between gap-6">
-            <div className="max-w-2xl">
-              <p className={overline}>{t('landing.section.shelves', 'رفوف المحررين')}</p>
-              <h2 className="mt-3 font-serif text-3xl font-medium leading-[1.2] text-near-black dark:text-ivory md:text-[44px]">
-                {t('landing.shelvesHeadline', 'ادخل من الرف الذي يناسب حالتك الذهنية.')}
-              </h2>
-            </div>
-            <Link href={localizedPath('/documents')} className="font-sans text-sm font-medium text-terracotta hover:text-terracotta-soft">
-              {t('landing.shelves.browseAll', 'تصفح كل الرفوف →')}
-            </Link>
-          </div>
-
-          <div className="mt-12 space-y-14">
-            {shelves.map((shelf) => (
-              <div key={shelf.label}>
-                <div className="flex items-baseline justify-between">
-                  <h3 className="font-serif text-xl font-medium text-near-black dark:text-ivory md:text-[26px]">
-                    {shelf.label}
-                  </h3>
-                  <span className={overline}>
-                    {shelf.books.length} {t('landing.shelves.items', 'عناوين')}
-                  </span>
-                </div>
-                <div className="relative mt-5">
-                  <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-4">
-                    {shelf.books.map((book) => (
-                      <article
-                        key={book.title}
-                        className="group relative flex flex-col"
-                      >
-                        <div
-                          className={`relative aspect-[3/4] overflow-hidden rounded-xl bg-gradient-to-br ${shelfAccentClass[book.accent]} shadow-whisper ring-1 ring-black/5 transition-transform duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_16px_40px_-12px_rgba(20,20,19,0.25)]`}
-                        >
-                          <div className="absolute inset-x-3 top-3 flex items-center justify-between text-ivory/60">
-                            <span className="text-[9px] uppercase tracking-[0.25em]">مكتبة علم</span>
-                            <span className="h-1.5 w-1.5 rounded-full bg-ivory/70" />
-                          </div>
-                          <div className="absolute inset-x-4 bottom-5">
-                            <p className="font-serif text-[15px] leading-[1.25] text-ivory line-clamp-3">
-                              {book.title}
-                            </p>
-                            <p className="mt-2 font-sans text-[11px] text-ivory/70 line-clamp-1">
-                              {book.author}
-                            </p>
-                          </div>
-                          {/* AI-moment hover pitch */}
-                          <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/80 via-black/20 to-transparent p-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-                            <p className="font-serif text-[13px] leading-[1.5] text-ivory">
-                              <span className="me-1 inline-block h-1.5 w-1.5 rounded-full bg-terracotta align-middle" />
-                              {book.pitch}
-                            </p>
-                          </div>
-                        </div>
-                        <p className="mt-3 rounded-xl border border-border-cream bg-ivory px-3 py-2 font-serif text-[13px] leading-[1.5] text-charcoal-warm shadow-ring-cream dark:border-dark-surface dark:bg-dark-surface dark:text-warm-silver md:hidden">
-                          {book.pitch}
-                        </p>
-                      </article>
-                    ))}
-                  </div>
-                  {/* shelf line — the literary touch */}
-                  <div className="mt-4 h-px w-full bg-gradient-to-r from-transparent via-border-warm to-transparent dark:via-dark-surface" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ─── HOW THE ANALYSIS WORKS ─── */}
-      <section className="bg-near-black px-6 py-24 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:px-10 md:py-32 dark:bg-[#0b0b0a]">
-        <div className="mx-auto max-w-6xl">
-          <div className="max-w-2xl">
-            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-warm-silver">
-              {t('landing.section.how', 'كيف يعمل التحليل')}
-            </p>
-            <h2 className="mt-3 font-serif text-3xl font-medium leading-[1.2] text-ivory md:text-[52px]">
-              {t('landing.howHeadline', 'المنتج كاملًا في صفحة واحدة.')}
-            </h2>
-            <p className="mt-5 max-w-xl font-serif text-lg leading-[1.6] text-warm-silver">
-              {t(
-                'landing.howSubhead',
-                'صفحة الكتاب إلى اليمين، ومساعد القراءة إلى اليسار — تسأل فيجيبك مستشهدًا بالنص.'
-              )}
-            </p>
-          </div>
-
-          <div className="mt-14 grid gap-8 md:grid-cols-[1.3fr_1fr]">
-            {/* Book page miniature */}
-            <div className="overflow-hidden rounded-2xl border border-dark-surface bg-[#1a1715] p-8 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.6)]">
-              <div className="mb-4 flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-warm-silver/60">
-                <span>{t('landing.how.pageLabel', 'صفحة ٤٧')}</span>
-                <span>{t('landing.how.chapterLabel', 'الفصل الثالث')}</span>
-              </div>
-              <article className="space-y-3 font-serif text-[15px] leading-[1.85] text-warm-silver">
-                <p>
-                  {t(
-                    'landing.how.sample1',
-                    'وإذا تأمّلتَ أحوال العمران الحضريّ رأيتَه يتدرّج على سنن ثابتة تجمع بين بداوة الأصل وتعقيد الدولة.'
-                  )}
-                </p>
-                <p className="rounded bg-terracotta/15 px-2 py-1 ring-1 ring-terracotta/30">
-                  <span className="bg-terracotta/30 text-ivory">
-                    {t(
-                      'landing.how.sampleHighlight',
-                      'فالعصبية قاعدة الملك، ومتى انفكّت فَقَد الملكُ عموده الأول.'
-                    )}
-                  </span>
-                </p>
-                <p>
-                  {t(
-                    'landing.how.sample2',
-                    'ثم إن لأطوار الدولة أعمارًا محدودة كأعمار الأشخاص، ولكل طور منها شواهد تُعرف بها.'
-                  )}
-                </p>
-              </article>
-            </div>
-
-            {/* AI sidebar miniature */}
-            <div className="flex flex-col gap-3 rounded-2xl border border-dark-surface bg-[#1a1715] p-6 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.6)]">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-terracotta/20 text-terracotta">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <path d="M12 2l2.2 6.8H21l-5.4 4 2.1 6.8L12 15.8 6.3 19.6l2.1-6.8L3 8.8h6.8z" fill="currentColor" />
-                  </svg>
-                </span>
-                <span className="font-sans text-xs font-medium uppercase tracking-[0.18em] text-warm-silver">
-                  {t('landing.how.assistant', 'مساعد القراءة')}
-                </span>
-              </div>
-
-              {howItWorks.map((item, i) => (
-                <div
-                  key={item.title}
-                  className={`rounded-xl border p-3.5 ${
-                    i === 0
-                      ? 'border-terracotta/40 bg-terracotta/10'
-                      : 'border-dark-surface bg-[#141413]/60 hover:border-terracotta/30'
-                  } transition-colors`}
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
+              <span className="text-[12px] text-text-3">{t('home.hero.tryLabel', 'Try:')}</span>
+              {trySuggestions.map((suggestion) => (
+                <button
+                  key={suggestion.query}
+                  type="button"
+                  onClick={() => goToLibrary(suggestion.query)}
+                  className={`text-[12.5px] text-text-2 bg-white/5 border border-border px-3.5 py-1.5 rounded-full hover:border-accent hover:text-accent-2 hover:bg-accent-soft transition-all ${suggestion.fontClass}`}
                 >
-                  <p className="font-serif text-[15px] text-ivory">{item.title}</p>
-                  <p className="mt-1.5 font-sans text-[12px] leading-[1.55] text-warm-silver">
-                    {item.text}
-                  </p>
-                </div>
+                  {suggestion.label}
+                </button>
               ))}
             </div>
-          </div>
+          </FadeIn>
+
+          {/* Trust Bar */}
+          <FadeIn delay={0.5} className="mt-24 pt-10 border-t border-border">
+            <p className="text-center text-[11.5px] tracking-[0.18em] uppercase mb-6 text-text-3">{t('home.trust.label', 'Trusted by scholars at')}</p>
+            <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-4 opacity-50 text-text-2">
+              <span className="font-fraunces text-lg italic">{t('home.trust.alAzhar', 'Al-Azhar')}</span>
+              <span className="font-fraunces text-lg">{t('home.trust.hartford', 'Hartford Seminary')}</span>
+              <span className="font-fraunces text-lg italic">{t('home.trust.zaytuna', 'Zaytuna')}</span>
+              <span className="font-fraunces text-lg">{t('home.trust.soas', 'SOAS · London')}</span>
+              <span className="font-fraunces text-lg italic">{t('home.trust.qarawiyyin', 'Qarawiyyin')}</span>
+              <span className="font-fraunces text-lg">{t('home.trust.oxfordCis', 'Oxford CIS')}</span>
+            </div>
+          </FadeIn>
         </div>
       </section>
 
-      {/* ─── LIBRARY SCALE STATS ─── */}
-      <section className="px-6 py-20 md:px-10 md:py-24">
-        <div className="mx-auto max-w-6xl">
-          <div className="flex flex-wrap items-end justify-between gap-6">
-            <div className="max-w-xl">
-              <p className={overline}>{t('landing.section.trust', 'مقياس المكتبة')}</p>
-              <h2 className="mt-3 font-serif text-3xl font-medium leading-[1.2] text-near-black dark:text-ivory md:text-[44px]">
-                {t('landing.trustHeadline', 'أرقام تُذكر بهدوء، لا بضوضاء.')}
+      {/* WHY ILM */}
+      <section id="why" className="py-32 px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="grid lg:grid-cols-12 gap-12 mb-20">
+            <FadeIn className="lg:col-span-5">
+              <span className="section-eyebrow">{t('home.why.eyebrow', 'Why ILM')}</span>
+              <h2 className="font-fraunces font-light text-[clamp(32px,4.5vw,56px)] leading-[1.05] tracking-tight mt-5">
+                {t('home.why.titleLead', 'A library built for ')}
+                <span dangerouslySetInnerHTML={{ __html: t('home.why.titleEm', '<em class="italic text-accent-2">thinkers</em>, not feeds.') }} />
               </h2>
+            </FadeIn>
+            <FadeIn delay={0.15} className="lg:col-span-6 lg:col-start-7 lg:pt-2">
+              <p className="text-[17px] leading-relaxed text-text-2">
+                {t('home.why.body', "Most search engines flatten knowledge into ten blue links. ILM treats each text as it deserves — with provenance, edition, and context preserved. Your reading is private, your sources are verifiable, and your assistant never invents what isn't there.")}
+              </p>
+            </FadeIn>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {featureCards.map((feature, i) => (
+              <FadeIn
+                key={feature.title}
+                delay={0.05 * i}
+                className="bg-gradient-to-b from-card-2 to-card border border-border rounded-[22px] p-7 relative overflow-hidden group"
+              >
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-7 bg-accent-soft text-accent-2">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">{feature.icon}</svg>
+                </div>
+                <h3 className="font-fraunces text-[22px] leading-tight mb-3">{feature.title}</h3>
+                <p className="text-[14px] leading-relaxed text-text-2">{feature.desc}</p>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* BOOKSHELF */}
+      <section id="shelf" className="py-32 px-6 overflow-hidden">
+        <div className="max-w-6xl mx-auto">
+          <FadeIn className="flex flex-wrap items-end justify-between gap-8 mb-14">
+            <div className="max-w-2xl">
+              <span className="section-eyebrow">{t('home.shelf.eyebrow', 'The Shelf')}</span>
+              <h2 className="font-fraunces font-light text-[clamp(32px,4.5vw,56px)] leading-[1.05] tracking-tight mt-5">
+                {t('home.shelf.titleLead', 'Walk the ')}
+                <span dangerouslySetInnerHTML={{ __html: t('home.shelf.titleEm', '<em class="italic text-accent-2">shelves</em>, drift through eras.') }} />
+              </h2>
+              <p className="mt-5 text-[16px] leading-relaxed text-text-2">
+                {t('home.shelf.body', 'From the formative period to the present, organized the way a librarian would. Click any spine to peer inside.')}
+              </p>
             </div>
-            <p className="max-w-sm font-sans text-sm leading-[1.65] text-olive-gray dark:text-warm-silver">
-              {t(
-                'landing.trustSubhead',
-                'كل كتاب مُفهرس يدويًا قبل أن يدخل محرك البحث، لذلك تأتي النتائج مسندة.'
-              )}
-            </p>
-          </div>
-
-          <dl className="mt-12 grid gap-px overflow-hidden rounded-2xl bg-border-cream dark:bg-dark-surface md:grid-cols-4">
-            {trustStats.map((stat) => (
-              <div key={stat.label} className="bg-ivory p-8 dark:bg-near-black">
-                <dd className="font-serif text-4xl font-medium leading-none text-near-black dark:text-ivory md:text-5xl">
-                  {stat.value}
-                </dd>
-                <dt className="mt-3 font-sans text-sm text-olive-gray dark:text-warm-silver">{stat.label}</dt>
-                <dd className="mt-3 border-t border-border-cream pt-3 font-sans text-xs leading-[1.55] text-stone-gray dark:border-dark-surface dark:text-warm-silver/75">
-                  {stat.detail}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      </section>
-
-      {/* ─── TESTIMONIALS ─── */}
-      <section className="border-t border-border-cream px-6 py-24 md:px-10 md:py-28 dark:border-dark-surface">
-        <div className="mx-auto max-w-6xl">
-          <div className="max-w-2xl">
-            <p className={overline}>{t('landing.section.testimonials', 'أصوات القرّاء')}</p>
-            <h2 className="mt-3 font-serif text-3xl font-medium leading-[1.2] text-near-black dark:text-ivory md:text-[44px]">
-              {t('landing.testimonialsHeadline', 'قرّاء وباحثون — لحظات يحكون فيها ما وجدوه.')}
-            </h2>
-            <p className="mt-4 max-w-xl font-sans text-sm leading-[1.65] text-olive-gray dark:text-warm-silver">
-              {t('landing.testimonialsNote', 'قصص استخدام تمثيلية توضّح ما يفعله القرّاء داخل المنصة.')}
-            </p>
-          </div>
-          <div className="mt-12 grid gap-6 md:grid-cols-3">
-            {testimonials.map((item) => (
-              <figure
-                key={item.author}
-                className="flex flex-col rounded-2xl border border-border-cream bg-ivory p-7 shadow-whisper dark:border-dark-surface dark:bg-dark-surface"
-              >
-                <span aria-hidden className="font-serif text-5xl leading-none text-terracotta">&ldquo;</span>
-                <blockquote className="mt-2 flex-1 font-serif text-[17px] leading-[1.65] text-near-black dark:text-ivory">
-                  {item.quote}
-                </blockquote>
-                <figcaption className="mt-6 font-sans text-[13px] text-olive-gray dark:text-warm-silver">
-                  {item.author}
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ─── PRICING ─── */}
-      <section className="border-t border-border-cream px-6 py-20 md:px-10 md:py-24 dark:border-dark-surface">
-        <div className="mx-auto max-w-5xl">
-          <div className="max-w-2xl">
-            <p className={overline}>{t('landing.section.pricing', 'التسعير')}</p>
-            <h2 className="mt-3 font-serif text-3xl font-medium leading-[1.2] text-near-black dark:text-ivory md:text-[44px]">
-              {t('landing.pricingHeadline', 'صادقون بشأن ما هو مجاني.')}
-            </h2>
-          </div>
-          <div className="mt-10 grid gap-6 md:grid-cols-2">
-            <article className="rounded-2xl border border-border-cream bg-ivory p-8 shadow-whisper dark:border-dark-surface dark:bg-dark-surface">
-              <p className={overline}>{t('landing.pricing.free.tag', 'مجاني — دائمًا')}</p>
-              <h3 className="mt-3 font-serif text-[32px] font-medium text-near-black dark:text-ivory">
-                {t('landing.pricing.free.title', 'الكتب في النطاق العام')}
-              </h3>
-              <p className="mt-3 font-sans text-sm leading-[1.65] text-olive-gray dark:text-warm-silver">
-                {t(
-                  'landing.pricing.free.desc',
-                  'القراءة، البحث الدلالي، والملاحظات — مجانية تمامًا لكل ما سقطت عنه الحقوق.'
-                )}
-              </p>
-              <Link href={localizedPath('/documents')} className={`mt-6 ${secondaryCta}`}>
-                {t('landing.pricing.free.cta', 'تصفح المجاني الآن')}
-              </Link>
-            </article>
-            <article className="relative overflow-hidden rounded-2xl border border-terracotta/30 bg-gradient-to-br from-terracotta/10 to-transparent p-8 dark:from-terracotta/20">
-              <p className={`${overline} text-terracotta`}>
-                {t('landing.pricing.pro.tag', 'للباحث — قريبًا')}
-              </p>
-              <h3 className="mt-3 font-serif text-[32px] font-medium text-near-black dark:text-ivory">
-                {t('landing.pricing.pro.title', 'مكتبة علم — للمحقّقين')}
-              </h3>
-              <p className="mt-3 font-sans text-sm leading-[1.65] text-olive-gray dark:text-warm-silver">
-                {t(
-                  'landing.pricing.pro.desc',
-                  'نسخ محققة مرخّصة، تصدير اقتباسات، وتعاون بحثي. سعر شفاف، بدون عقود خفية.'
-                )}
-              </p>
-              <button
-                type="button"
-                disabled
-                className="mt-6 inline-flex cursor-not-allowed items-center justify-center rounded-xl border border-terracotta/40 bg-terracotta/10 px-6 py-3 text-sm font-medium text-terracotta"
-              >
-                {t('landing.pricing.pro.cta', 'قائمة الانتظار قريبًا')}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => scrollShelf("left")} className="btn-ghost !p-3" aria-label={t('home.shelf.scrollLeft', 'Scroll shelf left')}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6" /></svg>
               </button>
-            </article>
-          </div>
-        </div>
-      </section>
+              <button type="button" onClick={() => scrollShelf("right")} className="btn-ghost !p-3" aria-label={t('home.shelf.scrollRight', 'Scroll shelf right')}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
+              </button>
+            </div>
+          </FadeIn>
 
-      {/* ─── FINAL CTA (dark) ─── */}
-      <section className="bg-near-black px-6 py-24 md:px-10 md:py-32 dark:bg-[#0f0f0e]">
-        <div className="mx-auto max-w-3xl text-center">
-          <h2 className="font-serif text-3xl font-medium leading-[1.15] text-ivory md:text-[52px]">
-            {t('landing.section.finalCta', 'ابدأ رحلتك مع النصوص النادرة.')}
-          </h2>
-          <p className="mx-auto mt-6 max-w-xl font-serif text-lg leading-[1.6] text-warm-silver">
-            {t(
-              'landing.finalText',
-              'ابنِ مكتبتك الخاصة من الكتب التي لم تأخذ حقها من النشر بعد.'
-            )}
-          </p>
-          <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row">
-            <Link href={localizedPath('/documents')} className={`${invertedCta} w-full sm:w-auto`}>
-              {t('landing.ctaPrimary', 'ادخل إلى المكتبة')}
-            </Link>
-            {!isLoading && !isAuthenticated && (
-              <Link href={localizedPath('/auth/register')} className={`${darkSecondaryCta} w-full sm:w-auto`}>
-                {t('landing.ctaTertiary', 'أنشئ حسابًا مجانيًا')}
-              </Link>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ─── FOOTER ─── */}
-      <footer className="border-t border-border-cream px-6 py-16 md:px-10 dark:border-dark-surface">
-        <div className="mx-auto max-w-6xl">
-          <blockquote className="max-w-2xl font-serif text-xl leading-[1.5] text-near-black dark:text-ivory md:text-2xl">
-            {t(
-              'landing.footer.quote',
-              '«إنّ الكتبَ جنّاتٌ في القلوب، ورياضٌ في الصدور» — الجاحظ'
-            )}
-          </blockquote>
-
-          <div className="mt-12 grid gap-10 md:grid-cols-[1.2fr_1fr_1fr_1fr]">
-            <div>
-              <p className="font-serif text-xl font-medium text-near-black dark:text-ivory">
-                {t('brand.word1', 'مكتبة')} <span className="text-terracotta">{t('brand.word2', 'علم')}</span>
-              </p>
-              <p className="mt-3 max-w-xs font-sans text-sm leading-[1.65] text-olive-gray dark:text-warm-silver">
-                {t('landing.footer.about', 'منصة للقراءة والبحث الدلالي في الكتب والمخطوطات النادرة.')}
-              </p>
+          <FadeIn delay={0.1}>
+            <div ref={shelfRef} className="flex gap-4 pb-2 overflow-x-auto hide-scrollbar">
+              {shelfBooks.map((book, i) => (
+                <Link
+                  key={`shelf-book-${i}`}
+                  href={documentsHref}
+                  className={`flex-shrink-0 w-[175px] h-[260px] rounded-l-md rounded-r-xl p-5 flex flex-col justify-between border border-black/40 shadow-[inset_8px_0_0_rgba(0,0,0,0.25),inset_11px_0_0_rgba(255,255,255,0.04),0_12px_30px_-8px_rgba(0,0,0,0.5)] cursor-pointer transition-transform duration-500 ease-out hover:-translate-y-2 hover:-rotate-3 bg-gradient-to-br ${book.bg} ${book.color}`}
+                >
+                  <div className="text-[10.5px] tracking-widest uppercase opacity-70">{book.meta}</div>
+                  <div
+                    className="font-amiri text-[26px] leading-tight font-bold text-right"
+                    dangerouslySetInnerHTML={{ __html: book.title }}
+                  />
+                </Link>
+              ))}
             </div>
 
-            <div>
-              <p className={overline}>{t('landing.footer.browse', 'تصفّح')}</p>
-              <ul className="mt-4 space-y-2 font-sans text-sm">
-                <li><Link href={localizedPath('/documents')} className="text-charcoal-warm transition-colors hover:text-terracotta dark:text-warm-silver">{t('nav.documents', 'المكتبة')}</Link></li>
-                <li><Link href={localizedPath('/upload')} className="text-charcoal-warm transition-colors hover:text-terracotta dark:text-warm-silver">{t('nav.upload', 'رفع كتاب')}</Link></li>
+            {/* Categories */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-12">
+              {categories.map(({ cat, count }) => (
+                <Link
+                  key={cat}
+                  href={documentsHref}
+                  className="bg-gradient-to-b from-card-2 to-card border border-border rounded-xl p-4 text-center hover:border-accent transition-colors"
+                >
+                  <div className="font-fraunces text-[17px]">{cat}</div>
+                  <div className="text-[12px] text-text-3 mt-1 tracking-wide">
+                    {t('home.shelf.worksCount', '{count} works', { count })}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* HOW IT WORKS */}
+      <section id="how" className="py-32 px-6 bg-gradient-to-b from-transparent to-bg-2">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex justify-between items-end flex-wrap gap-8 mb-12">
+            <FadeIn className="max-w-2xl">
+              <span className="section-eyebrow">{t('home.how.eyebrow', 'How it works')}</span>
+              <h2 className="font-fraunces font-light text-[clamp(32px,4.5vw,56px)] leading-[1.05] tracking-tight mt-5">
+                {t('home.how.titleLead', 'The full product on ')}
+                <span dangerouslySetInnerHTML={{ __html: t('home.how.titleEm', '<em class="italic text-accent-2">one page</em>.') }} />
+              </h2>
+            </FadeIn>
+            <FadeIn className="hidden md:block">
+              <div className="text-[11px] tracking-widest text-text-3">{t('home.how.chapterCaption', 'CHAPTER 03 · PAGE 47')}</div>
+            </FadeIn>
+          </div>
+
+          <FadeIn delay={0.1} className="grid lg:grid-cols-2 gap-5" dir="rtl">
+            {/* Book Panel (RTL native) */}
+            <div className="bg-gradient-to-b from-[#16110c] to-[#100c08] border border-border rounded-[18px] p-8 md:p-10 relative" lang="ar">
+              <div className="flex justify-between items-center mb-8">
+                <div className="text-[11px] tracking-widest text-text-3">{t('home.how.bookChapter', 'الفصل الثالث')}</div>
+                <div className="text-[11px] tracking-widest text-text-3">{t('home.how.bookPage', 'صفحة ٤٧')}</div>
+              </div>
+              <div className="font-amiri text-right text-[22px] leading-[2.2] text-text">
+                {t('home.how.bookExcerpt1', 'وإذا تأمَّلتَ أحوالَ العُمران الحضريّ رأيتَه يتدرَّج على سُنن ثابتة تجمع بين بداوة الأصل وتعقيد الدولة.')}
+                <br /><br />
+                <span className="bg-gradient-to-b from-accent/25 to-accent/15 border border-accent/50 px-2.5 py-1 rounded-md inline-block">
+                  {t('home.how.bookExcerptHighlight', 'فالعصبيّة قاعدة المُلك، ومتى انفكَّت فقد المُلكُ عمودَه الأوّل.')}
+                </span>
+                <br /><br />
+                {t('home.how.bookExcerpt2', 'ثم إنّ لأطوار الدولة أعمارًا محدودةً كأعمار الأشخاص، ولكلِّ طورٍ منها شواهدُ تُعرَف بها.')}
+              </div>
+              <div className="flex items-center justify-center gap-3.5 text-accent mt-10">
+                <div className="h-[1px] w-10 bg-gradient-to-r from-transparent to-accent" />
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" /></svg>
+                <div className="h-[1px] w-10 bg-gradient-to-r from-accent to-transparent" />
+              </div>
+            </div>
+
+            {/* AI Assistant Panel */}
+            <div className="bg-gradient-to-b from-[#16110c] to-[#100c08] border border-border rounded-[18px] p-8 md:p-10 relative" dir="ltr">
+              <div className="flex justify-between items-center mb-8">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-accent-soft text-accent-2">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8 5.8 21.3l2.4-7.4L2 9.4h7.6z" />
+                    </svg>
+                  </div>
+                  <span className="text-[11px] tracking-widest text-text-3">{t('home.how.assistantLabel', 'READING ASSISTANT')}</span>
+                </div>
+                <span className="text-[11px] text-text-3">{t('home.how.assistantStatus', '●●● online')}</span>
+              </div>
+
+              <div className="space-y-3">
+                <div className="bg-gradient-to-b from-accent/15 to-accent/5 border border-accent shadow-[0_0_30px_-10px_rgba(192,133,82,0.3)] rounded-xl p-5 cursor-pointer">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-2)" strokeWidth="1.5"><path d="M3 7h18M3 12h18M3 17h12" /></svg>
+                    <h4 className="font-fraunces text-[16px] text-text">{t('home.how.cardTitle', 'Highlight a passage → get the context')}</h4>
+                  </div>
+                  <p className="text-[13.5px] leading-relaxed text-text-2">
+                    {t('home.how.cardBody', 'Hover any sentence. ILM surfaces the historical background and cross-references from other works.')}
+                  </p>
+                </div>
+
+                <div className="mt-6 p-5 rounded-2xl bg-accent-soft border border-accent/20 relative overflow-hidden">
+                  <div className="text-[10.5px] tracking-widest mb-3 text-accent-2">{t('home.how.replyHeader', 'ASSISTANT REPLY · LIVE')}</div>
+                  <p className="font-fraunces text-[14.5px] leading-relaxed text-text">
+                    <span dangerouslySetInnerHTML={{ __html: t('home.how.replyBody', 'Ibn Khaldūn frames <em class="italic text-accent-2">ʿaṣabiyya</em> as the cohesive force underwriting any sovereign order — when it dissolves, dynasties lose their structural pillar.') }} />
+                    <span className="animate-cursor-blink text-accent-2">▍</span>
+                  </p>
+                  <div className="mt-4 inline-flex items-center px-2.5 py-1 rounded bg-card-2 text-[11px] text-text-3">
+                    {t('home.how.replyCitation', '↗ Muqaddima · ch. 3 · §47')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* CTA SECTION */}
+      <section id="cta" className="py-32 px-6">
+        <div className="max-w-5xl mx-auto">
+          <FadeIn className="relative bg-gradient-to-b from-[#19140e] to-[#110d09] border border-border-strong rounded-[32px] p-12 md:p-20 text-center overflow-hidden">
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_0%,rgba(192,133,82,0.18),transparent_60%),radial-gradient(ellipse_at_80%_100%,rgba(192,133,82,0.10),transparent_60%)]" />
+
+            <div className="relative z-10">
+              <div className="flex items-center justify-center gap-3.5 text-accent mb-8">
+                <div className="h-[1px] w-10 bg-gradient-to-r from-transparent to-accent" />
+                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" /></svg>
+                <div className="h-[1px] w-10 bg-gradient-to-r from-accent to-transparent" />
+              </div>
+              <h2 className="font-fraunces font-light text-[clamp(36px,5vw,64px)] leading-[1.05] tracking-tight mb-6 max-w-3xl mx-auto text-text">
+                {t('home.cta.titleLead', 'Open the library.')}<br />
+                <span dangerouslySetInnerHTML={{ __html: t('home.cta.titleEm', '<em class="italic text-accent-2">Begin where the question takes you.</em>') }} />
+              </h2>
+              <p className="text-[16.5px] leading-relaxed max-w-xl mx-auto mb-10 text-text-2">
+                {t('home.cta.body', 'A working account in under a minute. No card. The first 12,000 pages are already waiting.')}
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <Link href={startReadingHref} className="btn-primary !px-7 !py-3.5 !text-[15px]">
+                  {t('home.cta.start', 'Start reading — free')}
+                </Link>
+                <Link href={documentsHref} className="btn-ghost !px-7 !py-3.5 !text-[15px]">
+                  {t('home.cta.browse', 'Browse the library')}
+                </Link>
+              </div>
+              <p className="mt-8 text-[11.5px] tracking-widest text-text-3">
+                {t('home.cta.fineprint', '✦ NO CREDIT CARD ✦ NO SPAM ✦ NO TRAINING ON YOUR READING ✦')}
+              </p>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="pt-24 pb-12 px-6 border-t border-border">
+        <div className="max-w-6xl mx-auto">
+          <div className="grid md:grid-cols-12 gap-10 mb-16">
+            <div className="md:col-span-5">
+              <div className="flex items-center gap-2 mb-5">
+                <span className="font-fraunces text-[28px] text-accent-2">ع</span>
+                <span className="font-fraunces text-[22px]">ILM <em className="italic text-text-2">Shamela</em></span>
+              </div>
+              <p className="text-[14.5px] leading-relaxed max-w-sm mb-6 text-text-2">
+                {t('home.footer.tagline', "A private digital library and document search engine for the world's classical scholarship — built with care, run with respect.")}
+              </p>
+            </div>
+            <div className="md:col-span-2">
+              <p className="text-[11px] tracking-[0.18em] uppercase text-text-3 mb-4">{t('home.footer.browse', 'Browse')}</p>
+              <ul className="space-y-2 text-[14px]">
+                <li><Link href={documentsHref} className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.documents', 'Library')}</Link></li>
+                <li><Link href={localizedPath("/upload")} className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.upload', 'Upload')}</Link></li>
               </ul>
             </div>
-
-            <div>
-              <p className={overline}>{t('landing.footer.account', 'الحساب')}</p>
-              <ul className="mt-4 space-y-2 font-sans text-sm">
-                {!isLoading && !isAuthenticated ? (
-                  <>
-                    <li><Link href={localizedPath('/auth/login')} className="text-charcoal-warm transition-colors hover:text-terracotta dark:text-warm-silver">{t('nav.signIn', 'تسجيل الدخول')}</Link></li>
-                    <li><Link href={localizedPath('/auth/register')} className="text-charcoal-warm transition-colors hover:text-terracotta dark:text-warm-silver">{t('nav.getStarted', 'ابدأ الآن')}</Link></li>
-                  </>
+            <div className="md:col-span-2">
+              <p className="text-[11px] tracking-[0.18em] uppercase text-text-3 mb-4">{t('home.footer.account', 'Account')}</p>
+              <ul className="space-y-2 text-[14px]">
+                {isAuthenticated ? (
+                  <li><Link href={localizedPath("/profile")} className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.profile', 'Profile')}</Link></li>
                 ) : (
-                  <li><Link href={localizedPath('/profile')} className="text-charcoal-warm transition-colors hover:text-terracotta dark:text-warm-silver">{t('nav.profile', 'الملف الشخصي')}</Link></li>
+                  <>
+                    <li><Link href={localizedPath("/auth/login")} className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.signIn', 'Sign in')}</Link></li>
+                    <li><Link href={registerHref} className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.getStarted', 'Get started')}</Link></li>
+                  </>
                 )}
               </ul>
             </div>
-
-            <div>
-              <p className={overline}>{t('landing.footer.language', 'اللغات')}</p>
-              <ul className="mt-4 space-y-2 font-sans text-sm text-olive-gray dark:text-warm-silver">
-                <li>{t('nav.locale.ar', 'العربية')}</li>
-                <li>{t('nav.locale.en', 'الإنجليزية')}</li>
-                <li>{t('nav.locale.fa', 'الفارسية')}</li>
-                <li>{t('nav.locale.ur', 'الأوردية')}</li>
+            <div className="md:col-span-3">
+              <p className="text-[11px] tracking-[0.18em] uppercase text-text-3 mb-4">{t('home.footer.explore', 'Explore')}</p>
+              <ul className="space-y-2 text-[14px]">
+                <li><Link href="#why" className="text-text-2 hover:text-accent-2 transition-colors">{t('home.nav.why', 'Why ILM')}</Link></li>
+                <li><Link href="#how" className="text-text-2 hover:text-accent-2 transition-colors">{t('home.nav.how', 'How it works')}</Link></li>
+                <li><Link href="#cta" className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.getStarted', 'Get started')}</Link></li>
               </ul>
             </div>
           </div>
-
-          <div className="mt-12 flex flex-col items-start justify-between gap-2 border-t border-border-cream pt-6 font-sans text-xs text-stone-gray md:flex-row dark:border-dark-surface">
-            <span>
-              {t('landing.footer.tagline', '{year} © مكتبة علم — منصة الكتب والمخطوطات النادرة', { year })}
-            </span>
-            <span className="inline-flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-terracotta" aria-hidden />
-              {t('landing.footer.madeWith', 'صُنعت بعناية للقرّاء.')}
-            </span>
+          <div className="pt-8 border-t border-border flex flex-wrap justify-between items-center gap-4">
+            <p className="text-[12.5px] text-text-3">{t('home.footer.copyright', '© 2026 ILM Shamela · Made with patience for serious readers everywhere.')}</p>
+            <p className="font-amiri text-[15px] text-text-3">{t('home.footer.verse', '﴿ وَفَوْقَ كُلِّ ذِي عِلْمٍ عَلِيمٌ ﴾')}</p>
           </div>
         </div>
       </footer>

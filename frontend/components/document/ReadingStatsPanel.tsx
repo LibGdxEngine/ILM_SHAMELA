@@ -32,29 +32,29 @@ export default function ReadingStatsPanel({ stats, onReset }: ReadingStatsPanelP
   return (
     <section>
       <div className="mb-2 flex items-center justify-between">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+        <h4 className="text-[11px] tracking-[0.18em] uppercase text-accent font-medium">
           {t('sidebar.readingStats', 'Reading stats')}
         </h4>
         <button
           type="button"
           onClick={onReset}
-          className="text-xs text-gray-500 underline-offset-2 hover:underline"
+          className="text-[11px] text-text-3 underline-offset-2 hover:text-accent-2 hover:underline"
         >
           {t('sidebar.reset', 'Reset')}
         </button>
       </div>
       <div className="space-y-2">
-        <div className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
-          <span className="text-blue-900">{t('sidebar.timeSpent', 'Time spent')}</span>
-          <span className="font-semibold text-blue-950">{formatTime(stats.timeSpent)}</span>
+        <div className="flex items-center justify-between rounded-[12px] border border-border bg-white/[0.02] px-3 py-2.5 text-[13px]">
+          <span className="text-text-2">{t('sidebar.timeSpent', 'Time spent')}</span>
+          <span className="font-fraunces font-medium text-text">{formatTime(stats.timeSpent)}</span>
         </div>
-        <div className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm">
-          <span className="text-emerald-900">{t('sidebar.pagesRead', 'Pages read')}</span>
-          <span className="font-semibold text-emerald-950">{stats.pagesRead}</span>
+        <div className="flex items-center justify-between rounded-[12px] border border-border bg-white/[0.02] px-3 py-2.5 text-[13px]">
+          <span className="text-text-2">{t('sidebar.pagesRead', 'Pages read')}</span>
+          <span className="font-fraunces font-medium text-text">{stats.pagesRead}</span>
         </div>
-        <div className="flex items-center justify-between rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-sm">
-          <span className="text-orange-900">{t('sidebar.readingSpeed', 'Reading speed')}</span>
-          <span className="font-semibold text-orange-950">
+        <div className="flex items-center justify-between rounded-[12px] border border-border bg-white/[0.02] px-3 py-2.5 text-[13px]">
+          <span className="text-text-2">{t('sidebar.readingSpeed', 'Reading speed')}</span>
+          <span className="font-fraunces font-medium text-text">
             {stats.readingSpeed > 0
               ? t('reader.readingSpeedUnit', '{speed} pages/min', {
                 speed: stats.readingSpeed.toFixed(1),
