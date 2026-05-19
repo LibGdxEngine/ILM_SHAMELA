@@ -407,6 +407,8 @@
   "landing.hero.searchAria": "درباره یک کتاب یا ایده بپرس",
   "landing.hero.ask": "بپرس",
   "landing.hero.thinking": "از کتابخانه استنباط می‌کند",
+  "landing.hero.pause": "توقف",
+  "landing.hero.resume": "ادامه",
   "landing.hero.hint": "مثال: «کتاب‌های کوتاه‌تر از ۲۰۰ صفحه درباره فقه معاملات» یا «تشریح مفهوم عمران در نگاه ابن خلدون».",
 
   "landing.demo.q1": "کتاب‌هایی شبیه «طبقات الکبری» اما کوتاه‌تر",
@@ -419,6 +421,9 @@
   "landing.section.demos": "چه می‌توانی بپرسی؟",
   "landing.demoHeadline": "جستجوی معنایی، خلاصه فصل، یا مقایسه میان دو مؤلف — انتخاب با توست.",
   "landing.valuesHeadline": "کتابخانه‌ای که برای خواننده طراحی شده، نه برای الگوریتم.",
+  "landing.values.rare.proof": "+۱۲K صفحه نمایه‌شده",
+  "landing.values.focused.proof": "مطالعه و جستجو در یک جا",
+  "landing.values.organized.proof": "مؤلفان، دسته‌ها و عنوان‌های جایگزین",
 
   "landing.section.shelves": "قفسه‌های منتخب",
   "landing.shelvesHeadline": "از قفسه‌ای وارد شو که با حال و هوایت هماهنگ است.",
@@ -472,8 +477,13 @@
   "landing.trustHeadline": "اعدادی که آرام گفته می‌شوند، نه بلند.",
   "landing.trustSubhead": "هر کتاب پیش از ورود به موتور جستجو به دست نمایه‌نویس می‌رسد؛ پس نتیجه‌ها مستند می‌آیند.",
   "landing.trust.languages": "زبان پشتیبانی‌شده",
+  "landing.trust.indexedPages.detail": "آخرین به‌روزرسانی: مه ۲۰۲۶",
+  "landing.trust.languages.detail": "عربی، انگلیسی، فارسی و اردو",
+  "landing.trust.processingSuccess.detail": "اسنادی که بدون دخالت دستی کامل پردازش شدند",
+  "landing.trust.access.detail": "مطالعه و جستجو پس از نمایه‌سازی در دسترس می‌مانند",
 
   "landing.testimonialsHeadline": "خوانندگان و پژوهشگران — لحظه‌ای که چیزی می‌یابند.",
+  "landing.testimonialsNote": "داستان‌های کاربردی نمونه که نشان می‌دهد خوانندگان درون پلتفرم چه می‌کنند.",
 
   "landing.section.pricing": "قیمت‌گذاری",
   "landing.pricingHeadline": "درباره آنچه رایگان است، صادق‌ایم.",

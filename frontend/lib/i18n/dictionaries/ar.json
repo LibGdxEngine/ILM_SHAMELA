@@ -359,10 +359,13 @@
 
   "landing.values.rare.title": "اكتشاف نادر",
   "landing.values.rare.description": "نصوص مخطوطة وكتب مجهولة التداول، مرتبة لتصل إلى ما تبحث عنه بسرعة.",
+  "landing.values.rare.proof": "+12K صفحة مفهرسة",
   "landing.values.focused.title": "قراءة مركزة",
   "landing.values.focused.description": "واجهة قراءة هادئة تدعم البحث داخل الكتاب والتنقل الدقيق بين الصفحات.",
+  "landing.values.focused.proof": "قراءة وبحث في موضع واحد",
   "landing.values.organized.title": "تنظيم معرفي",
   "landing.values.organized.description": "تصنيفات ومؤلفون وعناوين بديلة تساعدك على بناء مكتبة بحثية متماسكة.",
+  "landing.values.organized.proof": "مؤلفون وتصنيفات وعناوين بديلة",
 
   "landing.spotlight.title": "الرحلة المغربية في وصف خزائن العلم",
   "landing.spotlight.description": "نص رحلي يتتبع مسارات الكتب بين المدن القديمة، ويكشف عن عناوين لم تصل إلى النشر الحديث.",
@@ -409,6 +412,8 @@
   "landing.hero.searchAria": "اسأل عن كتاب أو فكرة",
   "landing.hero.ask": "اسأل",
   "landing.hero.thinking": "يستنبط من المكتبة",
+  "landing.hero.pause": "إيقاف",
+  "landing.hero.resume": "تشغيل",
   "landing.hero.hint": "جرّب: \"فقه المعاملات في أقل من ٢٠٠ صفحة\"، أو \"اشرح مفهوم العمران عند ابن خلدون\".",
 
   "landing.demo.q1": "كتب تشبه \"الطبقات الكبرى\" لكن أقصر",
@@ -474,8 +479,13 @@
   "landing.trustHeadline": "أرقام تُذكر بهدوء، لا بضوضاء.",
   "landing.trustSubhead": "كل كتاب مُفهرس يدويًا قبل أن يدخل محرك البحث، لذلك تأتي النتائج مسندة.",
   "landing.trust.languages": "لغات مدعومة",
+  "landing.trust.indexedPages.detail": "آخر تحديث: مايو ٢٠٢٦",
+  "landing.trust.languages.detail": "العربية، الإنجليزية، الفارسية، والأوردية",
+  "landing.trust.processingSuccess.detail": "مستندات اكتملت معالجتها دون تدخل يدوي",
+  "landing.trust.access.detail": "القراءة والبحث متاحان بعد الفهرسة",
 
   "landing.testimonialsHeadline": "قرّاء وباحثون — لحظات يحكون فيها ما وجدوه.",
+  "landing.testimonialsNote": "قصص استخدام تمثيلية توضّح ما يفعله القرّاء داخل المنصة.",
 
   "landing.section.pricing": "التسعير",
   "landing.pricingHeadline": "صادقون بشأن ما هو مجاني.",

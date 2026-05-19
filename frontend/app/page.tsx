@@ -68,13 +68,23 @@ export default function Home() {
   const [demoIndex, setDemoIndex] = useState(0);
   const [demoTyping, setDemoTyping] = useState('');
   const [demoUserInput, setDemoUserInput] = useState('');
+  const [isDemoPaused, setIsDemoPaused] = useState(false);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const demoPausedRef = useRef(false);
+
+  useEffect(() => {
+    demoPausedRef.current = isDemoPaused;
+  }, [isDemoPaused]);
 
   useEffect(() => {
     const current = demoQueries[demoIndex]?.a ?? '';
     setDemoTyping('');
     let i = 0;
     const tick = () => {
+      if (demoPausedRef.current) {
+        typingTimerRef.current = setTimeout(tick, 220);
+        return;
+      }
       i += 1;
       setDemoTyping(current.slice(0, i));
       if (i < current.length) {
@@ -105,6 +115,7 @@ export default function Home() {
   const valueCards = [
     {
       title: t('landing.values.rare.title', 'اكتشاف نادر'),
+      proof: t('landing.values.rare.proof', '+12K صفحة مفهرسة'),
       description: t(
         'landing.values.rare.description',
         'نصوص مخطوطة وكتب مجهولة التداول، مرتبة لتصل إلى ما تبحث عنه بسرعة.'
@@ -122,6 +133,7 @@ export default function Home() {
     },
     {
       title: t('landing.values.focused.title', 'قراءة مركزة'),
+      proof: t('landing.values.focused.proof', 'قراءة وبحث في موضع واحد'),
       description: t(
         'landing.values.focused.description',
         'واجهة قراءة هادئة تدعم البحث داخل الكتاب والتنقل الدقيق بين الصفحات.'
@@ -139,6 +151,7 @@ export default function Home() {
     },
     {
       title: t('landing.values.organized.title', 'تنظيم معرفي'),
+      proof: t('landing.values.organized.proof', 'مؤلفون وتصنيفات وعناوين بديلة'),
       description: t(
         'landing.values.organized.description',
         'تصنيفات ومؤلفون وعناوين بديلة تساعدك على بناء مكتبة بحثية متماسكة.'
@@ -270,10 +283,26 @@ export default function Home() {
   ];
 
   const trustStats = [
-    { value: '+12K', label: t('landing.trust.indexedPages', 'صفحة نصية مفهرسة') },
-    { value: '4', label: t('landing.trust.languages', 'لغات مدعومة') },
-    { value: '98%', label: t('landing.trust.processingSuccess', 'نجاح معالجة المستندات') },
-    { value: '24/7', label: t('landing.trust.access', 'وصول مستمر للمكتبة') },
+    {
+      value: '+12K',
+      label: t('landing.trust.indexedPages', 'صفحة نصية مفهرسة'),
+      detail: t('landing.trust.indexedPages.detail', 'آخر تحديث: مايو ٢٠٢٦'),
+    },
+    {
+      value: '4',
+      label: t('landing.trust.languages', 'لغات مدعومة'),
+      detail: t('landing.trust.languages.detail', 'العربية، الإنجليزية، الفارسية، والأوردية'),
+    },
+    {
+      value: '98%',
+      label: t('landing.trust.processingSuccess', 'نجاح معالجة المستندات'),
+      detail: t('landing.trust.processingSuccess.detail', 'مستندات اكتملت معالجتها دون تدخل يدوي'),
+    },
+    {
+      value: '24/7',
+      label: t('landing.trust.access', 'وصول مستمر للمكتبة'),
+      detail: t('landing.trust.access.detail', 'القراءة والبحث متاحان بعد الفهرسة'),
+    },
   ];
 
   const testimonials = [
@@ -307,6 +336,8 @@ export default function Home() {
     'inline-flex items-center justify-center rounded-xl border border-border-warm bg-ivory px-6 py-3 text-sm font-medium text-charcoal-warm shadow-ring-cream transition-shadow hover:shadow-ring-warm focus:outline-none focus:ring-2 focus:ring-focus-blue focus:ring-offset-2 focus:ring-offset-parchment dark:border-dark-surface dark:bg-dark-surface dark:text-warm-silver';
   const invertedCta =
     'inline-flex items-center justify-center rounded-xl bg-ivory px-6 py-3 text-sm font-medium text-near-black shadow-ring-warm transition-shadow hover:shadow-ring-deep focus:outline-none focus:ring-2 focus:ring-focus-blue focus:ring-offset-2 focus:ring-offset-near-black';
+  const darkSecondaryCta =
+    'inline-flex items-center justify-center rounded-xl border border-dark-surface bg-transparent px-6 py-3 text-sm font-medium text-warm-silver transition-colors hover:border-terracotta/50 hover:text-ivory focus:outline-none focus:ring-2 focus:ring-focus-blue focus:ring-offset-2 focus:ring-offset-near-black';
   const overline = 'text-[11px] font-medium uppercase tracking-[0.18em] text-stone-gray';
 
   return (
@@ -356,7 +387,7 @@ export default function Home() {
                   value={demoUserInput}
                   onChange={(e) => setDemoUserInput(e.target.value)}
                   placeholder={demoQueries[demoIndex]?.q ?? ''}
-                  className="flex-1 bg-transparent px-2 py-3 font-sans text-[15px] text-near-black placeholder:text-stone-gray focus:outline-none dark:text-ivory"
+                  className="min-w-0 flex-1 bg-transparent px-2 py-3 font-sans text-base text-near-black placeholder:text-stone-gray focus:outline-none dark:text-ivory md:text-[15px]"
                   aria-label={t('landing.hero.searchAria', 'اسأل عن كتاب أو فكرة')}
                 />
                 <button
@@ -371,12 +402,22 @@ export default function Home() {
               </div>
               {/* Simulated streaming response */}
               <div className="mt-1.5 rounded-xl bg-parchment/60 px-4 py-3 text-start font-serif text-[15px] leading-[1.65] text-charcoal-warm dark:bg-near-black/40 dark:text-warm-silver">
-                <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-stone-gray">
-                  <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-terracotta" />
-                  {t('landing.hero.thinking', 'يستنبط من المكتبة')}
+                <div className="mb-1 flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.2em] text-stone-gray">
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-block h-1.5 w-1.5 rounded-full bg-terracotta ${isDemoPaused ? '' : 'animate-pulse'}`} />
+                    {t('landing.hero.thinking', 'يستنبط من المكتبة')}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsDemoPaused((paused) => !paused)}
+                    aria-pressed={isDemoPaused}
+                    className="rounded-full border border-border-warm px-2 py-1 font-sans text-[10px] font-medium text-charcoal-warm transition-colors hover:border-terracotta/50 hover:text-terracotta focus:outline-none focus:ring-2 focus:ring-focus-blue dark:border-dark-surface dark:text-warm-silver"
+                  >
+                    {isDemoPaused ? t('landing.hero.resume', 'تشغيل') : t('landing.hero.pause', 'إيقاف')}
+                  </button>
                 </div>
-                <span>{demoTyping}</span>
-                <span className="ms-0.5 inline-block h-[1em] w-[2px] animate-pulse bg-terracotta align-middle" aria-hidden />
+                <span aria-live={isDemoPaused ? 'off' : 'polite'}>{demoTyping}</span>
+                <span className={`ms-0.5 inline-block h-[1em] w-[2px] bg-terracotta align-middle ${isDemoPaused ? 'opacity-40' : 'animate-pulse'}`} aria-hidden />
               </div>
             </div>
             <p className="mt-3 text-xs text-stone-gray">
@@ -384,12 +425,12 @@ export default function Home() {
             </p>
           </form>
 
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link href={localizedPath('/documents')} className={primaryCta}>
+          <div className="mt-8 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:items-center">
+            <Link href={localizedPath('/documents')} className={`${primaryCta} w-full sm:w-auto`}>
               {t('landing.ctaPrimary', 'ادخل إلى المكتبة')}
             </Link>
             {!isLoading && !isAuthenticated && (
-              <Link href={localizedPath('/auth/register')} className={secondaryCta}>
+              <Link href={localizedPath('/auth/register')} className={`${secondaryCta} w-full sm:w-auto`}>
                 {t('landing.ctaTertiary', 'أنشئ حسابًا مجانيًا')}
               </Link>
             )}
@@ -416,6 +457,7 @@ export default function Home() {
                   setDemoIndex(idx);
                   setDemoUserInput('');
                 }}
+                aria-pressed={idx === demoIndex}
                 className={`group inline-flex items-center gap-2 rounded-full border px-4 py-2 font-sans text-sm transition-all ${
                   idx === demoIndex
                     ? 'border-terracotta bg-terracotta/10 text-terracotta shadow-[0_0_0_3px_rgba(201,100,66,0.08)]'
@@ -461,6 +503,9 @@ export default function Home() {
                 <p className="mt-3 font-sans text-sm leading-[1.65] text-olive-gray dark:text-warm-silver">
                   {card.description}
                 </p>
+                <p className="mt-5 inline-flex rounded-full border border-border-warm bg-parchment px-3 py-1 font-sans text-xs font-medium text-charcoal-warm dark:border-dark-warm dark:bg-near-black dark:text-warm-silver">
+                  {card.proof}
+                </p>
               </article>
             ))}
           </div>
@@ -494,7 +539,7 @@ export default function Home() {
                   </span>
                 </div>
                 <div className="relative mt-5">
-                  <div className="grid grid-cols-2 gap-5 md:grid-cols-4">
+                  <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-4">
                     {shelf.books.map((book) => (
                       <article
                         key={book.title}
@@ -523,6 +568,9 @@ export default function Home() {
                             </p>
                           </div>
                         </div>
+                        <p className="mt-3 rounded-xl border border-border-cream bg-ivory px-3 py-2 font-serif text-[13px] leading-[1.5] text-charcoal-warm shadow-ring-cream dark:border-dark-surface dark:bg-dark-surface dark:text-warm-silver md:hidden">
+                          {book.pitch}
+                        </p>
                       </article>
                     ))}
                   </div>
@@ -536,7 +584,7 @@ export default function Home() {
       </section>
 
       {/* ─── HOW THE ANALYSIS WORKS ─── */}
-      <section className="bg-near-black px-6 py-24 md:px-10 md:py-32 dark:bg-[#0f0f0e]">
+      <section className="bg-near-black px-6 py-24 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:px-10 md:py-32 dark:bg-[#0b0b0a]">
         <div className="mx-auto max-w-6xl">
           <div className="max-w-2xl">
             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-warm-silver">
@@ -642,6 +690,9 @@ export default function Home() {
                   {stat.value}
                 </dd>
                 <dt className="mt-3 font-sans text-sm text-olive-gray dark:text-warm-silver">{stat.label}</dt>
+                <dd className="mt-3 border-t border-border-cream pt-3 font-sans text-xs leading-[1.55] text-stone-gray dark:border-dark-surface dark:text-warm-silver/75">
+                  {stat.detail}
+                </dd>
               </div>
             ))}
           </dl>
@@ -656,6 +707,9 @@ export default function Home() {
             <h2 className="mt-3 font-serif text-3xl font-medium leading-[1.2] text-near-black dark:text-ivory md:text-[44px]">
               {t('landing.testimonialsHeadline', 'قرّاء وباحثون — لحظات يحكون فيها ما وجدوه.')}
             </h2>
+            <p className="mt-4 max-w-xl font-sans text-sm leading-[1.65] text-olive-gray dark:text-warm-silver">
+              {t('landing.testimonialsNote', 'قصص استخدام تمثيلية توضّح ما يفعله القرّاء داخل المنصة.')}
+            </p>
           </div>
           <div className="mt-12 grid gap-6 md:grid-cols-3">
             {testimonials.map((item) => (
@@ -738,15 +792,15 @@ export default function Home() {
               'ابنِ مكتبتك الخاصة من الكتب التي لم تأخذ حقها من النشر بعد.'
             )}
           </p>
-          <div className="mt-10 flex flex-wrap justify-center gap-3">
+          <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row">
+            <Link href={localizedPath('/documents')} className={`${invertedCta} w-full sm:w-auto`}>
+              {t('landing.ctaPrimary', 'ادخل إلى المكتبة')}
+            </Link>
             {!isLoading && !isAuthenticated && (
-              <Link href={localizedPath('/auth/register')} className={primaryCta}>
+              <Link href={localizedPath('/auth/register')} className={`${darkSecondaryCta} w-full sm:w-auto`}>
                 {t('landing.ctaTertiary', 'أنشئ حسابًا مجانيًا')}
               </Link>
             )}
-            <Link href={localizedPath('/documents')} className={invertedCta}>
-              {t('landing.ctaPrimary', 'ادخل إلى المكتبة')}
-            </Link>
           </div>
         </div>
       </section>

@@ -359,10 +359,13 @@
 
   "landing.values.rare.title": "Rare Discovery",
   "landing.values.rare.description": "Manuscripts and hard-to-find books organized so you can reach what matters faster.",
+  "landing.values.rare.proof": "+12K indexed pages",
   "landing.values.focused.title": "Focused Reading",
   "landing.values.focused.description": "A calm reading interface with in-book search and precise page navigation.",
+  "landing.values.focused.proof": "Reading and search in one place",
   "landing.values.organized.title": "Structured Knowledge",
   "landing.values.organized.description": "Categories, authors, and alternative titles help you build a cohesive research library.",
+  "landing.values.organized.proof": "Authors, categories, and alternate titles",
 
   "landing.spotlight.title": "The Moroccan Journey in Describing Libraries of Knowledge",
   "landing.spotlight.description": "A travel narrative tracing how books moved between historic cities, revealing titles absent from modern publishing.",
@@ -407,6 +410,8 @@
   "landing.hero.searchAria": "Ask about a book or an idea",
   "landing.hero.ask": "Ask",
   "landing.hero.thinking": "Drawing from the library",
+  "landing.hero.pause": "Pause",
+  "landing.hero.resume": "Resume",
   "landing.hero.hint": "Try: \"books like The Overstory but shorter\" or \"explain Ibn Khaldun's theory of ʿumrān\".",
 
   "landing.demo.q1": "Books like al-Ṭabaqāt al-Kubrā, but shorter",
@@ -472,8 +477,13 @@
   "landing.trustHeadline": "Numbers told quietly, not loudly.",
   "landing.trustSubhead": "Every book is hand-indexed before it enters the search engine, so the results come with a paper trail.",
   "landing.trust.languages": "languages supported",
+  "landing.trust.indexedPages.detail": "Last updated: May 2026",
+  "landing.trust.languages.detail": "Arabic, English, Persian, and Urdu",
+  "landing.trust.processingSuccess.detail": "Documents completed without manual intervention",
+  "landing.trust.access.detail": "Reading and search remain available after indexing",
 
   "landing.testimonialsHeadline": "Readers and researchers — caught in the moment of finding something.",
+  "landing.testimonialsNote": "Representative user stories showing what readers can do inside the platform.",
 
   "landing.section.pricing": "Pricing",
   "landing.pricingHeadline": "Honest about what's free.",
