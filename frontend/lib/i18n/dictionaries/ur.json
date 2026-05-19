@@ -407,6 +407,8 @@
   "landing.hero.searchAria": "کسی کتاب یا تصور کے بارے میں پوچھیں",
   "landing.hero.ask": "پوچھیں",
   "landing.hero.thinking": "کتب خانے سے استنباط",
+  "landing.hero.pause": "روکیں",
+  "landing.hero.resume": "جاری رکھیں",
   "landing.hero.hint": "مثال: \"فقہ المعاملات ۲۰۰ صفحات سے کم\" یا \"ابن خلدون کے نظریۂ عمران کی وضاحت\"۔",
 
   "landing.demo.q1": "\"الطبقات الکبری\" جیسی مگر چھوٹی کتابیں",
@@ -419,6 +421,9 @@
   "landing.section.demos": "آپ کیا پوچھ سکتے ہیں؟",
   "landing.demoHeadline": "معنوی تلاش، باب کا خلاصہ، یا دو مصنفین کا موازنہ — فیصلہ آپ کا۔",
   "landing.valuesHeadline": "قاری کے گرد بنایا گیا کتب خانہ، نہ کہ الگوردم کے گرد۔",
+  "landing.values.rare.proof": "+12K فہرست شدہ صفحات",
+  "landing.values.focused.proof": "مطالعہ اور تلاش ایک جگہ",
+  "landing.values.organized.proof": "مصنفین، زمرے، اور متبادل عنوانات",
 
   "landing.section.shelves": "ایڈیٹر کی شیلف",
   "landing.shelvesHeadline": "اس شیلف سے داخل ہوں جو آپ کے موڈ سے میل کھاتی ہے۔",
@@ -472,8 +477,13 @@
   "landing.trustHeadline": "اعداد جو خاموشی سے بولتے ہیں، شور سے نہیں۔",
   "landing.trustSubhead": "ہر کتاب سرچ انجن میں داخل ہونے سے پہلے ہاتھ سے فہرست کی جاتی ہے، اس لیے نتائج ثبوت کے ساتھ آتے ہیں۔",
   "landing.trust.languages": "تعاون کردہ زبانیں",
+  "landing.trust.indexedPages.detail": "آخری تازہ کاری: مئی ۲۰۲۶",
+  "landing.trust.languages.detail": "عربی، انگریزی، فارسی، اور اردو",
+  "landing.trust.processingSuccess.detail": "دستاویزات جو دستی مداخلت کے بغیر مکمل ہوئیں",
+  "landing.trust.access.detail": "فہرست سازی کے بعد مطالعہ اور تلاش دستیاب رہتے ہیں",
 
   "landing.testimonialsHeadline": "قارئین اور محققین — وہ لمحات جب انہیں کچھ ملتا ہے۔",
+  "landing.testimonialsNote": "نمائندہ استعمال کی کہانیاں جو دکھاتی ہیں کہ قارئین پلیٹ فارم میں کیا کر سکتے ہیں۔",
 
   "landing.section.pricing": "قیمتیں",
   "landing.pricingHeadline": "جو مفت ہے اس کے بارے میں شفاف۔",
