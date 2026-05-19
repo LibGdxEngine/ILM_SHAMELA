@@ -10,35 +10,36 @@ interface BookListRowProps {
   document: Document;
 }
 
-function stringToColor(str: string): { primary: string; secondary: string } {
-  const colors = [
-    { primary: '#c96442', secondary: '#d97757' },
-    { primary: '#4d4c48', secondary: '#87867f' },
-    { primary: '#30302e', secondary: '#5e5d59' },
-    { primary: '#a16207', secondary: '#d4a853' },
-    { primary: '#7c4a2b', secondary: '#c96442' },
-    { primary: '#3d3d3a', secondary: '#b0aea5' },
-  ];
+const COVER_PALETTE = [
+  { from: '#2a1a10', to: '#4a2818' },
+  { from: '#1a2a2e', to: '#2c4145' },
+  { from: '#2e1a26', to: '#4a2c3e' },
+  { from: '#1a2818', to: '#2a4424' },
+  { from: '#2e2418', to: '#4a3a24' },
+  { from: '#1f1a2c', to: '#2e2848' },
+];
+
+function paletteFor(str: string) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
   }
-  return colors[Math.abs(hash) % colors.length];
+  return COVER_PALETTE[Math.abs(hash) % COVER_PALETTE.length];
 }
 
 function generateCoverPattern(title: string): string {
-  const colors = stringToColor(title);
+  const palette = paletteFor(title);
   return `
     <svg xmlns="http://www.w3.org/2000/svg" width="120" height="180" viewBox="0 0 120 180">
       <defs>
         <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style="stop-color:${colors.primary}"/>
-          <stop offset="100%" style="stop-color:${colors.secondary}"/>
+          <stop offset="0%" style="stop-color:${palette.from}"/>
+          <stop offset="100%" style="stop-color:${palette.to}"/>
         </linearGradient>
       </defs>
       <rect width="120" height="180" fill="url(#g)"/>
-      <rect x="14" y="22" width="92" height="1" fill="rgba(250,249,245,0.35)"/>
-      <rect x="14" y="158" width="92" height="1" fill="rgba(250,249,245,0.35)"/>
+      <rect x="14" y="22" width="92" height="1" fill="rgba(232,212,180,0.25)"/>
+      <rect x="14" y="158" width="92" height="1" fill="rgba(232,212,180,0.25)"/>
     </svg>
   `;
 }
@@ -115,11 +116,12 @@ export default function BookListRow({ document }: BookListRowProps) {
     <div className="group relative">
       <Link
         href={localizedPath(`/documents/${document.id}`)}
-        className="flex gap-4 p-4 bg-ivory dark:bg-dark-surface rounded-xl border border-border-cream dark:border-dark-surface shadow-whisper hover:shadow-[0_10px_28px_rgba(20,20,19,0.07)] hover:border-ring-warm dark:hover:border-[#4d4c48] transition-all"
+        className="flex gap-4 p-4 bg-gradient-to-b from-card-2 to-card rounded-[18px] border border-border hover:border-accent/40 shadow-[0_4px_20px_-8px_rgba(0,0,0,0.4)] hover:shadow-[0_10px_30px_-10px_rgba(192,133,82,0.2)] transition-all"
       >
-        {/* Thumbnail — logical-start side */}
-        <div className="relative flex-shrink-0 w-20 sm:w-24 aspect-[2/3] overflow-hidden rounded-md bg-warm-sand dark:bg-[#3d3d3a]">
+        {/* Thumbnail */}
+        <div className="relative flex-shrink-0 w-20 sm:w-24 aspect-[2/3] overflow-hidden rounded-[10px] bg-bg-2">
           {coverPhotoUrl && !imageError ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={coverPhotoUrl}
               alt=""
@@ -135,18 +137,18 @@ export default function BookListRow({ document }: BookListRowProps) {
         </div>
 
         <div className="flex-1 min-w-0 flex flex-col pe-10">
-          <h3 className="font-serif text-[1.15rem] leading-[1.3] font-medium text-near-black dark:text-ivory line-clamp-1 group-hover:text-terracotta dark:group-hover:text-[#d97757] transition-colors">
+          <h3 className="font-fraunces text-[18px] leading-[1.3] text-text line-clamp-1 group-hover:text-accent-2 transition-colors">
             {document.title}
           </h3>
           {document.authors && document.authors.length > 0 && (
-            <p className="mt-0.5 text-[13px] text-olive-gray dark:text-warm-silver line-clamp-1">
-              <span className="text-stone-gray">{t('book.by', 'بقلم')}:</span>{' '}
+            <p className="mt-1 text-[13px] text-text-2 line-clamp-1 font-fraunces italic">
+              <span className="text-text-3 not-italic">{t('book.by', 'بقلم')}:</span>{' '}
               {document.authors.map((a) => a.name).join('، ')}
             </p>
           )}
 
-          {/* Two-line AI-style summary */}
-          <p className="mt-2 text-[13px] text-charcoal-warm dark:text-warm-silver leading-[1.65] line-clamp-2">
+          {/* Two-line summary */}
+          <p className="mt-2 text-[13px] text-text-2 leading-[1.65] line-clamp-2">
             {document.description ||
               t(
                 'docs.list.summary.default',
@@ -155,7 +157,7 @@ export default function BookListRow({ document }: BookListRowProps) {
           </p>
 
           {/* Metadata strip */}
-          <div className="mt-auto pt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11.5px] text-stone-gray">
+          <div className="mt-auto pt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11.5px] text-text-3">
             <span className="inline-flex items-center gap-1">
               <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
@@ -164,7 +166,7 @@ export default function BookListRow({ document }: BookListRowProps) {
               {length}
             </span>
             {document.language && (
-              <span className="uppercase tracking-wide text-charcoal-warm dark:text-warm-silver">
+              <span className="uppercase tracking-[0.1em] text-text-2">
                 {document.language}
               </span>
             )}
@@ -174,7 +176,7 @@ export default function BookListRow({ document }: BookListRowProps) {
                 {categories.map((c) => (
                   <span
                     key={c}
-                    className="px-2 py-0.5 bg-warm-sand dark:bg-[#3d3d3a] text-charcoal-warm dark:text-warm-silver rounded-full"
+                    className="px-2 py-0.5 bg-white/[0.04] border border-border-strong text-text-2 rounded-full"
                   >
                     {c}
                   </span>
@@ -185,16 +187,16 @@ export default function BookListRow({ document }: BookListRowProps) {
         </div>
       </Link>
 
-      {/* Bookmark button — sibling of Link, overlays top-end corner */}
+      {/* Bookmark button */}
       <button
         type="button"
         onClick={toggleBookmark}
         aria-pressed={bookmarked}
         aria-label={t('docs.card.bookmark', 'حفظ')}
-        className={`absolute top-4 end-4 w-8 h-8 rounded-full flex items-center justify-center ring-1 transition-colors ${
+        className={`absolute top-4 end-4 w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
           bookmarked
-            ? 'bg-terracotta text-ivory ring-terracotta/60'
-            : 'bg-ivory/90 dark:bg-near-black/70 text-stone-gray ring-border-cream dark:ring-[#4d4c48] hover:text-terracotta hover:ring-ring-warm'
+            ? 'bg-accent text-[#1a0e05] border-accent shadow-[0_4px_14px_-4px_rgba(192,133,82,0.5)]'
+            : 'bg-bg/70 text-text-3 border-border-strong hover:text-accent-2 hover:border-accent'
         }`}
       >
         <svg
