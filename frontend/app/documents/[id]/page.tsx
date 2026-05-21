@@ -651,7 +651,7 @@ export default function DocumentDetailPage() {
   if (isLoading || !document) {
     return (
       <RequireAuth>
-        <div className="relative h-full min-h-0 flex flex-col overflow-hidden bg-gradient-to-b from-gray-100 to-slate-100">
+        <div className="landing-shell relative h-full min-h-0 flex flex-col overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto pb-16">
             <DocumentHeroSkeleton />
             <div className="mx-auto max-w-5xl px-4 py-8 xl:max-w-6xl space-y-6">
@@ -668,7 +668,16 @@ export default function DocumentDetailPage() {
   if (error) {
     return (
       <RequireAuth>
-        <div className="flex min-h-screen items-center justify-center text-red-500">{error}</div>
+        <div className="landing-shell flex min-h-screen items-center justify-center px-6">
+          <div className="bg-gradient-to-b from-card-2 to-card border border-red-500/30 rounded-[22px] p-8 max-w-md w-full text-center relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+            <span className="inline-flex items-center gap-2.5 text-[11.5px] tracking-[0.16em] uppercase text-red-300 font-medium">
+              <span className="w-6 h-[1px] bg-red-300" aria-hidden />
+              {t('reader.errorEyebrow', 'Could not load')}
+            </span>
+            <p className="mt-4 text-[14px] leading-relaxed text-text-2">{error}</p>
+          </div>
+        </div>
       </RequireAuth>
     );
   }
@@ -677,7 +686,7 @@ export default function DocumentDetailPage() {
 
   return (
     <RequireAuth>
-      <div className="relative h-full min-h-0 flex flex-col overflow-hidden bg-gradient-to-b from-gray-100 to-slate-100">
+      <div className="landing-shell relative h-full min-h-0 flex flex-col overflow-hidden">
         <ReadingProgressBar currentPage={visiblePageNum} totalPages={totalPages} />
 
         <CompactReaderHeader
@@ -688,8 +697,9 @@ export default function DocumentDetailPage() {
         />
 
         {resumeToast && (
-          <div className="fixed bottom-24 start-1/2 z-[60] -translate-x-1/2 rounded-lg bg-gray-900 px-4 py-2 text-sm text-white shadow-lg rtl:translate-x-1/2">
-            <span className="me-3">
+          <div className="fixed bottom-24 start-1/2 z-[60] -translate-x-1/2 inline-flex items-center gap-3 rounded-full border border-accent/40 bg-bg/90 px-4 py-2 text-[13px] text-text shadow-[0_10px_30px_-10px_rgba(0,0,0,0.55)] backdrop-blur-md rtl:translate-x-1/2">
+            <span className="flex items-center gap-2">
+              <span className="text-accent" aria-hidden>✦</span>
               {t('reader.resumedFromPage', 'Resumed from page {page}', { page: resumeToast.page })}
             </span>
             <button
@@ -698,7 +708,7 @@ export default function DocumentDetailPage() {
                 handleGoToPage(1);
                 setResumeToast(null);
               }}
-              className="rounded-md bg-white/15 px-2 py-1 text-xs font-medium text-white hover:bg-white/25"
+              className="rounded-full bg-accent-soft border border-accent/30 px-2.5 py-1 text-[11.5px] font-medium text-accent-2 hover:bg-accent/15 transition-colors"
             >
               {t('reader.startOver', 'Start over')}
             </button>

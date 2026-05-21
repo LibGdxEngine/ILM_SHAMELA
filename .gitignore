@@ -12,3 +12,4 @@ backend/**/*.pyc
 frontend/coverage/
 frontend/test-results/
 frontend/playwright-report/
+/.claude

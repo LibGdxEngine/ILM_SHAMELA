@@ -34,7 +34,13 @@ export function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();
   const remaining = segments.slice(1);
   url.pathname = remaining.length === 0 ? '/' : `/${remaining.join('/')}`;
-  return NextResponse.rewrite(url);
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-ilm-locale', localeSegment);
+
+  return NextResponse.rewrite(url, {
+    request: { headers: requestHeaders },
+  });
 }
 
 export const config = {

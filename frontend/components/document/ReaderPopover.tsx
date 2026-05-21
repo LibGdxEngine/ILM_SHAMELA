@@ -40,7 +40,7 @@ export default function ReaderPopover({ isOpen, onClose, children, width = 'wide
   return (
     <div
       ref={ref}
-      className={`absolute bottom-full mb-2 ${widthClass} max-h-[60vh] overflow-y-auto rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl animate-popover-in`}
+      className={`absolute bottom-full mb-2 ${widthClass} max-h-[60vh] overflow-y-auto rounded-[18px] border border-border-strong bg-gradient-to-b from-card-2 to-card p-4 shadow-[0_18px_42px_-10px_rgba(0,0,0,0.6)] animate-popover-in`}
       role="dialog"
     >
       {children}
