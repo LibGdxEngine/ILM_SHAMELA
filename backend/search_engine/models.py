@@ -58,6 +58,7 @@ class Document(models.Model):
         NONE = 'none', 'No OCR'
         TESSERACT = 'tesseract', 'Tesseract'
         CHANDRA = 'chandra', 'Chandra'
+        DOCLING = 'docling', 'Docling'
 
     title = models.CharField(max_length=500)
     file = models.FileField(upload_to='documents/')
@@ -140,6 +141,12 @@ class DocumentChunk(models.Model):
     chunk_index = models.PositiveIntegerField()
     page_number = models.PositiveIntegerField()
     content = models.TextField()
+    structured_content = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Layout-aware payload from the extractor (e.g. {markdown, tables}); null when "
+                  "the extractor returned only plain text",
+    )
     embedding = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

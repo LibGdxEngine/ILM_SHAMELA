@@ -83,10 +83,19 @@ class OCREngineClient:
             content = (page.get('content') or page.get('text') or '').strip()
             if not content:
                 continue
-            normalized.append({
+            entry: Dict = {
                 'page_number': page.get('page_number') or (idx + 1),
                 'content': content,
-            })
+            }
+            # Pass through layout-aware extras (currently emitted by the docling sidecar).
+            # Engines that only return plain text simply omit these keys.
+            markdown = page.get('markdown')
+            if isinstance(markdown, str) and markdown.strip():
+                entry['markdown'] = markdown
+            tables = page.get('tables')
+            if isinstance(tables, list) and tables:
+                entry['tables'] = tables
+            normalized.append(entry)
 
         if not normalized:
             raise OCRUnavailable(f'{self.name} returned only empty pages')
@@ -101,6 +110,7 @@ _TESSERACT_URL = (
     or ''
 )
 _CHANDRA_URL = os.environ.get('OCR_CHANDRA_URL', '')
+_DOCLING_URL = os.environ.get('OCR_DOCLING_URL', '')
 _OCR_TIMEOUT = int(os.environ.get('OCR_TIMEOUT', os.environ.get('MONKEYOCR_TIMEOUT', '1800')))
 
 REGISTRY: Dict[str, OCREngineClient] = {
@@ -114,6 +124,12 @@ REGISTRY: Dict[str, OCREngineClient] = {
         name='chandra',
         label='Chandra (high-quality, GPU)',
         url=_CHANDRA_URL,
+        timeout=_OCR_TIMEOUT,
+    ),
+    'docling': OCREngineClient(
+        name='docling',
+        label='Docling (layout-aware, CPU)',
+        url=_DOCLING_URL,
         timeout=_OCR_TIMEOUT,
     ),
 }

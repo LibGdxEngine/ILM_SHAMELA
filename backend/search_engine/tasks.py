@@ -93,6 +93,18 @@ def _generate_pdf_thumbnail(document, file_content):
         return False
 
 
+def _structured_payload(page):
+    """Pluck layout-aware extras off a page dict. Returns None when nothing structured is present."""
+    payload = {}
+    markdown = page.get('markdown') if isinstance(page, dict) else None
+    if isinstance(markdown, str) and markdown.strip():
+        payload['markdown'] = markdown
+    tables = page.get('tables') if isinstance(page, dict) else None
+    if isinstance(tables, list) and tables:
+        payload['tables'] = tables
+    return payload or None
+
+
 def _extract_authors_and_categories(metadata):
     authors = []
     categories = []
@@ -263,6 +275,7 @@ def process_document_task(self, doc_id):
                 chunk_index=idx,
                 page_number=p['page_number'],
                 content=p['content'],
+                structured_content=_structured_payload(p),
                 embedding=chunk_embeddings[idx] if idx < len(chunk_embeddings) else [],
             )
             for idx, p in enumerate(pages)
