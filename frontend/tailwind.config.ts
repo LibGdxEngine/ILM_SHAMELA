@@ -31,6 +31,19 @@ const config: Config = {
         },
         "error-crimson": "#b53333",
         "focus-blue": "#3898ec",
+        // Landing page (dark / "library at night") palette.
+        bg: "#0a0805",
+        "bg-2": "#0f0c09",
+        card: "#16110c",
+        "card-2": "#1a1410",
+        text: "#ede4d3",
+        "text-2": "#a89d8a",
+        "text-3": "#766c5a",
+        accent: "#c08552",
+        "accent-2": "#d8a373",
+        "accent-soft": "rgba(192,133,82,0.12)",
+        border: "rgba(255,255,255,0.06)",
+        "border-strong": "rgba(255,255,255,0.10)",
       },
       fontFamily: {
         serif: [
@@ -46,6 +59,18 @@ const config: Config = {
           "sans-serif",
         ],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        fraunces: ["var(--font-fraunces)", "Georgia", "serif"],
+        amiri: ["var(--font-amiri)", "var(--font-arabic)", "serif"],
+        geist: ["var(--font-geist)", "var(--font-manrope)", "system-ui", "sans-serif"],
+      },
+      keyframes: {
+        "cursor-blink": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0" },
+        },
+      },
+      animation: {
+        "cursor-blink": "cursor-blink 1.1s ease-in-out infinite",
       },
       borderRadius: {
         sm: "4px",

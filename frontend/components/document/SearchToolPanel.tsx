@@ -78,21 +78,21 @@ export default function SearchToolPanel({
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={t('sidebar.searchPlaceholder', 'Search inside the document...')}
-          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 ps-10 text-sm text-gray-900 transition-colors focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100"
+          className="w-full rounded-[12px] border border-border bg-white/[0.02] px-4 py-3 ps-10 text-[14px] font-fraunces text-text placeholder:text-text-3 transition-all focus:border-accent focus:bg-accent-soft focus:shadow-[0_0_0_4px_rgba(192,133,82,0.08)] focus:outline-none"
           autoFocus
         />
         <svg
-          className="pointer-events-none absolute inset-inline-start-3 top-3.5 h-4 w-4 text-gray-400"
+          className="pointer-events-none absolute inset-inline-start-3 top-3.5 h-4 w-4 text-accent"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
           aria-hidden="true"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
         {isSearching && (
           <div className="absolute inset-inline-end-3 top-3">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-teal-600 border-t-transparent" />
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent-2 border-t-transparent" />
           </div>
         )}
       </div>
@@ -100,20 +100,22 @@ export default function SearchToolPanel({
       <div className="flex min-h-0 flex-1 flex-col">
         {searchResults ? (
           <>
-            <div className="mb-3 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-gray-500">
-              <span>{t('sidebar.results', 'Results')}</span>
-              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[11px] tracking-[0.18em] uppercase text-accent font-medium">
+                {t('sidebar.results', 'Results')}
+              </span>
+              <span className="rounded-full border border-border-strong bg-white/[0.04] px-2.5 py-0.5 text-[11px] text-text-2">
                 {t('sidebar.found', 'Found {count}', { count: searchResults.total_matches })}
               </span>
             </div>
 
             {matches.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center">
+              <div className="flex flex-1 items-center justify-center rounded-[16px] border border-dashed border-border-strong bg-white/[0.02] p-8 text-center">
                 <div>
-                  <p className="mb-1 text-sm font-medium text-gray-700">
+                  <p className="mb-1 font-fraunces text-[14px] text-text">
                     {t('sidebar.noMatches', 'No matches found')}
                   </p>
-                  <p className="text-xs text-gray-500">{t('sidebar.tryAnother', 'Try another keyword')}</p>
+                  <p className="text-[12px] text-text-3">{t('sidebar.tryAnother', 'Try another keyword')}</p>
                 </div>
               </div>
             ) : (
@@ -126,15 +128,15 @@ export default function SearchToolPanel({
             )}
           </>
         ) : (
-          <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center">
-            <p className="max-w-xs text-sm text-gray-500">
+          <div className="flex flex-1 items-center justify-center rounded-[16px] border border-dashed border-border-strong bg-white/[0.02] p-8 text-center">
+            <p className="max-w-xs text-[13px] text-text-3 leading-relaxed">
               {t('reader.searchHint', 'Search by phrase or word to jump directly to matching pages.')}
             </p>
           </div>
         )}
       </div>
 
-      <p className="text-[11px] text-gray-500" aria-hidden="true">
+      <p className="text-[11px] text-text-3 tracking-wide" aria-hidden="true">
         {t('reader.searchKeyboardHint', '↑↓ to navigate · Enter to jump · Esc to close')}
       </p>
     </div>

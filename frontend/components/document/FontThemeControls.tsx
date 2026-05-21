@@ -74,7 +74,7 @@ export default function FontThemeControls({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+        <h3 className="mb-2 text-[11px] tracking-[0.18em] uppercase text-accent font-medium">
           {t('reader.fontSize', 'Font size')}
         </h3>
         <div className="flex gap-2">
@@ -83,10 +83,10 @@ export default function FontThemeControls({
               key={item.key}
               type="button"
               onClick={() => onFontSizeChange(item.key)}
-              className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+              className={`flex-1 rounded-[10px] border px-3 py-2 text-[12px] font-medium transition-all ${
                 fontSize === item.key
-                  ? 'border-teal-400 bg-teal-50 text-teal-800'
-                  : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                  ? 'border-accent bg-accent-soft text-accent-2'
+                  : 'border-border bg-white/[0.02] text-text-2 hover:border-accent/50 hover:text-text'
               }`}
             >
               {item.label}
@@ -96,7 +96,7 @@ export default function FontThemeControls({
       </div>
 
       <div>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+        <h3 className="mb-2 text-[11px] tracking-[0.18em] uppercase text-accent font-medium">
           {t('reader.theme', 'Theme')}
         </h3>
         <div className="flex gap-2">
@@ -105,8 +105,8 @@ export default function FontThemeControls({
               key={item.key}
               type="button"
               onClick={() => onThemeChange(item.key)}
-              className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-medium transition-colors ${item.preview} ${
-                theme === item.key ? 'ring-2 ring-teal-400 ring-offset-1' : ''
+              className={`flex-1 rounded-[10px] border-2 px-3 py-2 text-[12px] font-medium transition-all ${item.preview} ${
+                theme === item.key ? 'ring-2 ring-accent ring-offset-2 ring-offset-card' : ''
               }`}
             >
               {item.label}
@@ -116,14 +116,14 @@ export default function FontThemeControls({
       </div>
 
       {showAdvanced && (
-        <details className="rounded-lg border border-gray-200 bg-white">
-          <summary className="cursor-pointer px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 hover:text-gray-900">
+        <details className="rounded-[12px] border border-border bg-white/[0.02]">
+          <summary className="cursor-pointer px-3 py-2.5 text-[11px] tracking-[0.18em] uppercase font-medium text-text-2 hover:text-accent-2 transition-colors">
             {t('reader.advanced', 'Advanced')}
           </summary>
           <div className="space-y-4 px-3 pb-3 pt-2">
             {language === 'ar' && onTashkeelChange && (
               <div className="flex items-center justify-between">
-                <label htmlFor="tashkeel-toggle" className="text-xs font-medium text-gray-700">
+                <label htmlFor="tashkeel-toggle" className="text-[12px] font-medium text-text-2">
                   {t('reader.tashkeel', 'Diacritics')}
                 </label>
                 <button
@@ -133,11 +133,11 @@ export default function FontThemeControls({
                   aria-checked={tashkeelEnabled ?? true}
                   onClick={() => onTashkeelChange(!(tashkeelEnabled ?? true))}
                   className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                    tashkeelEnabled ?? true ? 'bg-teal-600' : 'bg-gray-300'
+                    tashkeelEnabled ?? true ? 'bg-accent' : 'bg-white/[0.08]'
                   }`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    className={`inline-block h-4 w-4 transform rounded-full bg-text shadow transition-transform ${
                       tashkeelEnabled ?? true ? 'translate-x-4' : 'translate-x-1'
                     }`}
                   />
@@ -147,11 +147,11 @@ export default function FontThemeControls({
 
             {onLetterSpacingChange && (
               <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <label htmlFor="letter-spacing" className="text-xs font-medium text-gray-700">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label htmlFor="letter-spacing" className="text-[12px] font-medium text-text-2">
                     {t('reader.letterSpacing', 'Letter spacing')}
                   </label>
-                  <span className="text-[11px] tabular-nums text-gray-500">
+                  <span className="text-[11px] tabular-nums text-text-3">
                     {(letterSpacing ?? 0).toFixed(3)}em
                   </span>
                 </div>
@@ -163,18 +163,18 @@ export default function FontThemeControls({
                   step={0.005}
                   value={letterSpacing ?? 0}
                   onChange={(event) => onLetterSpacingChange(Number(event.target.value))}
-                  className="w-full accent-teal-600"
+                  className="w-full accent-[var(--accent,#c08552)]"
                 />
               </div>
             )}
 
             {onLineHeightChange && (
               <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <label htmlFor="line-height" className="text-xs font-medium text-gray-700">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label htmlFor="line-height" className="text-[12px] font-medium text-text-2">
                     {t('reader.lineHeight', 'Line height')}
                   </label>
-                  <span className="text-[11px] tabular-nums text-gray-500">
+                  <span className="text-[11px] tabular-nums text-text-3">
                     {(lineHeight ?? 1.8).toFixed(2)}
                   </span>
                 </div>
@@ -186,14 +186,14 @@ export default function FontThemeControls({
                   step={0.05}
                   value={lineHeight ?? 1.8}
                   onChange={(event) => onLineHeightChange(Number(event.target.value))}
-                  className="w-full accent-teal-600"
+                  className="w-full accent-[var(--accent,#c08552)]"
                 />
               </div>
             )}
 
             {onFontWeightChange && (
               <div>
-                <h4 className="mb-2 text-xs font-medium text-gray-700">
+                <h4 className="mb-2 text-[12px] font-medium text-text-2">
                   {t('reader.fontWeight', 'Font weight')}
                 </h4>
                 <div className="grid grid-cols-4 gap-2">
@@ -202,10 +202,10 @@ export default function FontThemeControls({
                       key={weight}
                       type="button"
                       onClick={() => onFontWeightChange(weight)}
-                      className={`rounded-lg border px-2 py-1.5 text-[11px] transition-colors ${
+                      className={`rounded-[10px] border px-2 py-1.5 text-[11px] transition-all ${
                         (fontWeight ?? 400) === weight
-                          ? 'border-teal-400 bg-teal-50 text-teal-800'
-                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                          ? 'border-accent bg-accent-soft text-accent-2'
+                          : 'border-border bg-white/[0.02] text-text-2 hover:border-accent/50 hover:text-text'
                       }`}
                       style={{ fontWeight: weight }}
                     >
