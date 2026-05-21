@@ -137,6 +137,31 @@ services:
       start_period: 300s
     restart: unless-stopped
 
+  ocr-docling:
+    build:
+      context: ./ocr_services/docling
+      dockerfile: Dockerfile
+    container_name: search_ocr_docling
+    profiles: ["docling"]
+    environment:
+      - DOCLING_OCR_ENABLED=${DOCLING_OCR_ENABLED:-false}
+      - DOCLING_OCR_LANG=${DOCLING_OCR_LANG:-ara,eng,fas,urd}
+      - DOCLING_TABLE_MODE=${DOCLING_TABLE_MODE:-accurate}
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - ocr_docling_models:/root/.cache/huggingface
+    ports:
+      - "7862:7860"
+    networks:
+      - search_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -178,6 +203,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OCR_TESSERACT_URL=${OCR_TESSERACT_URL:-http://ocr-tesseract:7860}
       - OCR_CHANDRA_URL=${OCR_CHANDRA_URL:-http://ocr-chandra:7860}
+      - OCR_DOCLING_URL=${OCR_DOCLING_URL:-http://ocr-docling:7860}
       - OCR_DEFAULT_ENGINE=${OCR_DEFAULT_ENGINE:-tesseract}
       - OCR_TIMEOUT=${OCR_TIMEOUT:-1800}
       - MAX_DOCUMENT_FILE_SIZE_MB=${MAX_DOCUMENT_FILE_SIZE_MB:-100}
@@ -223,6 +249,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OCR_TESSERACT_URL=${OCR_TESSERACT_URL:-http://ocr-tesseract:7860}
       - OCR_CHANDRA_URL=${OCR_CHANDRA_URL:-http://ocr-chandra:7860}
+      - OCR_DOCLING_URL=${OCR_DOCLING_URL:-http://ocr-docling:7860}
       - OCR_DEFAULT_ENGINE=${OCR_DEFAULT_ENGINE:-tesseract}
       - OCR_TIMEOUT=${OCR_TIMEOUT:-1800}
     depends_on:
@@ -300,6 +327,7 @@ volumes:
   minio_data:
   staticfiles:
   ocr_chandra_models:
+  ocr_docling_models:
   caddy_data:
   caddy_config:
 
