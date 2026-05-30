@@ -28,7 +28,8 @@
 	}
 
 	# Django admin (match bare /admin AND /admin/* so the SPA catch-all never grabs it)
-	handle /admin /admin/* {
+	@admin path /admin /admin/*
+	handle @admin {
 		reverse_proxy backend:8000
 	}
 
