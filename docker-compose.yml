@@ -145,9 +145,14 @@ services:
     profiles: ["docling"]
     environment:
       - DOCLING_OCR_ENABLED=${DOCLING_OCR_ENABLED:-false}
-      - DOCLING_OCR_LANG=${DOCLING_OCR_LANG:-ara,eng,fas,urd}
-      - DOCLING_TABLE_MODE=${DOCLING_TABLE_MODE:-accurate}
+      - DOCLING_OCR_LANG=${DOCLING_OCR_LANG:-ar,en,fa,ur}
+      - DOCLING_TABLE_MODE=${DOCLING_TABLE_MODE:-fast}
       - HF_HOME=/root/.cache/huggingface
+      # Keep the model runtimes from spawning a thread per core; on a 2-CPU host
+      # the extra parallelism inflates RSS without speeding things up.
+      - OMP_NUM_THREADS=${DOCLING_OMP_THREADS:-2}
+      - MKL_NUM_THREADS=${DOCLING_OMP_THREADS:-2}
+      - TORCH_NUM_THREADS=${DOCLING_OMP_THREADS:-2}
     volumes:
       - ocr_docling_models:/root/.cache/huggingface
     ports:
@@ -160,6 +165,11 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+    # Cap memory so a single oversized PDF cannot OOM-kill the host.
+    # Host has 7.8 GB RAM, no swap; ES alone takes ~2 GB. 3 GB leaves docling
+    # enough headroom for layout + table models while protecting other services.
+    mem_limit: ${DOCLING_MEM_LIMIT:-3g}
+    memswap_limit: ${DOCLING_MEM_LIMIT:-3g}
     restart: unless-stopped
 
   backend:
@@ -198,6 +208,7 @@ services:
       - DEBUG=${DEBUG:-false}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,https://localhost:3000}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://localhost,http://localhost,https://127.0.0.1,http://127.0.0.1}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
@@ -246,6 +257,7 @@ services:
       - DEBUG=${DEBUG:-false}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,https://localhost:3000}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://localhost,http://localhost,https://127.0.0.1,http://127.0.0.1}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OCR_TESSERACT_URL=${OCR_TESSERACT_URL:-http://ocr-tesseract:7860}
       - OCR_CHANDRA_URL=${OCR_CHANDRA_URL:-http://ocr-chandra:7860}

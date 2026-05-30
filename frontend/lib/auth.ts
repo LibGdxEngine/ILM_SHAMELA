@@ -10,6 +10,8 @@ export interface User {
   username: string;
   name?: string;
   avatar?: string | null;
+  is_staff?: boolean;
+  is_superuser?: boolean;
 }
 
 export interface LoginRequest {

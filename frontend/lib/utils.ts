@@ -1,3 +1,17 @@
+const ARABIC_INDIC_DIGITS = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+const PERSO_ARABIC_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+
+export function toLocaleDigits(input: string | number, locale: string): string {
+  const str = typeof input === 'number' ? String(input) : input;
+  if (locale === 'ar') {
+    return str.replace(/[0-9]/g, (d) => ARABIC_INDIC_DIGITS[Number(d)]);
+  }
+  if (locale === 'fa' || locale === 'ur') {
+    return str.replace(/[0-9]/g, (d) => PERSO_ARABIC_DIGITS[Number(d)]);
+  }
+  return str;
+}
+
 /**
  * Highlight query terms in text
  */

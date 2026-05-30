@@ -1,5 +1,13 @@
 from django.contrib import admin
-from .models import Document, Author, DocumentAlternateName, Category
+from .models import (
+    Author,
+    Category,
+    Chapter,
+    ChatMessage,
+    ChatSession,
+    Document,
+    DocumentAlternateName,
+)
 
 
 class DocumentAlternateNameInline(admin.TabularInline):
@@ -7,6 +15,15 @@ class DocumentAlternateNameInline(admin.TabularInline):
     model = DocumentAlternateName
     extra = 1
     fields = ['name']
+
+
+class ChapterInline(admin.TabularInline):
+    """Inline admin for Chapter rows on the Document page."""
+    model = Chapter
+    extra = 0
+    fields = ['order', 'title', 'parent', 'page_start', 'page_end']
+    ordering = ['order']
+    autocomplete_fields = ['parent']
 
 
 @admin.register(Author)
@@ -57,7 +74,7 @@ class DocumentAdmin(admin.ModelAdmin):
     search_fields = ['title', 'description']
     readonly_fields = ['uploaded_at']
     filter_horizontal = ['authors', 'categories']
-    inlines = [DocumentAlternateNameInline]
+    inlines = [DocumentAlternateNameInline, ChapterInline]
     fieldsets = (
         ('Basic Information', {
             'fields': ('title', 'file', 'language', 'description', 'written_date')
@@ -81,3 +98,39 @@ class DocumentAdmin(admin.ModelAdmin):
         """Display authors as comma-separated list."""
         return ', '.join([author.name for author in obj.authors.all()[:3]])
     get_authors_display.short_description = 'Authors'
+
+
+@admin.register(Chapter)
+class ChapterAdmin(admin.ModelAdmin):
+    """Standalone admin for Chapter (also editable inline on Document)."""
+    list_display = ['id', 'document', 'order', 'title', 'page_start', 'page_end', 'parent']
+    list_filter = ['document']
+    search_fields = ['title', 'document__title']
+    ordering = ['document', 'order']
+    autocomplete_fields = ['document', 'parent']
+
+
+class ChatMessageInline(admin.TabularInline):
+    """Read-only inline of messages within a session."""
+    model = ChatMessage
+    extra = 0
+    fields = ['created_at', 'role', 'content', 'context_page', 'citations']
+    readonly_fields = fields
+    can_delete = False
+
+
+@admin.register(ChatSession)
+class ChatSessionAdmin(admin.ModelAdmin):
+    list_display = ['id', 'user', 'document', 'created_at', 'updated_at']
+    list_filter = ['document', 'user']
+    search_fields = ['user__username', 'document__title']
+    readonly_fields = ['created_at', 'updated_at']
+    inlines = [ChatMessageInline]
+
+
+@admin.register(ChatMessage)
+class ChatMessageAdmin(admin.ModelAdmin):
+    list_display = ['id', 'session', 'role', 'context_page', 'created_at']
+    list_filter = ['role', 'session__document']
+    search_fields = ['content', 'session__user__username']
+    readonly_fields = ['created_at']

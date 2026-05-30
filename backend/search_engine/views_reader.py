@@ -7,9 +7,10 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, renderers, serializers, status, views, viewsets
 from rest_framework.response import Response
 
-from .models import Bookmark, Document, Highlight, Note, ReaderPreference, ReadingProgress
+from .models import Bookmark, Chapter, Document, Highlight, Note, ReaderPreference, ReadingProgress
 from .serializers_reader import (
     BookmarkSerializer,
+    ChapterSerializer,
     ContinueReadingSerializer,
     HighlightSerializer,
     NoteSerializer,
@@ -60,6 +61,25 @@ def _filter_by_document(queryset, request):
         except (TypeError, ValueError):
             queryset = queryset.none()
     return queryset
+
+
+class DocumentChapterListView(generics.ListAPIView):
+    """List top-level chapters (with nested children) for a document.
+
+    Read-only for any authenticated user; chapters are public to the document
+    audience and managed via admin / management commands.
+    """
+    serializer_class = ChapterSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        document = get_object_or_404(Document, pk=self.kwargs['pk'])
+        return (
+            Chapter.objects
+            .filter(document=document, parent__isnull=True)
+            .order_by('order')
+        )
 
 
 class ReaderPreferenceView(generics.RetrieveUpdateAPIView):

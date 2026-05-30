@@ -1,11 +1,21 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { Amiri, Fraunces, Manrope, Noto_Naskh_Arabic, Source_Serif_4 } from "next/font/google";
+import {
+  Aref_Ruqaa,
+  Fraunces,
+  IBM_Plex_Sans_Arabic,
+  Inter,
+  Manrope,
+  Noto_Kufi_Arabic,
+  Reem_Kufi,
+  Source_Serif_4,
+} from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/AuthContext";
 import QueryProvider from "@/lib/queryClient";
 import { I18nProvider } from "@/components/i18n/I18nProvider";
 import HtmlLangDirSync from "@/components/i18n/HtmlLangDirSync";
+import HeaderSwitcher from "@/components/HeaderSwitcher";
 import { getDictionary } from "@/lib/i18n/getDictionary";
 import { defaultLocale, isLocale, localeToDirection, type Locale } from "@/lib/i18n/config";
 
@@ -14,7 +24,7 @@ const manrope = Manrope({
   variable: "--font-manrope",
 });
 
-const notoNaskhArabic = Noto_Naskh_Arabic({
+const notoKufiArabic = Noto_Kufi_Arabic({
   subsets: ["arabic"],
   variable: "--font-arabic",
 });
@@ -32,40 +42,72 @@ const fraunces = Fraunces({
   variable: "--font-fraunces",
 });
 
-const amiri = Amiri({
+const amiri = Noto_Kufi_Arabic({
   subsets: ["arabic"],
   weight: ["400", "700"],
   variable: "--font-amiri",
 });
 
-function resolveLocale(): Locale {
-  const headerLocale = headers().get("x-ilm-locale");
+// Hero/landing typography pairing — Aref Ruqaa for the display headline,
+// IBM Plex Sans Arabic for Arabic body & UI, Inter for Latin UI chrome.
+const arefRuqaa = Aref_Ruqaa({
+  subsets: ["arabic"],
+  weight: ["700"],
+  variable: "--font-display-ar",
+});
+
+const ibmPlexArabic = IBM_Plex_Sans_Arabic({
+  subsets: ["arabic"],
+  weight: ["400", "500", "600"],
+  variable: "--font-body-ar",
+});
+
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-inter",
+});
+
+const reemKufi = Reem_Kufi({
+  subsets: ["arabic", "latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-reem-kufi",
+  display: "swap",
+});
+
+async function resolveLocale(): Promise<Locale> {
+  const headerStore = await headers();
+  const headerLocale = headerStore.get("x-ilm-locale");
   return isLocale(headerLocale) ? headerLocale : defaultLocale;
 }
 
-export function generateMetadata(): Metadata {
-  const dict = getDictionary(resolveLocale());
+export async function generateMetadata(): Promise<Metadata> {
+  const dict = getDictionary(await resolveLocale());
   return {
     title: dict["meta.title"],
     description: dict["meta.description"],
+    icons: {
+      icon: "/logo.svg",
+    },
   };
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const locale = resolveLocale();
+  const locale = await resolveLocale();
   return (
     <html lang={locale} dir={localeToDirection(locale)} suppressHydrationWarning>
-      <body className={`${manrope.variable} ${notoNaskhArabic.variable} ${sourceSerif.variable} ${fraunces.variable} ${amiri.variable}`}>
+      <body className={`${manrope.variable} ${notoKufiArabic.variable} ${sourceSerif.variable} ${fraunces.variable} ${amiri.variable} ${arefRuqaa.variable} ${ibmPlexArabic.variable} ${inter.variable} ${reemKufi.variable}`}>
         <AuthProvider>
           <QueryProvider>
             <I18nProvider>
               <HtmlLangDirSync />
               <div className="flex flex-col h-screen">
                 <div className="flex-1 min-h-0 overflow-y-auto">
+                  <HeaderSwitcher />
                   {children}
                 </div>
               </div>

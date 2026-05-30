@@ -9,4 +9,5 @@ export const readerKeys = {
   highlights: (docId: number) => ['reader', 'highlights', docId] as const,
   progress: (docId: number) => ['reader', 'progress', docId] as const,
   continueReading: () => ['reader', 'continue'] as const,
+  chapters: (docId: number) => ['reader', 'chapters', docId] as const,
 };

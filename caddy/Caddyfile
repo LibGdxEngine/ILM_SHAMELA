@@ -1,17 +1,12 @@
 {
 	# Disable automatic HTTP->HTTPS redirects (we define them explicitly below)
 	auto_https disable_redirects
+	# Pick a default SNI so requests that hit us by bare IP (no SNI sent)
+	# still get a valid certificate served back.
+	default_sni ilmshamela.com
 }
 
-# HTTP: redirect to HTTPS
-:80 {
-	redir https://{host}{uri} permanent
-}
-
-# HTTPS: catch-all with internal self-signed cert
-:443 {
-	tls internal
-
+(app) {
 	encode zstd gzip
 
 	request_body {
@@ -52,4 +47,26 @@
 	handle {
 		reverse_proxy frontend:3000
 	}
+}
+
+# HTTP: redirect to HTTPS
+:80 {
+	redir https://{host}{uri} permanent
+}
+
+# Redirect www -> apex
+https://www.ilmshamela.com {
+	redir https://ilmshamela.com{uri} permanent
+}
+
+# Public domain — Let's Encrypt cert issued automatically
+https://ilmshamela.com {
+	import app
+}
+
+# Bare-IP / localhost entry uses Caddy's internal CA (self-signed).
+# Lets you reach the server directly by IP for debugging.
+https://2.24.9.126, https://localhost, https://127.0.0.1 {
+	tls internal
+	import app
 }

@@ -184,6 +184,8 @@ class UserProfileSerializer(serializers.Serializer):
             'last_name': instance.last_name,
             'name': f'{instance.first_name} {instance.last_name}'.strip(),
             'avatar': self._get_avatar(instance),
+            'is_staff': bool(instance.is_staff),
+            'is_superuser': bool(instance.is_superuser),
         }
 
     def validate_first_name(self, value):

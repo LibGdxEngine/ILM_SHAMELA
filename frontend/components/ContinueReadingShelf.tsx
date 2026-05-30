@@ -35,7 +35,7 @@ export default function ContinueReadingShelf() {
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-6 flex items-end justify-between">
-        <h2 className="font-serif text-2xl font-medium text-near-black dark:text-ivory md:text-[32px]">
+        <h2 className="font-serif text-2xl font-medium text-near-black md:text-[32px]">
           {t('home.continueReading', 'Continue reading')}
         </h2>
       </div>
@@ -68,10 +68,10 @@ export default function ContinueReadingShelf() {
                 </div>
               </div>
               <div className="mt-3">
-                <p className="font-serif text-sm font-medium text-near-black line-clamp-2 dark:text-ivory">
+                <p className="font-serif text-sm font-medium text-near-black line-clamp-2">
                   {item.document_title}
                 </p>
-                <p className="mt-1 font-sans text-[12px] text-olive-gray dark:text-warm-silver">
+                <p className="mt-1 font-sans text-[12px] text-olive-gray">
                   {t('home.percentRead', '{percent}% read', { percent })}
                   {item.total_pages > 0 && (
                     <>

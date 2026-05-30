@@ -6,44 +6,13 @@ import { useRouter } from 'next/navigation';
 import { Document, normalizeMediaUrl } from '@/lib/api';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { useI18n } from '@/components/i18n/I18nProvider';
+import { paletteFor, type CoverPalette } from '@/lib/coverPalettes';
+import { useLanguageName } from '@/lib/i18n/languageName';
+import { toLocaleDigits } from '@/lib/utils';
 
 interface BookCardProps {
   document: Document;
   formatDate?: (date: string) => string;
-}
-
-const COVER_PALETTE = [
-  { from: '#2a1a10', to: '#4a2818', text: '#e8d4b4' },
-  { from: '#1a2a2e', to: '#2c4145', text: '#d4e0e2' },
-  { from: '#2e1a26', to: '#4a2c3e', text: '#e6d2dc' },
-  { from: '#1a2818', to: '#2a4424', text: '#d4e2cc' },
-  { from: '#2e2418', to: '#4a3a24', text: '#ecdcb8' },
-  { from: '#1f1a2c', to: '#2e2848', text: '#d8d4e6' },
-];
-
-function paletteFor(str: string) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return COVER_PALETTE[Math.abs(hash) % COVER_PALETTE.length];
-}
-
-function generateCoverPattern(title: string): string {
-  const palette = paletteFor(title);
-  return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300">
-      <defs>
-        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style="stop-color:${palette.from};stop-opacity:1" />
-          <stop offset="100%" style="stop-color:${palette.to};stop-opacity:1" />
-        </linearGradient>
-      </defs>
-      <rect width="200" height="300" fill="url(#grad)"/>
-      <rect x="24" y="40" width="152" height="1" fill="rgba(232,212,180,0.25)"/>
-      <rect x="24" y="258" width="152" height="1" fill="rgba(232,212,180,0.25)"/>
-    </svg>
-  `;
 }
 
 function categoryName(c: unknown): string | null {
@@ -54,6 +23,76 @@ function categoryName(c: unknown): string | null {
     return typeof n === 'string' ? n : null;
   }
   return null;
+}
+
+function wrapTitleLines(title: string, perLine = 14, maxLines = 3): string[] {
+  if (!title) return [];
+  const words = title.trim().split(/\s+/);
+  const lines: string[] = [];
+  let current = '';
+  for (const w of words) {
+    const next = current ? `${current} ${w}` : w;
+    if (next.length > perLine && current) {
+      lines.push(current);
+      current = w;
+      if (lines.length >= maxLines - 1) break;
+    } else {
+      current = next;
+    }
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+  if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
+    lines[lines.length - 1] = lines[lines.length - 1].replace(/\s+\S+$/, '') + '…';
+  }
+  return lines;
+}
+
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function generateCoverPattern(title: string, palette: CoverPalette): string {
+  const lines = wrapTitleLines(title, 14, 3);
+  const totalLines = Math.max(lines.length, 1);
+  const lineHeight = 28;
+  const blockHeight = totalLines * lineHeight;
+  const startY = 150 - blockHeight / 2 + lineHeight * 0.75;
+
+  const textEls = lines
+    .map(
+      (line, i) =>
+        `<text x="100" y="${startY + i * lineHeight}" fill="${palette.text}" font-family="Reem Kufi, serif" font-size="22" font-weight="600" text-anchor="middle">${escapeXml(line)}</text>`
+    )
+    .join('');
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300">
+      <defs>
+        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="${palette.from}" stop-opacity="1" />
+          <stop offset="100%" stop-color="${palette.to}" stop-opacity="1" />
+        </linearGradient>
+      </defs>
+      <rect width="200" height="300" fill="url(#grad)"/>
+      <rect x="24" y="40" width="152" height="1" fill="${palette.accent}" fill-opacity="0.55"/>
+      <rect x="24" y="260" width="152" height="1" fill="${palette.accent}" fill-opacity="0.55"/>
+      <g transform="translate(100,32)" fill="${palette.accent}" fill-opacity="0.85">
+        <path d="M0 -7 L1.6 -1.6 L7 0 L1.6 1.6 L0 7 L-1.6 1.6 L-7 0 L-1.6 -1.6 Z" />
+      </g>
+      ${textEls}
+    </svg>
+  `;
+}
+
+function yearOf(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const y = raw.slice(0, 4);
+  return /^\d{3,4}$/.test(y) ? y : null;
 }
 
 function usePitch(doc: Document): string {
@@ -77,17 +116,21 @@ function usePitch(doc: Document): string {
 }
 
 export default function BookCard({ document }: BookCardProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const localizedPath = useLocalizedPath();
   const router = useRouter();
+  const languageName = useLanguageName();
 
-  const coverSvg = generateCoverPattern(document.title);
+  const palette = paletteFor(document);
+  const coverSvg = generateCoverPattern(document.title, palette);
   const coverDataUrl = `data:image/svg+xml,${encodeURIComponent(coverSvg)}`;
   const [imageError, setImageError] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
 
   const coverPhotoUrl = normalizeMediaUrl(document.cover_photo_url);
   const pitch = usePitch(document);
+  const year = yearOf(document.written_date);
+  const langDisplay = document.language ? languageName(document.language) : null;
 
   const isReady = document.processing_status
     ? document.processing_status === 'succeeded'
@@ -125,6 +168,10 @@ export default function BookCard({ document }: BookCardProps) {
     [router, localizedPath, document.id]
   );
 
+  const metaParts: string[] = [];
+  if (year) metaParts.push(toLocaleDigits(year, locale));
+  if (langDisplay) metaParts.push(langDisplay);
+
   return (
     <div className="group relative">
       <Link
@@ -147,31 +194,27 @@ export default function BookCard({ document }: BookCardProps) {
             />
           )}
 
-          {/* Subtle bottom gradient for legibility */}
           <div
             className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent pointer-events-none"
             aria-hidden
           />
 
-          {/* Language pill — logical-start side */}
-          {document.language && (
+          {langDisplay && (
             <div className="absolute top-3 start-3">
-              <span className="px-2 py-0.5 text-[10.5px] tracking-[0.12em] rounded-full bg-bg/80 text-text-2 backdrop-blur-md uppercase border border-border-strong">
-                {document.language}
+              <span className="px-2 py-0.5 text-[10.5px] tracking-[0.04em] rounded-full bg-bg/85 text-text-2 backdrop-blur-md border border-border-strong">
+                {langDisplay}
               </span>
             </div>
           )}
 
-          {/* Processing state */}
           {!isReady && (
             <div className="absolute top-3 end-3">
-              <span className="px-2 py-0.5 text-[10.5px] tracking-[0.08em] rounded-full bg-accent/85 text-[#1a0e05] backdrop-blur-md font-medium">
+              <span className="px-2 py-0.5 text-[10.5px] tracking-[0.08em] rounded-full bg-[var(--warm-deep)]/95 text-[#faf6ef] backdrop-blur-md">
                 {t('book.processing', 'قيد المعالجة')}
               </span>
             </div>
           )}
 
-          {/* Ask-about-this — hover reveal */}
           <button
             type="button"
             onClick={openAsk}
@@ -199,17 +242,22 @@ export default function BookCard({ document }: BookCardProps) {
               {pitch}
             </p>
           )}
+
+          {metaParts.length > 0 && (
+            <p className="mt-2.5 pt-2.5 border-t border-border text-[11px] text-text-3 tracking-wide">
+              {metaParts.join(' · ')}
+            </p>
+          )}
         </div>
       </Link>
 
-      {/* Bookmark button */}
       <button
         type="button"
         onClick={toggleBookmark}
         aria-pressed={bookmarked}
         aria-label={t('docs.card.bookmark', 'حفظ')}
         className={`absolute top-3 ${
-          document.language ? 'start-[4.5rem]' : 'start-3'
+          langDisplay ? 'start-[5.5rem]' : 'start-3'
         } w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border transition-all duration-200 ${
           bookmarked
             ? 'bg-accent text-[#1a0e05] border-accent opacity-100 shadow-[0_4px_14px_-4px_rgba(192,133,82,0.5)]'

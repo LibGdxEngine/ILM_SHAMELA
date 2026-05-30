@@ -4,12 +4,11 @@ import { useEffect, useState, FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
-import { Fraunces, Amiri, Manrope } from 'next/font/google';
+import { Fraunces, Noto_Kufi_Arabic, Manrope } from 'next/font/google';
 
 import { useAuth } from '@/lib/AuthContext';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
-import LanguageSwitcher from '@/components/i18n/LanguageSwitcher';
 
 const fraunces = Fraunces({
   subsets: ['latin'],
@@ -17,7 +16,7 @@ const fraunces = Fraunces({
   style: ['normal', 'italic'],
   variable: '--font-fraunces',
 });
-const amiri = Amiri({
+const amiri = Noto_Kufi_Arabic({
   subsets: ['arabic'],
   weight: ['400', '700'],
   variable: '--font-amiri',
@@ -169,28 +168,6 @@ export default function RegisterPage() {
       </motion.aside>
 
       <main className="auth-right flex flex-col px-6 sm:px-10 lg:px-16 py-10 lg:py-12 relative">
-        <div className="lg:hidden mb-12">
-          <Link href={localizedPath('/')} className="flex items-center gap-2 w-fit">
-            <span className="auth-brand-letter text-[24px] leading-none">ع</span>
-            <span className="auth-brand-name text-[18px]">
-              ILM <em className="auth-brand-italic">Shamela</em>
-            </span>
-          </Link>
-        </div>
-
-        <div className="absolute top-8 right-8 hidden lg:flex items-center gap-5">
-          <Link
-            href={localizedPath('/')}
-            className="auth-back-home flex items-center gap-2 text-[13px] transition-colors"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="m15 18-6-6 6-6" />
-            </svg>
-            {t('login.backHome', 'Back to home')}
-          </Link>
-          <LanguageSwitcher />
-        </div>
-
         <motion.div
           variants={stagger}
           initial="hidden"

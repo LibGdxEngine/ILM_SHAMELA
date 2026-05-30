@@ -61,14 +61,14 @@ export default function GoogleCallbackPage() {
   if (error) {
     return (
       <div className="w-full max-w-md">
-        <div className="rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-xl dark:border-gray-700 dark:bg-gray-800">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
-            <svg className="h-8 w-8 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-xl">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
+            <svg className="h-8 w-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </div>
-          <h2 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">{t('google.authFailed', 'فشلت المصادقة')}</h2>
-          <p className="mb-6 text-gray-600 dark:text-gray-400">{error}</p>
+          <h2 className="mb-2 text-xl font-semibold text-gray-900">{t('google.authFailed', 'فشلت المصادقة')}</h2>
+          <p className="mb-6 text-gray-600">{error}</p>
           <button
             onClick={() => router.push(targetLocale ? withLocale('/auth/login', targetLocale) : localizedPath('/auth/login'))}
             className="rounded-xl bg-amber-700 px-6 py-2 font-medium text-white transition-colors duration-200 hover:bg-amber-800"
@@ -82,15 +82,15 @@ export default function GoogleCallbackPage() {
 
   return (
     <div className="w-full max-w-md">
-      <div className="rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-xl dark:border-gray-700 dark:bg-gray-800">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-teal-100 dark:bg-teal-900/30">
-          <svg className="h-8 w-8 animate-spin text-teal-700 dark:text-teal-400" viewBox="0 0 24 24">
+      <div className="rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-xl">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-teal-100">
+          <svg className="h-8 w-8 animate-spin text-teal-700" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
         </div>
-        <h2 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">{t('google.completing', 'جارٍ إكمال تسجيل الدخول')}</h2>
-        <p className="text-gray-600 dark:text-gray-400">{t('google.wait', 'يرجى الانتظار حتى نُكمل المصادقة...')}</p>
+        <h2 className="mb-2 text-xl font-semibold text-gray-900">{t('google.completing', 'جارٍ إكمال تسجيل الدخول')}</h2>
+        <p className="text-gray-600">{t('google.wait', 'يرجى الانتظار حتى نُكمل المصادقة...')}</p>
       </div>
     </div>
   );
