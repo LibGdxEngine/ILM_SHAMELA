@@ -27,8 +27,8 @@
 		header Cache-Control "public, immutable, max-age=2592000"
 	}
 
-	# Django admin
-	handle /admin/* {
+	# Django admin (match bare /admin AND /admin/* so the SPA catch-all never grabs it)
+	handle /admin /admin/* {
 		reverse_proxy backend:8000
 	}
 
