@@ -6,135 +6,68 @@ import { useRouter } from 'next/navigation';
 import { Document, normalizeMediaUrl } from '@/lib/api';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { useI18n } from '@/components/i18n/I18nProvider';
-import { paletteFor, type CoverPalette } from '@/lib/coverPalettes';
+import { paletteFor } from '@/lib/coverPalettes';
 import { useLanguageName } from '@/lib/i18n/languageName';
-import { toLocaleDigits } from '@/lib/utils';
+import { fileTypeLabel, formatRelativeDate, toLocaleDigits } from '@/lib/utils';
 
 interface BookCardProps {
   document: Document;
-  formatDate?: (date: string) => string;
+  /** Reading progress 0..100; when present the footer shows progress instead of date/type. */
+  progressPercent?: number;
 }
 
-function categoryName(c: unknown): string | null {
-  if (!c) return null;
-  if (typeof c === 'string') return c;
-  if (typeof c === 'object' && c !== null && 'name' in c) {
-    const n = (c as { name?: unknown }).name;
-    return typeof n === 'string' ? n : null;
-  }
-  return null;
-}
+const TEXT_FILE_TYPES = new Set(['PDF', 'DOC', 'DOCX', 'TXT', 'RTF', 'MD', 'EPUB']);
 
-function wrapTitleLines(title: string, perLine = 14, maxLines = 3): string[] {
-  if (!title) return [];
-  const words = title.trim().split(/\s+/);
-  const lines: string[] = [];
-  let current = '';
-  for (const w of words) {
-    const next = current ? `${current} ${w}` : w;
-    if (next.length > perLine && current) {
-      lines.push(current);
-      current = w;
-      if (lines.length >= maxLines - 1) break;
-    } else {
-      current = next;
-    }
-  }
-  if (current && lines.length < maxLines) lines.push(current);
-  if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
-    lines[lines.length - 1] = lines[lines.length - 1].replace(/\s+\S+$/, '') + '…';
-  }
-  return lines;
-}
-
-function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
-function generateCoverPattern(title: string, palette: CoverPalette): string {
-  const lines = wrapTitleLines(title, 14, 3);
-  const totalLines = Math.max(lines.length, 1);
-  const lineHeight = 28;
-  const blockHeight = totalLines * lineHeight;
-  const startY = 150 - blockHeight / 2 + lineHeight * 0.75;
-
-  const textEls = lines
-    .map(
-      (line, i) =>
-        `<text x="100" y="${startY + i * lineHeight}" fill="${palette.text}" font-family="Reem Kufi, serif" font-size="22" font-weight="600" text-anchor="middle">${escapeXml(line)}</text>`
-    )
-    .join('');
-
-  return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300">
-      <defs>
-        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="${palette.from}" stop-opacity="1" />
-          <stop offset="100%" stop-color="${palette.to}" stop-opacity="1" />
-        </linearGradient>
-      </defs>
-      <rect width="200" height="300" fill="url(#grad)"/>
-      <rect x="24" y="40" width="152" height="1" fill="${palette.accent}" fill-opacity="0.55"/>
-      <rect x="24" y="260" width="152" height="1" fill="${palette.accent}" fill-opacity="0.55"/>
-      <g transform="translate(100,32)" fill="${palette.accent}" fill-opacity="0.85">
-        <path d="M0 -7 L1.6 -1.6 L7 0 L1.6 1.6 L0 7 L-1.6 1.6 L-7 0 L-1.6 -1.6 Z" />
-      </g>
-      ${textEls}
+function WatermarkIcon({ fileType, color }: { fileType: string; color: string }) {
+  const isText = !fileType || TEXT_FILE_TYPES.has(fileType);
+  return (
+    <svg
+      className="absolute left-1/2 top-1/2 w-16 h-16 -translate-x-1/2 -translate-y-1/2 opacity-[0.16]"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {isText ? (
+        <>
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+          <path d="M14 3v5h5" />
+          <path d="M9 13h6M9 17h6" />
+        </>
+      ) : (
+        <>
+          <path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z" />
+          <path d="M4 19a2 2 0 0 0 2 2h13" />
+        </>
+      )}
     </svg>
-  `;
+  );
 }
 
-function yearOf(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const y = raw.slice(0, 4);
-  return /^\d{3,4}$/.test(y) ? y : null;
-}
-
-function usePitch(doc: Document): string {
-  const { t } = useI18n();
-  const category = doc.categories?.map(categoryName).find(Boolean) ?? null;
-  const author = doc.authors?.[0]?.name ?? null;
-
-  if (author && category) {
-    return t('docs.card.pitchByAuthor', 'By {author}, in {category}.', {
-      author,
-      category,
-    });
-  }
-  if (author) {
-    return t('docs.card.pitchJustAuthor', 'By {author}.', { author });
-  }
-  if (category) {
-    return t('docs.card.pitchFallback', 'A book in {category}.', { category });
-  }
-  return '';
-}
-
-export default function BookCard({ document }: BookCardProps) {
+export default function BookCard({ document, progressPercent }: BookCardProps) {
   const { t, locale } = useI18n();
   const localizedPath = useLocalizedPath();
   const router = useRouter();
   const languageName = useLanguageName();
 
   const palette = paletteFor(document);
-  const coverSvg = generateCoverPattern(document.title, palette);
-  const coverDataUrl = `data:image/svg+xml,${encodeURIComponent(coverSvg)}`;
   const [imageError, setImageError] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
 
   const coverPhotoUrl = normalizeMediaUrl(document.cover_photo_url);
-  const pitch = usePitch(document);
-  const year = yearOf(document.written_date);
+  const hasPhoto = Boolean(coverPhotoUrl) && !imageError;
   const langDisplay = document.language ? languageName(document.language) : null;
+  const fileType = fileTypeLabel(document.file);
 
   const isReady = document.processing_status
     ? document.processing_status === 'succeeded'
     : document.processed;
+
+  const hasProgress = typeof progressPercent === 'number';
+  const percent = hasProgress ? Math.max(0, Math.min(100, Math.round(progressPercent!))) : 0;
 
   const bookmarkKey = `ilm.bookmarks.${document.id}`;
 
@@ -168,9 +101,7 @@ export default function BookCard({ document }: BookCardProps) {
     [router, localizedPath, document.id]
   );
 
-  const metaParts: string[] = [];
-  if (year) metaParts.push(toLocaleDigits(year, locale));
-  if (langDisplay) metaParts.push(langDisplay);
+  const metaParts = [formatRelativeDate(document.uploaded_at, locale, t), fileType].filter(Boolean);
 
   return (
     <div className="group relative">
@@ -179,19 +110,32 @@ export default function BookCard({ document }: BookCardProps) {
         className="block bg-gradient-to-b from-card-2 to-card rounded-[18px] border border-border hover:border-accent/40 shadow-[0_4px_20px_-8px_rgba(0,0,0,0.5)] hover:shadow-[0_12px_36px_-12px_rgba(192,133,82,0.25)] transition-all duration-300 overflow-hidden transform hover:-translate-y-1"
       >
         <div className="relative aspect-[2/3] overflow-hidden bg-bg-2">
-          {coverPhotoUrl && !imageError ? (
+          {hasPhoto ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={coverPhotoUrl}
+              src={coverPhotoUrl as string}
               alt={document.title}
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
               onError={() => setImageError(true)}
             />
           ) : (
             <div
-              className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-[1.03]"
-              style={{ backgroundImage: `url("${coverDataUrl}")` }}
-            />
+              className="absolute inset-0 transition-transform duration-500 group-hover:scale-[1.03]"
+              style={{ backgroundImage: `linear-gradient(135deg, ${palette.from}, ${palette.to})` }}
+            >
+              {/* Manuscript-style accent hairlines + watermark — no baked title text. */}
+              <div
+                className="absolute inset-x-6 top-9 h-px"
+                style={{ background: palette.accent, opacity: 0.5 }}
+                aria-hidden
+              />
+              <div
+                className="absolute inset-x-6 bottom-9 h-px"
+                style={{ background: palette.accent, opacity: 0.5 }}
+                aria-hidden
+              />
+              <WatermarkIcon fileType={fileType} color={palette.accent} />
+            </div>
           )}
 
           <div
@@ -209,9 +153,16 @@ export default function BookCard({ document }: BookCardProps) {
 
           {!isReady && (
             <div className="absolute top-3 end-3">
-              <span className="px-2 py-0.5 text-[10.5px] tracking-[0.08em] rounded-full bg-[var(--warm-deep)]/95 text-[#faf6ef] backdrop-blur-md">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10.5px] tracking-[0.08em] rounded-full bg-[var(--warm-deep)]/95 text-[#faf6ef] backdrop-blur-md">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#faf6ef]/80 animate-pulse" aria-hidden />
                 {t('book.processing', 'قيد المعالجة')}
               </span>
+            </div>
+          )}
+
+          {hasProgress && (
+            <div className="absolute inset-x-0 bottom-0 h-1 bg-black/30">
+              <div className="h-full bg-accent" style={{ width: `${percent}%` }} aria-hidden />
             </div>
           )}
 
@@ -226,27 +177,32 @@ export default function BookCard({ document }: BookCardProps) {
           </button>
         </div>
 
-        <div className="p-4">
-          <h3 className="font-fraunces text-[17px] leading-[1.3] text-text line-clamp-2 group-hover:text-accent-2 transition-colors">
+        <div
+          className="p-4"
+          style={hasPhoto ? { borderTop: `2px solid ${palette.accent}` } : undefined}
+        >
+          <h3
+            dir="auto"
+            className="font-fraunces text-[17px] leading-[1.3] text-text line-clamp-2 group-hover:text-accent-2 transition-colors"
+          >
             {document.title}
           </h3>
 
-          {document.authors && document.authors.length > 0 && (
-            <p className="mt-1.5 text-[12.5px] text-text-2 line-clamp-1 font-fraunces italic">
-              {document.authors.map((a) => a.name).join('، ')}
+          {hasProgress ? (
+            <p className="mt-2.5 text-[11.5px] text-accent-2 tracking-wide">
+              {t('docs.card.percentReadShort', 'قُرئ {n}٪', { n: toLocaleDigits(percent, locale) })}
             </p>
-          )}
-
-          {pitch && (
-            <p className="mt-2 text-[12px] text-text-3 leading-[1.55] line-clamp-1">
-              {pitch}
-            </p>
-          )}
-
-          {metaParts.length > 0 && (
-            <p className="mt-2.5 pt-2.5 border-t border-border text-[11px] text-text-3 tracking-wide">
-              {metaParts.join(' · ')}
-            </p>
+          ) : (
+            metaParts.length > 0 && (
+              <p className="mt-2.5 pt-2.5 border-t border-border text-[11px] text-text-3 tracking-wide flex items-center gap-1.5">
+                {metaParts.map((part, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5">
+                    {i > 0 && <span aria-hidden className="text-text-3/60">·</span>}
+                    <span dir={part === fileType ? 'ltr' : undefined}>{part}</span>
+                  </span>
+                ))}
+              </p>
+            )
           )}
         </div>
       </Link>

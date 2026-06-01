@@ -13,6 +13,56 @@ export function toLocaleDigits(input: string | number, locale: string): string {
 }
 
 /**
+ * Derive an uppercase file-type label from a file URL/path, e.g. "PDF".
+ * Returns '' when no usable extension is present.
+ */
+export function fileTypeLabel(file?: string | null): string {
+  if (!file) return '';
+  const clean = file.split('?')[0].split('#')[0];
+  const dot = clean.lastIndexOf('.');
+  if (dot === -1) return '';
+  const ext = clean.slice(dot + 1);
+  // Reject "extensions" that contain a path separator (e.g. a dotted folder name)
+  // or are implausibly long to be a real file type.
+  if (!ext || ext.includes('/') || ext.length > 5) return '';
+  return ext.toUpperCase();
+}
+
+type TranslateFn = (
+  key: string,
+  fallback?: string,
+  values?: Record<string, string | number>
+) => string;
+
+/**
+ * Format an ISO timestamp as a localized relative time, e.g. "قبل ٣ أيام".
+ * Digits are localized via toLocaleDigits; copy comes from the i18n `time.*` keys.
+ */
+export function formatRelativeDate(
+  iso: string | null | undefined,
+  locale: string,
+  t: TranslateFn
+): string {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '';
+  const diffSec = Math.round((Date.now() - then) / 1000);
+  const MINUTE = 60;
+  const HOUR = 3600;
+  const DAY = 86_400;
+  const MONTH = DAY * 30;
+  const YEAR = DAY * 365;
+
+  if (diffSec < MINUTE) return t('time.justNow', 'الآن');
+  const n = (value: number) => toLocaleDigits(Math.floor(value), locale);
+  if (diffSec < HOUR) return t('time.minutesAgo', 'قبل {n} دقيقة', { n: n(diffSec / MINUTE) });
+  if (diffSec < DAY) return t('time.hoursAgo', 'قبل {n} ساعة', { n: n(diffSec / HOUR) });
+  if (diffSec < MONTH) return t('time.daysAgo', 'قبل {n} يوم', { n: n(diffSec / DAY) });
+  if (diffSec < YEAR) return t('time.monthsAgo', 'قبل {n} شهر', { n: n(diffSec / MONTH) });
+  return t('time.yearsAgo', 'قبل {n} سنة', { n: n(diffSec / YEAR) });
+}
+
+/**
  * Highlight query terms in text
  */
 export function highlightText(text: string, query: string): string {

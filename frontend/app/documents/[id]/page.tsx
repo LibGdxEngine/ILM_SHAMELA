@@ -24,6 +24,7 @@ import ChapterTree from '@/components/document/ChapterTree';
 import BookmarksToolPanel from '@/components/document/BookmarksToolPanel';
 import NotesToolPanel from '@/components/document/NotesToolPanel';
 import ReadingStatsPanel from '@/components/document/ReadingStatsPanel';
+import ReaderInfoContent from '@/components/document/ReaderInfoContent';
 import type { AssistantColumnHandle } from '@/components/document/AssistantColumn';
 import { useChapters, findActiveChapter } from '@/lib/reader/useChapters';
 import { useReadingStats } from '@/hooks/useReadingStats';
@@ -832,6 +833,15 @@ export default function DocumentDetailPage() {
             onFontWeightChange={handleFontWeightChange}
             language={document.language}
           />
+        </ReaderPanel>
+
+        <ReaderPanel
+          isOpen={openBottomPanel === 'info'}
+          onClose={() => setOpenBottomPanel(null)}
+          width="wide"
+          title={t('reader.info', 'Info')}
+        >
+          <ReaderInfoContent document={document} currentPage={visiblePageNum} />
         </ReaderPanel>
       </ReaderShell>
     </RequireAuth>

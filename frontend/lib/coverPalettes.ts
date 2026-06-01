@@ -93,17 +93,82 @@ function hashString(seed: string): number {
   return Math.abs(hash);
 }
 
+function firstCategoryName(
+  doc: Pick<Document, 'categories'> & { categories?: Category[] | null }
+): string | null {
+  for (const c of doc.categories ?? []) {
+    const name = categoryNameOf(c);
+    if (name) return name.trim();
+  }
+  return null;
+}
+
+function disciplineKeyOf(categoryName: string): keyof typeof DISCIPLINE_PALETTES | null {
+  const trimmed = categoryName.trim();
+  const key = CATEGORY_NAME_MAP[trimmed] ?? CATEGORY_NAME_MAP[trimmed.toLowerCase()];
+  return key && DISCIPLINE_PALETTES[key] ? key : null;
+}
+
 export function paletteFor(
   doc: Pick<Document, 'title' | 'categories'> & { categories?: Category[] | null }
 ): CoverPalette {
-  const cats = doc.categories ?? [];
-  for (const c of cats) {
+  for (const c of doc.categories ?? []) {
     const name = categoryNameOf(c);
     if (!name) continue;
-    const normalized = name.trim().toLowerCase();
-    const key = CATEGORY_NAME_MAP[name.trim()] ?? CATEGORY_NAME_MAP[normalized];
-    if (key && DISCIPLINE_PALETTES[key]) return DISCIPLINE_PALETTES[key];
+    const key = disciplineKeyOf(name);
+    if (key) return DISCIPLINE_PALETTES[key];
   }
-  const idx = hashString(doc.title || 'untitled') % FALLBACK_PALETTES.length;
+  // Fallback color is keyed on the category (so same-category docs share a
+  // color and the legend stays truthful), falling back to the title only when
+  // a document has no category at all.
+  const seed = firstCategoryName(doc) ?? doc.title ?? 'untitled';
+  const idx = hashString(seed) % FALLBACK_PALETTES.length;
   return FALLBACK_PALETTES[idx];
+}
+
+export interface LegendEntry {
+  /** Stable identity for React keys + the page's "other" label substitution. */
+  key: string;
+  /** Display label: the category name, or '' for the uncategorized bucket. */
+  label: string;
+  /** Swatch color (palette accent). */
+  color: string;
+  /** Number of visible documents in this bucket. */
+  count: number;
+}
+
+/** Sentinel key for the uncategorized bucket; the page maps it to a localized label. */
+export const LEGEND_OTHER_KEY = '__other__';
+
+/**
+ * Build a legend (category → swatch color) from the visible documents.
+ * Recognized disciplines are grouped by their discipline color; other named
+ * categories keep their own (category-stable) color; documents with no category
+ * collapse into a single uncategorized bucket. Sorted by frequency, capped.
+ */
+export function legendForDocuments(
+  docs: (Pick<Document, 'title' | 'categories'> & { categories?: Category[] | null })[],
+  limit = 8
+): LegendEntry[] {
+  const byKey = new Map<string, LegendEntry>();
+  for (const doc of docs) {
+    const name = firstCategoryName(doc);
+    let key: string;
+    let label: string;
+    if (!name) {
+      key = LEGEND_OTHER_KEY;
+      label = '';
+    } else {
+      const discipline = disciplineKeyOf(name);
+      key = discipline ? `discipline:${discipline}` : `cat:${name.toLowerCase()}`;
+      label = name;
+    }
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      byKey.set(key, { key, label, color: paletteFor(doc).accent, count: 1 });
+    }
+  }
+  return [...byKey.values()].sort((a, b) => b.count - a.count).slice(0, limit);
 }

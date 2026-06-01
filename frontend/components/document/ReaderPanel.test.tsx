@@ -53,17 +53,22 @@ describe('ReaderPanel', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('delegates to ReaderPopover on desktop (no sheet backdrop)', () => {
+  it('renders as a side drawer on desktop and closes on backdrop click', async () => {
     mockMatchMedia(true);
+    const onClose = vi.fn();
 
     render(
-      <ReaderPanel isOpen={true} onClose={() => {}} title="Desktop">
+      <ReaderPanel isOpen={true} onClose={onClose} title="Desktop">
         <p>desktop content</p>
       </ReaderPanel>
     );
 
     expect(screen.getByText('desktop content')).toBeInTheDocument();
-    expect(screen.queryByTestId('reader-panel-backdrop')).not.toBeInTheDocument();
+    const backdrop = await screen.findByTestId('reader-panel-backdrop');
+
+    const user = userEvent.setup();
+    await user.click(backdrop);
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('renders nothing when isOpen is false on mobile', () => {

@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import useMediaQuery from '@/hooks/useMediaQuery';
-import ReaderPopover from './ReaderPopover';
 
 interface ReaderPanelProps {
   isOpen: boolean;
@@ -15,10 +14,23 @@ interface ReaderPanelProps {
 
 const SWIPE_DISMISS_THRESHOLD = 80;
 
+const DRAWER_WIDTH: Record<NonNullable<ReaderPanelProps['width']>, string> = {
+  xl: 'w-[460px]',
+  wide: 'w-[400px]',
+  narrow: 'w-[340px]',
+};
+
 /**
- * Adaptive panel: delegates to `ReaderPopover` on desktop (>= 768px)
- * and renders a bottom-sheet on mobile. Swipe-to-dismiss is plain JS
- * (onTouchStart/Move/End) to avoid new runtime dependencies.
+ * Adaptive tool panel.
+ *
+ * Desktop (>= 768px): a slide-over drawer anchored to the inline-end edge (right
+ *   in LTR, left in RTL), sitting above the sticky reader header so it is never
+ *   clipped by the shell's `overflow-hidden` ancestors.
+ * Mobile (< 768px): a bottom sheet with swipe-to-dismiss.
+ *
+ * Both variants share a dimmed backdrop and Escape / click-outside dismissal.
+ * Swipe-to-dismiss is plain JS (onTouchStart/Move/End) to avoid new runtime
+ * dependencies.
  */
 export default function ReaderPanel({
   isOpen,
@@ -29,7 +41,7 @@ export default function ReaderPanel({
 }: ReaderPanelProps) {
   // SSR defaults to desktop so the first paint matches server HTML for the hero.
   const isDesktop = useMediaQuery('(min-width: 768px)', true);
-  const { t } = useI18n();
+  const { t, direction } = useI18n();
   const sheetRef = useRef<HTMLDivElement>(null);
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -44,25 +56,59 @@ export default function ReaderPanel({
     }
   }, [isOpen]);
 
-  // Escape to close on mobile (desktop already handled inside ReaderPopover).
+  // Escape to close (both desktop drawer and mobile sheet).
   useEffect(() => {
-    if (isDesktop || !isOpen) return;
+    if (!isOpen) return;
     const handler = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [isDesktop, isOpen, onClose]);
-
-  if (isDesktop) {
-    return (
-      <ReaderPopover isOpen={isOpen} onClose={onClose} width={width}>
-        {children}
-      </ReaderPopover>
-    );
-  }
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
+
+  const closeButton = (
+    <button
+      type="button"
+      onClick={onClose}
+      aria-label={t('reader.closePanel', 'Close panel')}
+      className="rounded-full p-1.5 text-text-3 transition-colors hover:bg-white/[0.04] hover:text-text"
+    >
+      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  );
+
+  if (isDesktop) {
+    // Drawer slides in from whichever edge it is anchored to (inline-end).
+    const slideAnimation =
+      direction === 'rtl' ? 'animate-drawer-in-start' : 'animate-drawer-in-end';
+    return (
+      <>
+        <div
+          className="fixed inset-0 z-[55] bg-black/40 animate-fade-in"
+          onClick={onClose}
+          aria-hidden="true"
+          data-testid="reader-panel-backdrop"
+        />
+        <div
+          ref={sheetRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          className={`fixed inset-y-0 end-0 z-[60] ${DRAWER_WIDTH[width]} max-w-[100vw] flex flex-col border-s border-border-strong bg-gradient-to-b from-card-2 to-card shadow-[0_18px_42px_-10px_rgba(0,0,0,0.6)] ${slideAnimation}`}
+        >
+          <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+            <h2 className="font-fraunces text-[15px] text-text">{title}</h2>
+            {closeButton}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        </div>
+      </>
+    );
+  }
 
   const handleTouchStart = (event: React.TouchEvent) => {
     touchStartYRef.current = event.touches[0].clientY;
@@ -117,16 +163,7 @@ export default function ReaderPanel({
         {title && (
           <div className="flex items-center justify-between px-5 pt-1 pb-3">
             <h2 className="font-fraunces text-[15px] text-text">{title}</h2>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={t('reader.closePanel', 'Close panel')}
-              className="rounded-full p-1.5 text-text-3 transition-colors hover:bg-white/[0.04] hover:text-text"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            {closeButton}
           </div>
         )}
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2">{children}</div>

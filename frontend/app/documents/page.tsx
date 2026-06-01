@@ -1,31 +1,33 @@
 'use client';
 
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import Link from 'next/link';
 import { Document, DocumentsListParams, getDocuments } from '@/lib/api';
 import BookCard from '@/components/BookCard';
 import BookListRow from '@/components/BookListRow';
 import BookCardSkeleton from '@/components/BookCardSkeleton';
 import RequireAuth from '@/components/RequireAuth';
 import ContinueShelf from '@/components/documents/ContinueShelf';
-import LibraryHero from '@/components/documents/LibraryHero';
-import LibraryTopicShortcuts, { type TopicShortcut } from '@/components/documents/LibraryTopicShortcuts';
+import BookSpine from '@/components/documents/BookSpine';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLanguageName } from '@/lib/i18n/languageName';
+import { useLocalizedPath } from '@/lib/i18n/navigation';
+import { useContinueReading } from '@/lib/reader/useContinueReading';
+import { legendForDocuments } from '@/lib/coverPalettes';
 import { toLocaleDigits } from '@/lib/utils';
 
 const TOP_FACETS = 7;
 const VIEW_KEY = 'ilm.documents.viewMode';
-const TOPIC_SHORTCUT_LIMIT = 6;
-const META_FACET_MIN_BOOKS = 10;
+const PROGRESS_FETCH_LIMIT = 100;
 
 type SortKey = 'relevance' | 'newest' | 'alphabetical' | 'shortest';
-type EraFilter = '' | 'classical' | 'modern';
+type ViewMode = 'grid' | 'list' | 'shelf';
+type StatusSegment = 'all' | 'ready' | 'processing';
 
 const SECTION_EYEBROW_CLASS =
   'text-[11px] tracking-[0.18em] uppercase text-accent font-medium';
 const PILL_BASE =
-  'inline-flex items-center justify-center px-3 py-1 text-[11.5px] rounded-full border transition-all duration-200';
+  'inline-flex items-center justify-center gap-1.5 px-3 py-1 text-[11.5px] rounded-full border transition-all duration-200';
 const PILL_ON = `${PILL_BASE} bg-accent-soft border-accent/40 text-accent-2`;
 const PILL_OFF = `${PILL_BASE} bg-card border-border-strong text-text-2 hover:border-accent hover:text-accent-2`;
 const SEARCH_INPUT_CLASS =
@@ -33,16 +35,13 @@ const SEARCH_INPUT_CLASS =
 const DATE_INPUT_CLASS =
   'w-full px-3 py-2 rounded-[10px] text-[12.5px] font-fraunces outline-none transition-all bg-card text-text placeholder:text-text-3 focus:border-accent focus:bg-accent-soft/40 focus:shadow-[0_0_0_4px_rgba(185,115,64,0.08)] border border-border';
 
-function FadeIn({ children, delay = 0, className = '' }: { children: ReactNode; delay?: number; className?: string }) {
+function UploadIcon() {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1], delay }}
-      className={className}
-    >
-      {children}
-    </motion.div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
   );
 }
 
@@ -56,22 +55,8 @@ function categoryName(c: unknown): string | null {
   return null;
 }
 
-function yearOf(raw: string | null | undefined): number | null {
-  if (!raw) return null;
-  const y = Number(raw.slice(0, 4));
-  return Number.isFinite(y) ? y : null;
-}
-
-function centuryOf(raw: string | null | undefined): number | null {
-  const y = yearOf(raw);
-  if (y === null) return null;
-  return Math.floor((y - 1) / 100) + 1;
-}
-
-function eraOf(raw: string | null | undefined): EraFilter {
-  const y = yearOf(raw);
-  if (y === null) return '';
-  return y < 1900 ? 'classical' : 'modern';
+function isDocReady(d: Document): boolean {
+  return d.processing_status ? d.processing_status === 'succeeded' : d.processed;
 }
 
 function useDebounce<T>(value: T, delay: number): T {
@@ -103,42 +88,10 @@ function ActiveChip({ label, value, onRemove }: PillProps) {
   );
 }
 
-interface FacetListProps {
-  label: string;
-  values: string[];
-  selected: string[];
-  onToggle: (v: string) => void;
-}
-function FacetList({ label, values, selected, onToggle }: FacetListProps) {
-  if (values.length === 0) return null;
-  return (
-    <div>
-      <div className={`${SECTION_EYEBROW_CLASS} mb-3`}>{label}</div>
-      <div className="flex flex-col gap-1.5">
-        {values.slice(0, TOP_FACETS).map((v) => {
-          const isOn = selected.includes(v);
-          return (
-            <label key={v} className="flex items-center gap-2.5 cursor-pointer group">
-              <input
-                type="checkbox"
-                checked={isOn}
-                onChange={() => onToggle(v)}
-                className="w-4 h-4 rounded border-border-strong bg-card accent-[var(--accent,#b97340)]"
-              />
-              <span className={`text-[13px] truncate transition-colors ${isOn ? 'text-accent-2' : 'text-text-2 group-hover:text-text'}`}>
-                {v}
-              </span>
-            </label>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 export default function DocumentsPage() {
   const { t, locale } = useI18n();
   const languageName = useLanguageName();
+  const localizedPath = useLocalizedPath();
 
   /* ─── Query state ─── */
   const [searchQuery, setSearchQuery] = useState('');
@@ -150,13 +103,12 @@ export default function DocumentsPage() {
   const [selectedAuthors, setSelectedAuthors] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
-  const [selectedCentury, setSelectedCentury] = useState<number | null>(null);
-  const [selectedEra, setSelectedEra] = useState<EraFilter>('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
   const [sort, setSort] = useState<SortKey>('relevance');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [statusSegment, setStatusSegment] = useState<StatusSegment>('all');
 
   /* ─── Data state ─── */
   const [accumulated, setAccumulated] = useState<Document[]>([]);
@@ -166,9 +118,6 @@ export default function DocumentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showMobileFilters, setShowMobileFilters] = useState(false);
-
-  const zoneCRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -179,7 +128,9 @@ export default function DocumentsPage() {
       setSearchDraft(q);
     }
     const savedView = window.localStorage.getItem(VIEW_KEY);
-    if (savedView === 'list' || savedView === 'grid') setViewMode(savedView);
+    if (savedView === 'list' || savedView === 'grid' || savedView === 'shelf') {
+      setViewMode(savedView);
+    }
   }, []);
 
   useEffect(() => {
@@ -246,6 +197,16 @@ export default function DocumentsPage() {
     setCurrentPage(1);
   }, []);
 
+  /* ─── Reading progress map (only docs with progress are returned) ─── */
+  const { data: continueData } = useContinueReading(PROGRESS_FETCH_LIMIT);
+  const progressByDoc = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const it of continueData ?? []) {
+      m.set(it.document, Math.max(0, Math.min(100, Math.round((it.percent_complete ?? 0) * 100))));
+    }
+    return m;
+  }, [continueData]);
+
   const facetValues = useMemo(() => {
     const authors = new Map<string, number>();
     const categories = new Map<string, number>();
@@ -268,26 +229,20 @@ export default function DocumentsPage() {
     };
   }, [accumulated]);
 
-  const topicShortcuts = useMemo<TopicShortcut[]>(() => {
-    if (facetValues.categories.length < 2) return [];
-    return facetValues.categories.slice(0, TOPIC_SHORTCUT_LIMIT).map((name) => {
-      const docs = accumulated.filter((d) =>
-        (d.categories ?? []).some((c) => categoryName(c) === name)
-      );
-      return {
-        name,
-        count: docs.length,
-        seeds: docs.slice(0, 3).map((d) => d.title),
-      };
-    });
-  }, [facetValues.categories, accumulated]);
+  const legend = useMemo(() => legendForDocuments(accumulated), [accumulated]);
+
+  const statusCounts = useMemo(() => {
+    let ready = 0;
+    let processing = 0;
+    for (const d of accumulated) {
+      if (isDocReady(d)) ready++;
+      else processing++;
+    }
+    return { ready, processing };
+  }, [accumulated]);
 
   const filteredSorted = useMemo(() => {
-    let list = accumulated;
-    if (selectedCentury !== null) list = list.filter((d) => centuryOf(d.written_date) === selectedCentury);
-    if (selectedEra) list = list.filter((d) => eraOf(d.written_date) === selectedEra);
-
-    const sorted = [...list];
+    const sorted = [...accumulated];
     switch (sort) {
       case 'newest':
         sorted.sort((a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime());
@@ -303,31 +258,19 @@ export default function DocumentsPage() {
         break;
     }
     return sorted;
-  }, [accumulated, selectedCentury, selectedEra, sort, locale]);
+  }, [accumulated, sort, locale]);
 
-  const shownCount = filteredSorted.length;
+  /* ─── Grouping / segment derivation ─── */
+  const grouped = statusSegment === 'all' && viewMode !== 'shelf';
+  const flatDocs = useMemo(() => {
+    if (statusSegment === 'all') return filteredSorted;
+    const wantReady = statusSegment === 'ready';
+    return filteredSorted.filter((d) => isDocReady(d) === wantReady);
+  }, [filteredSorted, statusSegment]);
+  const processingDocs = useMemo(() => filteredSorted.filter((d) => !isDocReady(d)), [filteredSorted]);
+  const readyDocs = useMemo(() => filteredSorted.filter(isDocReady), [filteredSorted]);
 
-  const centuries = useMemo(() => {
-    const set = new Set<number>();
-    for (const d of accumulated) {
-      const c = centuryOf(d.written_date);
-      if (c !== null) set.add(c);
-    }
-    return [...set].sort((a, b) => b - a);
-  }, [accumulated]);
-
-  const summarySentence = useMemo(() => {
-    if (accumulated.length === 0) return '';
-    const topCats = facetValues.categories.slice(0, 2);
-    const topLangCode = facetValues.languages[0];
-    if (topCats.length > 0) {
-      return t('docs.results.summaryWithCats', 'Mostly in {categories}.', { categories: topCats.join('، ') });
-    }
-    if (topLangCode) {
-      return t('docs.results.summaryWithLang', 'Most in {language}.', { language: languageName(topLangCode) });
-    }
-    return t('docs.results.summaryFallback', 'A mixed selection across topics.');
-  }, [accumulated.length, facetValues, t, languageName]);
+  const shownCount = grouped ? filteredSorted.length : flatDocs.length;
 
   const toggleIn = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
 
@@ -339,8 +282,6 @@ export default function DocumentsPage() {
     setSelectedAuthors([]);
     setSelectedCategories([]);
     setSelectedLanguages([]);
-    setSelectedCentury(null);
-    setSelectedEra('');
     setDateFrom('');
     setDateTo('');
   };
@@ -351,8 +292,6 @@ export default function DocumentsPage() {
     selectedAuthors.length > 0 ||
     selectedCategories.length > 0 ||
     selectedLanguages.length > 0 ||
-    selectedCentury !== null ||
-    Boolean(selectedEra) ||
     Boolean(dateFrom) ||
     Boolean(dateTo);
 
@@ -377,128 +316,87 @@ export default function DocumentsPage() {
   };
 
   const formatCount = (n: number) => toLocaleDigits(n, locale);
-
-  const handleTopicSelect = (name: string) => {
-    setSelectedCategories([name]);
-    requestAnimationFrame(() => {
-      zoneCRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  };
-
-  const showLanguageFacet = facetValues.languages.length > 1;
-  const showMetaFacets = totalCount >= META_FACET_MIN_BOOKS && centuries.length > 0;
   const initialLoading = isLoading && accumulated.length === 0;
+  const showLegend = legend.length > 1 || (legend.length === 1 && Boolean(legend[0].label));
 
-  const renderFacetSection = () => (
-    <div className="flex flex-col gap-7">
-      <div className="flex items-center justify-between">
-        <h2 className="font-fraunces text-[18px] text-text">{t('docs.filters', 'المرشحات')}</h2>
-        {hasActiveFilters && (
-          <button onClick={clearFilters} className="text-[12.5px] text-accent-2 hover:text-text transition-colors">
-            {t('docs.clearAll', 'مسح الكل')}
-          </button>
+  /* ─── Sub-renderers ─── */
+
+  const renderPillGroup = (
+    values: string[],
+    selected: string[],
+    onToggle: (v: string) => void,
+    displayFn?: (v: string) => string
+  ) =>
+    values.slice(0, TOP_FACETS).map((v) => {
+      const on = selected.includes(v);
+      return (
+        <button key={v} onClick={() => onToggle(v)} className={on ? PILL_ON : PILL_OFF} title={v}>
+          {displayFn ? displayFn(v) : v}
+        </button>
+      );
+    });
+
+  const renderFilterRow = () => {
+    const hasAny =
+      facetValues.languages.length > 0 ||
+      facetValues.authors.length > 0 ||
+      facetValues.categories.length > 0;
+    if (!hasAny) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <span className="text-[12px] text-text-3 me-0.5">{t('docs.filterLabel', 'تصفية')}:</span>
+
+        {facetValues.categories.length > 0 &&
+          renderPillGroup(facetValues.categories, selectedCategories, (v) =>
+            setSelectedCategories((prev) => toggleIn(prev, v))
+          )}
+
+        {facetValues.languages.length > 0 && facetValues.categories.length > 0 && (
+          <span className="w-px h-4 bg-border-strong" aria-hidden />
         )}
+        {facetValues.languages.length > 0 &&
+          renderPillGroup(
+            facetValues.languages,
+            selectedLanguages,
+            (v) => setSelectedLanguages((prev) => toggleIn(prev, v)),
+            (v) => languageName(v)
+          )}
+
+        {facetValues.authors.length > 0 && (
+          <>
+            <span className="w-px h-4 bg-border-strong" aria-hidden />
+            {renderPillGroup(facetValues.authors, selectedAuthors, (v) =>
+              setSelectedAuthors((prev) => toggleIn(prev, v))
+            )}
+          </>
+        )}
+
+        <details className="relative">
+          <summary
+            className={`${PILL_OFF} cursor-pointer list-none [&::-webkit-details-marker]:hidden ${
+              dateFrom || dateTo ? '!border-accent/40 !text-accent-2 !bg-accent-soft' : ''
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18" />
+            </svg>
+            {t('docs.uploadDate', 'تاريخ الرفع')}
+          </summary>
+          <div className="absolute z-20 mt-2 end-0 w-60 bg-card border border-border rounded-[14px] p-3 shadow-[0_12px_36px_-12px_rgba(0,0,0,0.5)] space-y-3">
+            <label className="block">
+              <span className="block text-[11px] text-text-3 mb-1.5">{t('docs.from', 'من')}</span>
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={DATE_INPUT_CLASS} />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] text-text-3 mb-1.5">{t('docs.to', 'إلى')}</span>
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={DATE_INPUT_CLASS} />
+            </label>
+          </div>
+        </details>
       </div>
-
-      <FacetList
-        label={t('docs.categories', 'العلم')}
-        values={facetValues.categories}
-        selected={selectedCategories}
-        onToggle={(v) => setSelectedCategories((prev) => toggleIn(prev, v))}
-      />
-
-      {showLanguageFacet && (
-        <div>
-          <div className={`${SECTION_EYEBROW_CLASS} mb-3`}>{t('docs.language', 'اللغة')}</div>
-          <div className="flex flex-wrap gap-1.5">
-            {facetValues.languages.slice(0, TOP_FACETS).map((lang) => {
-              const on = selectedLanguages.includes(lang);
-              return (
-                <button
-                  key={lang}
-                  onClick={() => setSelectedLanguages((prev) => toggleIn(prev, lang))}
-                  className={on ? PILL_ON : PILL_OFF}
-                  title={lang.toUpperCase()}
-                >
-                  {languageName(lang)}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {showMetaFacets && (
-        <div>
-          <div className={`${SECTION_EYEBROW_CLASS} mb-3`}>{t('docs.meta.century', 'القرن')}</div>
-          <div className="flex flex-wrap gap-1.5">
-            {centuries.slice(0, TOP_FACETS).map((c) => {
-              const on = selectedCentury === c;
-              return (
-                <button
-                  key={c}
-                  onClick={() => setSelectedCentury(on ? null : c)}
-                  className={on ? PILL_ON : PILL_OFF}
-                >
-                  {t('docs.meta.centuryLabel', 'ق {n}', { n: toLocaleDigits(c, locale) })}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {showMetaFacets && (
-        <div>
-          <div className={`${SECTION_EYEBROW_CLASS} mb-3`}>{t('docs.meta.era', 'العصر')}</div>
-          <div className="flex flex-wrap gap-1.5">
-            {(['classical', 'modern'] as const).map((era) => {
-              const labels: Record<typeof era, string> = {
-                classical: t('docs.meta.era.classical', 'كلاسيكي'),
-                modern: t('docs.meta.era.modern', 'حديث'),
-              };
-              const on = selectedEra === era;
-              return (
-                <button
-                  key={era}
-                  onClick={() => setSelectedEra(on ? '' : era)}
-                  className={on ? PILL_ON : PILL_OFF}
-                >
-                  {labels[era]}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <FacetList
-        label={t('docs.authors', 'المؤلفون')}
-        values={facetValues.authors}
-        selected={selectedAuthors}
-        onToggle={(v) => setSelectedAuthors((prev) => toggleIn(prev, v))}
-      />
-
-      <details className="group">
-        <summary className="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer text-[11px] tracking-[0.18em] uppercase text-accent font-medium hover:text-accent-2 transition-colors">
-          <span>{t('docs.uploadDate', 'تاريخ الرفع')}</span>
-          <svg className="w-3 h-3 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </summary>
-        <div className="mt-3 space-y-3">
-          <label className="block">
-            <span className="block text-[11px] text-text-3 mb-1.5">{t('docs.from', 'من')}</span>
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={DATE_INPUT_CLASS} />
-          </label>
-          <label className="block">
-            <span className="block text-[11px] text-text-3 mb-1.5">{t('docs.to', 'إلى')}</span>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={DATE_INPUT_CLASS} />
-          </label>
-        </div>
-      </details>
-    </div>
-  );
+    );
+  };
 
   const renderActiveChips = () => {
     if (!hasActiveFilters) return null;
@@ -519,26 +417,27 @@ export default function DocumentsPage() {
         {selectedAuthors.map((a) => (
           <ActiveChip key={a} label={t('docs.filter.author', 'مؤلف')} value={a} onRemove={() => setSelectedAuthors((prev) => prev.filter((x) => x !== a))} />
         ))}
-        {selectedCentury !== null && (
-          <ActiveChip
-            label={t('docs.meta.century', 'القرن')}
-            value={t('docs.meta.centuryLabel', 'ق {n}', { n: toLocaleDigits(selectedCentury, locale) })}
-            onRemove={() => setSelectedCentury(null)}
-          />
-        )}
-        {selectedEra && (
-          <ActiveChip
-            label={t('docs.meta.era', 'العصر')}
-            value={selectedEra === 'classical' ? t('docs.meta.era.classical', 'كلاسيكي') : t('docs.meta.era.modern', 'حديث')}
-            onRemove={() => setSelectedEra('')}
-          />
-        )}
         {(dateFrom || dateTo) && (
           <ActiveChip label={t('docs.filter.date', 'تاريخ')} value={`${dateFrom || '…'} — ${dateTo || '…'}`} onRemove={() => { setDateFrom(''); setDateTo(''); }} />
         )}
         <button onClick={clearFilters} className="text-[12px] text-accent-2 hover:text-text transition-colors px-2 py-1">
           {t('docs.clearAll', 'مسح الكل')}
         </button>
+      </div>
+    );
+  };
+
+  const renderLegend = () => {
+    if (!showLegend) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-5 text-[11.5px] text-text-3">
+        <span className="text-accent">{t('docs.legend.title', 'الألوان حسب الفئة')}:</span>
+        {legend.map((e) => (
+          <span key={e.key} className="inline-flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: e.color }} aria-hidden />
+            <span dir="auto">{e.label || t('docs.legend.other', 'غير مصنّف')}</span>
+          </span>
+        ))}
       </div>
     );
   };
@@ -619,225 +518,311 @@ export default function DocumentsPage() {
     </div>
   );
 
+  const renderDocs = (docs: Document[]): ReactNode => {
+    if (viewMode === 'list') {
+      return (
+        <div className="flex flex-col gap-3">
+          {docs.map((doc) => (
+            <BookListRow key={doc.id} document={doc} />
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        {docs.map((doc) => (
+          <BookCard key={doc.id} document={doc} progressPercent={progressByDoc.get(doc.id)} />
+        ))}
+      </div>
+    );
+  };
+
+  const renderGroup = (title: string, docs: Document[]) => {
+    if (docs.length === 0) return null;
+    return (
+      <section className="mb-10">
+        <div className="mb-4 flex items-baseline gap-2.5">
+          <h2 className="font-reem-kufi font-semibold text-[clamp(18px,2vw,22px)] leading-[1.15] text-text">{title}</h2>
+          <span className="text-[12px] text-text-3">{formatCount(docs.length)}</span>
+        </div>
+        {renderDocs(docs)}
+      </section>
+    );
+  };
+
+  const renderShelf = (docs: Document[]) => (
+    <div className="pb-1">
+      <div className="flex flex-wrap items-end gap-1.5 pb-3 border-b-[3px] border-[var(--warm-deep)]/40 shadow-[0_10px_20px_-16px_rgba(0,0,0,0.7)]">
+        {docs.map((doc) => (
+          <BookSpine key={doc.id} document={doc} progressPercent={progressByDoc.get(doc.id)} />
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderLoadMore = () => (
+    <div className="mt-10 flex flex-col items-center gap-2.5">
+      {hasNext ? (
+        <button
+          onClick={loadMore}
+          disabled={isLoadingMore}
+          className="inline-flex items-center gap-2 px-6 py-3 text-[13.5px] rounded-full border border-border-strong text-text bg-card hover:bg-bg-2 hover:border-accent transition-all disabled:opacity-60"
+        >
+          {isLoadingMore ? (
+            <span className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+          )}
+          {t('docs.loadMore', 'عرض المزيد')}
+        </button>
+      ) : (
+        <span className="text-[12px] text-text-3">{t('docs.endOfResults', 'انتهت النتائج')}</span>
+      )}
+      <span className="text-[11.5px] text-text-3 tracking-wide">
+        {t('docs.loadMoreProgress', '{shown} من {total}', {
+          shown: formatCount(accumulated.length),
+          total: formatCount(totalCount),
+        })}
+      </span>
+    </div>
+  );
+
+  const segments: { key: StatusSegment; label: string; count: number }[] = [
+    { key: 'all', label: t('docs.segment.all', 'الكل'), count: totalCount },
+    { key: 'ready', label: t('docs.segment.ready', 'جاهزة'), count: statusCounts.ready },
+    { key: 'processing', label: t('docs.segment.processing', 'قيد المعالجة'), count: statusCounts.processing },
+  ];
+
+  const emptyLibrary = !isLoading && !error && totalCount === 0 && !hasActiveFilters;
+
   return (
     <RequireAuth>
       <main className="landing-shell min-h-screen">
         <div className="mx-auto max-w-[1280px] px-6 sm:px-10 lg:px-16 relative z-10">
-          {initialLoading ? (
-            <div className="pt-10 sm:pt-14 pb-7 border-b border-border">
-              <div className="h-12 w-72 rounded-[8px] bg-card animate-pulse" />
-              <div className="mt-4 h-4 w-96 max-w-full rounded-[6px] bg-card animate-pulse" />
+          {/* ─── Slim header ─── */}
+          <section className="pt-10 sm:pt-14 pb-6 border-b border-border">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+              <div className="min-w-0">
+                <h1
+                  className="font-reem-kufi font-semibold text-text leading-[1.05] tracking-tight"
+                  style={{ fontSize: 'clamp(26px, 2.8vw, 38px)' }}
+                >
+                  {t('nav.app.library', 'مكتبتي')}
+                </h1>
+                {initialLoading ? (
+                  <div className="mt-3 h-4 w-72 max-w-full rounded-[6px] bg-card animate-pulse" />
+                ) : totalCount > 0 ? (
+                  <p className="mt-2 text-[13px] text-text-2">
+                    {t('docs.header.counts', '{total} مستندات · {ready} جاهزة · {processing} قيد المعالجة', {
+                      total: formatCount(totalCount),
+                      ready: formatCount(statusCounts.ready),
+                      processing: formatCount(statusCounts.processing),
+                    })}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex-shrink-0">
+                <Link
+                  href={localizedPath('/upload')}
+                  className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-accent-2 to-accent text-white text-[13.5px] font-medium px-5 h-11 shadow-[0_4px_20px_-4px_rgba(185,115,64,0.45),inset_0_1px_0_rgba(255,255,255,0.22)] hover:-translate-y-[1px] hover:shadow-[0_10px_30px_-6px_rgba(185,115,64,0.6),inset_0_1px_0_rgba(255,255,255,0.28)] transition-all"
+                >
+                  <UploadIcon />
+                  {t('nav.app.uploadBook', 'رفع كتاب')}
+                </Link>
+              </div>
+            </div>
+          </section>
+
+          {emptyLibrary ? (
+            <div className="py-20 text-center">
+              <h2 className="font-reem-kufi font-semibold text-[clamp(22px,2.6vw,32px)] text-text mb-3">
+                {t('docs.hero.empty.headline', 'ابدأ مكتبتك.')}
+              </h2>
+              <p className="text-[14px] text-text-2 mb-7 max-w-md mx-auto leading-[1.8]">
+                {t('docs.hero.empty.subtext', 'ارفع كتابك الأوّل لتبدأ القراءة مع علم.')}
+              </p>
+              <Link
+                href={localizedPath('/upload')}
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-accent-2 to-accent text-white text-[13.5px] font-medium px-5 h-11 shadow-[0_4px_20px_-4px_rgba(185,115,64,0.45)] transition-all"
+              >
+                <UploadIcon />
+                {t('docs.hero.empty.cta', 'ارفع كتابك الأوّل')}
+              </Link>
             </div>
           ) : (
-            <LibraryHero count={totalCount} topicsCount={facetValues.categories.length} />
-          )}
-
-          {totalCount > 0 && (
-            <div className="pt-10">
-              <FadeIn delay={0.05}>
-                <ContinueShelf />
-              </FadeIn>
-
-              <FadeIn delay={0.1}>
-                <LibraryTopicShortcuts topics={topicShortcuts} onSelect={handleTopicSelect} />
-              </FadeIn>
-
-              <section ref={zoneCRef} className="scroll-mt-24">
-                <div className="mb-6 flex items-end justify-between gap-4">
-                  <div>
-                    <span className={SECTION_EYEBROW_CLASS}>{t('docs.zoneC.eyebrow', 'كل ما لديك')}</span>
-                    <h2 className="mt-2 font-reem-kufi font-semibold text-[clamp(22px,2.4vw,28px)] leading-[1.15] text-text">
-                      {t('docs.zoneC.title', 'كامل مكتبتك')}
-                    </h2>
-                  </div>
-                </div>
-
-                <form onSubmit={submitSearch} className="mb-6 max-w-xl">
-                  <div className="relative">
-                    <svg
-                      className="absolute top-1/2 -translate-y-1/2 start-3 w-4 h-4 text-text-3 pointer-events-none"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      aria-hidden
-                    >
-                      <circle cx="11" cy="11" r="7" />
-                      <path d="m21 21-4.3-4.3" />
-                    </svg>
-                    <input
-                      type="text"
-                      value={searchDraft}
-                      onChange={(e) => setSearchDraft(e.target.value)}
-                      placeholder={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
-                      dir="auto"
-                      aria-label={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
-                      className={SEARCH_INPUT_CLASS}
-                    />
-                  </div>
-                </form>
-
-                <div className="flex flex-col lg:flex-row gap-6">
-                  <button
-                    onClick={() => setShowMobileFilters((v) => !v)}
-                    className="lg:hidden inline-flex items-center justify-center gap-2 px-4 py-3 text-[13px] rounded-[14px] border border-border-strong text-text bg-card hover:bg-bg-2 hover:border-accent transition-all"
+            <div className="pt-8">
+              {/* Search */}
+              <form onSubmit={submitSearch} className="mb-5 max-w-xl">
+                <div className="relative">
+                  <svg
+                    className="absolute top-1/2 -translate-y-1/2 start-3 w-4 h-4 text-text-3 pointer-events-none"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    aria-hidden
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                    </svg>
-                    {showMobileFilters ? t('docs.hideFilters', 'إخفاء المرشحات') : t('docs.showFilters', 'إظهار المرشحات')}
-                    {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-accent" aria-hidden />}
-                  </button>
-
-                  <aside className={`lg:w-72 flex-shrink-0 ${showMobileFilters ? 'block' : 'hidden lg:block'}`}>
-                    <div className="bg-card border border-border rounded-[22px] p-6 lg:sticky lg:top-[80px]">
-                      {renderFacetSection()}
-                    </div>
-                  </aside>
-
-                  <section className="flex-1 min-w-0">
-                    {renderActiveChips()}
-
-                    {!isLoading && accumulated.length > 0 && (
-                      <p className="mb-5 inline-flex items-center gap-2 text-[12.5px] text-text-3 font-fraunces">
-                        <span className="text-accent" aria-hidden>✦</span>
-                        {summarySentence}
-                      </p>
-                    )}
-
-                    {!isLoading && !error && shownCount > 0 && effectiveSearch && renderRefineBar()}
-
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-                      <div className="flex items-center gap-2">
-                        <label className="text-[11.5px] tracking-[0.12em] uppercase text-text-3">
-                          {t('docs.sort.label', 'الترتيب')}
-                        </label>
-                        <select
-                          value={sort}
-                          onChange={(e) => setSort(e.target.value as SortKey)}
-                          className="px-3 py-2 text-[12.5px] font-fraunces bg-card border border-border-strong rounded-[10px] focus:border-accent outline-none text-text cursor-pointer transition-all"
-                        >
-                          <option value="relevance">{t('docs.sort.relevance', 'الأكثر صلة')}</option>
-                          <option value="newest">{t('docs.sort.newest', 'الأحدث')}</option>
-                          <option value="alphabetical">{t('docs.sort.alphabetical', 'أبجدي')}</option>
-                          <option value="shortest">{t('docs.sort.shortest', 'الأقصر أولًا')}</option>
-                        </select>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        {!isLoading && !error && (
-                          <span className="text-[11.5px] tracking-wide text-text-3">
-                            {t('docs.loadMoreProgress', '{shown} من {total}', {
-                              shown: formatCount(accumulated.length),
-                              total: formatCount(totalCount),
-                            })}
-                          </span>
-                        )}
-                        <div className="flex items-center gap-1 p-1 bg-card border border-border rounded-[12px]">
-                          <button
-                            onClick={() => setViewMode('grid')}
-                            aria-pressed={viewMode === 'grid'}
-                            aria-label={t('docs.grid', 'عرض شبكي')}
-                            title={t('docs.grid', 'عرض شبكي')}
-                            className={`p-1.5 rounded-[8px] transition-all ${
-                              viewMode === 'grid'
-                                ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
-                                : 'text-text-3 hover:text-text'
-                            }`}
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h6v6H4zM14 6h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => setViewMode('list')}
-                            aria-pressed={viewMode === 'list'}
-                            aria-label={t('docs.list', 'عرض قائمة')}
-                            title={t('docs.list', 'عرض قائمة')}
-                            className={`p-1.5 rounded-[8px] transition-all ${
-                              viewMode === 'list'
-                                ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
-                                : 'text-text-3 hover:text-text'
-                            }`}
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {error ? (
-                      <div className="bg-card border border-red-500/30 rounded-[22px] p-8 text-center">
-                        <p className="text-red-700 mb-4 text-[14px]">{error}</p>
-                        <button onClick={retry} className="btn-primary !text-[13px]">
-                          {t('docs.tryAgain', 'إعادة المحاولة')}
-                        </button>
-                      </div>
-                    ) : isLoading ? (
-                      <div
-                        className={
-                          viewMode === 'grid'
-                            ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4'
-                            : 'flex flex-col gap-3'
-                        }
-                      >
-                        {Array.from({ length: 8 }).map((_, i) => (
-                          <BookCardSkeleton key={i} variant={viewMode} />
-                        ))}
-                      </div>
-                    ) : shownCount === 0 ? (
-                      renderEmptyResults()
-                    ) : (
-                      <>
-                        {viewMode === 'grid' ? (
-                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                            {filteredSorted.map((doc) => (
-                              <BookCard key={doc.id} document={doc} />
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-3">
-                            {filteredSorted.map((doc) => (
-                              <BookListRow key={doc.id} document={doc} />
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="mt-10 flex flex-col items-center gap-2.5">
-                          {hasNext ? (
-                            <button
-                              onClick={loadMore}
-                              disabled={isLoadingMore}
-                              className="inline-flex items-center gap-2 px-6 py-3 text-[13.5px] rounded-full border border-border-strong text-text bg-card hover:bg-bg-2 hover:border-accent transition-all disabled:opacity-60"
-                            >
-                              {isLoadingMore ? (
-                                <span className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                              ) : (
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                                </svg>
-                              )}
-                              {t('docs.loadMore', 'عرض المزيد')}
-                            </button>
-                          ) : (
-                            <span className="text-[12px] text-text-3">
-                              {t('docs.endOfResults', 'انتهت النتائج')}
-                            </span>
-                          )}
-                          <span className="text-[11.5px] text-text-3 tracking-wide">
-                            {t('docs.loadMoreProgress', '{shown} من {total}', {
-                              shown: formatCount(accumulated.length),
-                              total: formatCount(totalCount),
-                            })}
-                          </span>
-                        </div>
-                      </>
-                    )}
-                  </section>
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m21 21-4.3-4.3" />
+                  </svg>
+                  <input
+                    type="text"
+                    value={searchDraft}
+                    onChange={(e) => setSearchDraft(e.target.value)}
+                    placeholder={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
+                    dir="auto"
+                    aria-label={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
+                    className={SEARCH_INPUT_CLASS}
+                  />
                 </div>
-              </section>
+              </form>
+
+              {/* Status segments */}
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                {segments.map((s) => (
+                  <button
+                    key={s.key}
+                    onClick={() => setStatusSegment(s.key)}
+                    aria-pressed={statusSegment === s.key}
+                    className={statusSegment === s.key ? PILL_ON : PILL_OFF}
+                  >
+                    {s.label}
+                    <span className="text-text-3">{formatCount(s.count)}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Inline filters */}
+              {renderFilterRow()}
+
+              {/* Active chips */}
+              {renderActiveChips()}
+
+              {/* Legend */}
+              {renderLegend()}
+
+              {/* AI refine */}
+              {!isLoading && !error && shownCount > 0 && effectiveSearch && renderRefineBar()}
+
+              {/* Toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+                <div className="flex items-center gap-2">
+                  <label className="text-[11.5px] tracking-[0.12em] uppercase text-text-3">
+                    {t('docs.sort.label', 'الترتيب')}
+                  </label>
+                  <select
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value as SortKey)}
+                    className="px-3 py-2 text-[12.5px] font-fraunces bg-card border border-border-strong rounded-[10px] focus:border-accent outline-none text-text cursor-pointer transition-all"
+                  >
+                    <option value="relevance">{t('docs.sort.relevance', 'الأكثر صلة')}</option>
+                    <option value="newest">{t('docs.sort.newest', 'الأحدث')}</option>
+                    <option value="alphabetical">{t('docs.sort.alphabetical', 'أبجدي')}</option>
+                    <option value="shortest">{t('docs.sort.shortest', 'الأقصر أولًا')}</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {!isLoading && !error && (
+                    <span className="text-[11.5px] tracking-wide text-text-3">
+                      {t('docs.loadMoreProgress', '{shown} من {total}', {
+                        shown: formatCount(accumulated.length),
+                        total: formatCount(totalCount),
+                      })}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-1 p-1 bg-card border border-border rounded-[12px]">
+                    <button
+                      onClick={() => setViewMode('grid')}
+                      aria-pressed={viewMode === 'grid'}
+                      aria-label={t('docs.grid', 'عرض شبكي')}
+                      title={t('docs.grid', 'عرض شبكي')}
+                      className={`p-1.5 rounded-[8px] transition-all ${
+                        viewMode === 'grid'
+                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
+                          : 'text-text-3 hover:text-text'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h6v6H4zM14 6h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => setViewMode('list')}
+                      aria-pressed={viewMode === 'list'}
+                      aria-label={t('docs.list', 'عرض قائمة')}
+                      title={t('docs.list', 'عرض قائمة')}
+                      className={`p-1.5 rounded-[8px] transition-all ${
+                        viewMode === 'list'
+                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
+                          : 'text-text-3 hover:text-text'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => setViewMode('shelf')}
+                      aria-pressed={viewMode === 'shelf'}
+                      aria-label={t('docs.view.shelf', 'عرض الرف')}
+                      title={t('docs.view.shelf', 'عرض الرف')}
+                      className={`p-1.5 rounded-[8px] transition-all ${
+                        viewMode === 'shelf'
+                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
+                          : 'text-text-3 hover:text-text'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v16M9 4v16M14 5l3 15M19 4v16" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Body */}
+              {error ? (
+                <div className="bg-card border border-red-500/30 rounded-[22px] p-8 text-center">
+                  <p className="text-red-700 mb-4 text-[14px]">{error}</p>
+                  <button onClick={retry} className="btn-primary !text-[13px]">
+                    {t('docs.tryAgain', 'إعادة المحاولة')}
+                  </button>
+                </div>
+              ) : isLoading ? (
+                <div
+                  className={
+                    viewMode === 'list'
+                      ? 'flex flex-col gap-3'
+                      : 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4'
+                  }
+                >
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <BookCardSkeleton key={i} variant={viewMode === 'list' ? 'list' : 'grid'} />
+                  ))}
+                </div>
+              ) : shownCount === 0 ? (
+                renderEmptyResults()
+              ) : (
+                <>
+                  {grouped ? (
+                    <>
+                      <ContinueShelf />
+                      {renderGroup(t('docs.group.processing', 'قيد المعالجة'), processingDocs)}
+                      {renderGroup(t('docs.group.all', t('docs.zoneC.title', 'كامل مكتبتك')), readyDocs)}
+                    </>
+                  ) : viewMode === 'shelf' ? (
+                    renderShelf(flatDocs)
+                  ) : (
+                    renderDocs(flatDocs)
+                  )}
+
+                  {renderLoadMore()}
+                </>
+              )}
             </div>
           )}
         </div>
