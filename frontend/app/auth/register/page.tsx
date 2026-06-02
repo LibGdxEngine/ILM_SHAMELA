@@ -111,13 +111,13 @@ export default function RegisterPage() {
 
   return (
     <div
-      className={`auth-shell ${fraunces.variable} ${amiri.variable} ${manropeFont.variable} min-h-screen w-full grid lg:grid-cols-2`}
+      className={`auth-shell ${fraunces.variable} ${amiri.variable} ${manropeFont.variable} min-h-screen w-full flex flex-col lg:flex-row lg:justify-end lg:gap-16 p-6 lg:p-12`}
     >
       <motion.aside
         variants={leftPanel}
         initial="hidden"
         animate="show"
-        className="auth-left hidden lg:flex flex-col justify-between p-12 relative overflow-hidden"
+        className="auth-left hidden lg:flex lg:w-1/2 flex-col justify-between p-12 relative overflow-hidden"
       >
         <div className="auth-left-stars absolute inset-0 pointer-events-none opacity-40" />
 
@@ -167,7 +167,7 @@ export default function RegisterPage() {
         </div>
       </motion.aside>
 
-      <main className="auth-right flex flex-col px-6 sm:px-10 lg:px-16 py-10 lg:py-12 relative">
+      <main className="auth-right flex flex-col lg:w-1/2 px-6 sm:px-10 lg:px-16 py-10 lg:py-12 relative">
         <motion.div
           variants={stagger}
           initial="hidden"

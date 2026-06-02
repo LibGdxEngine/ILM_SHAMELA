@@ -34,6 +34,10 @@ export default function SearchResultsList({
     <div className="min-h-0 space-y-3 overflow-y-auto pe-1" role="listbox" aria-label="Search results">
       {results.map((match, index) => {
         const isActive = index === activeIndex;
+        // A match is "exact" when the lexical engine matched the query text on
+        // the page; otherwise it was surfaced by meaning only ("related"), which
+        // is why such a page may show no on-page highlight.
+        const isExact = match.score_lexical != null && match.score_lexical > 0;
         return (
           <button
             key={`${match.page_number}-${index}`}
@@ -54,6 +58,17 @@ export default function SearchResultsList({
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
               <span className="rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent-2">
                 {t('reader.pageLabel', 'Page {page}', { page: match.page_number })}
+              </span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                  isExact
+                    ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
+                    : 'border border-sky-500/30 bg-sky-500/10 text-sky-600'
+                }`}
+              >
+                {isExact
+                  ? t('reader.matchExact', 'Exact')
+                  : t('reader.matchRelated', 'Related')}
               </span>
               {match.score_semantic != null && (
                 <span

@@ -2,11 +2,12 @@
 FROM node:24-alpine AS deps
 WORKDIR /app
 
-# Copy package files
-COPY package.json ./
+# Copy package files (lockfile included so installs are deterministic;
+# without it npm re-resolves and can pick broken/yanked transitive versions).
+COPY package.json package-lock.json* ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies from the lockfile
+RUN npm ci
 
 # Stage 2: Builder
 FROM node:24-alpine AS builder

@@ -7,8 +7,6 @@ import { useI18n } from '@/components/i18n/I18nProvider';
 import { Document } from '@/lib/api';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 
-import { useReaderShell } from './ReaderShell';
-
 interface ReaderHeaderProps {
   document: Document;
   currentPage: number;
@@ -44,7 +42,6 @@ export default function ReaderHeader({
 }: ReaderHeaderProps) {
   const { t } = useI18n();
   const localizedPath = useLocalizedPath();
-  const { assistantCollapsed, toggleAssistant } = useReaderShell();
 
   const breadcrumbTail = useMemo(() => {
     const parts: string[] = [t('reader.breadcrumb.library', 'Library')];
@@ -127,14 +124,6 @@ export default function ReaderHeader({
             onClick={onOpenMore}
           >
             <MoreIcon />
-          </IconButton>
-
-          <IconButton
-            label={t('reader.header.assistant', 'AI assistant')}
-            onClick={toggleAssistant}
-            active={!assistantCollapsed}
-          >
-            <AssistantIcon />
           </IconButton>
         </div>
       </div>
@@ -232,10 +221,3 @@ function MoreIcon() {
   );
 }
 
-function AssistantIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2l2.39 4.84L20 8l-4 3.9.94 5.47L12 14.77l-4.94 2.6L8 11.9 4 8l5.61-1.16L12 2z" />
-    </svg>
-  );
-}

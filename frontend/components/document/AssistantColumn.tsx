@@ -57,7 +57,8 @@ const AssistantColumn = forwardRef<AssistantColumnHandle, AssistantColumnProps>(
             className="rounded-md p-2 text-text-2 transition-colors hover:bg-accent-soft hover:text-accent"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 2l2.39 4.84L20 8l-4 3.9.94 5.47L12 14.77l-4.94 2.6L8 11.9 4 8l5.61-1.16L12 2z" />
+              <polyline points="15 18 9 12 15 6" className="rtl:hidden" />
+              <polyline points="9 18 15 12 9 6" className="hidden rtl:block" />
             </svg>
           </button>
         </div>
@@ -85,24 +86,13 @@ const AssistantColumn = forwardRef<AssistantColumnHandle, AssistantColumnProps>(
           <div className="flex items-center gap-1">
             <button
               type="button"
-              aria-label={t('assistant.action.newConversation', 'New conversation')}
-              onClick={() => void chat.startNewSession()}
-              disabled={chat.isStreaming}
-              className="rounded-md p-1.5 text-text-3 transition-colors hover:bg-accent-soft hover:text-accent disabled:opacity-40"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
-            <button
-              type="button"
               aria-label={t('assistant.collapse', 'Collapse AI assistant')}
               onClick={toggleAssistant}
               className="rounded-md p-1.5 text-text-3 transition-colors hover:bg-accent-soft hover:text-accent"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="15 18 9 12 15 6" className="rtl:hidden" />
-                <polyline points="9 18 15 12 9 6" className="hidden rtl:block" />
+                <polyline points="9 18 15 12 9 6" className="rtl:hidden" />
+                <polyline points="15 18 9 12 15 6" className="hidden rtl:block" />
               </svg>
             </button>
           </div>

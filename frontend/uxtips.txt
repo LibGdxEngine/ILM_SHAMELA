@@ -1,0 +1,50 @@
+Make the search bar the primary focus of the page.
+Show the total results count at all times.
+Display active filters as removable chips.
+Provide a visible "Clear All Filters" action.
+Make Author multi-select searchable.
+Make Category multi-select searchable.
+Show counts beside filter options (e.g., Tolkien (42)).
+Use segmented buttons for Processing Status instead of a dropdown.
+Show counts for each status option.
+Apply filters instantly when possible (avoid unnecessary Apply buttons).
+Place sorting controls near the results count.
+Use clear sort labels (e.g., "Recently Added" instead of "Newest").
+Group filters by importance and frequency of use.
+Keep frequently used filters near the top.
+Persist search and filter state in the URL.
+Preserve filters when refreshing the page.
+Support browser back/forward navigation correctly.
+Use a sticky filter sidebar on desktop.
+Use a filter drawer or bottom sheet on mobile.
+Show the number of active filters on mobile (e.g., Filters (3)).
+Use searchable dropdowns for large filter lists.
+Support selecting multiple authors at once.
+Allow quick deselection of individual filters.
+Use clear section headings for each filter group.
+Visually separate Search, Filters, and Sorting.
+Use meaningful filter labels (e.g., "Added to Library" instead of "Date").
+Show loading feedback while searching/filtering.
+Debounce search input to avoid excessive requests.
+Highlight matched terms in search results.
+Search across title, author, category, ISBN, and content when possible.
+Support keyboard navigation for all filters.
+Make selected filter states highly visible.
+Keep filter interactions consistent across all filter types.
+Show helpful empty states when no results are found.
+Suggest removing filters when results are empty.
+Keep spacing generous to reduce visual clutter.
+Avoid overwhelming users with too many visible controls at once.
+Make filter controls easy to scan visually.
+Use badges/chips rather than hidden selections in dropdowns.
+Ensure filter changes feel fast and responsive.
+Show the current sort order clearly.
+Maintain filter state when navigating away and back.
+Allow clearing a filter with a single click.
+Use progressive disclosure for advanced filters if needed.
+Optimize the interface for both large and small datasets.
+Display counts before users open a filter when possible.
+Keep status filters accessible with one click.
+Make the search field always visible while browsing.
+Design for mobile-first filter accessibility.
+Reduce the number of clicks required to reach a desired result.

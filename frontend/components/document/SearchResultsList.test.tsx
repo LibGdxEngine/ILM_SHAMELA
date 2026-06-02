@@ -4,7 +4,7 @@ import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 
 import SearchResultsList from './SearchResultsList';
-import SearchToolPanel from './SearchToolPanel';
+import SearchFindBar from './SearchFindBar';
 import type { DocumentSearchMatch, DocumentSearchResponse } from '@/lib/api';
 
 vi.mock('@/components/i18n/I18nProvider', () => ({
@@ -57,7 +57,7 @@ describe('SearchResultsList', () => {
   });
 });
 
-// Harness around SearchToolPanel that gives us keyboard navigation verification.
+// Harness around SearchFindBar that gives us keyboard navigation verification.
 function SearchHarness({
   matches,
   onGoToPage,
@@ -72,17 +72,18 @@ function SearchHarness({
     query,
   };
   return (
-    <SearchToolPanel
+    <SearchFindBar
       query={query}
       isSearching={false}
       searchResults={response}
       onQueryChange={setQuery}
       onGoToPage={onGoToPage}
+      onClose={() => {}}
     />
   );
 }
 
-describe('SearchToolPanel keyboard navigation', () => {
+describe('SearchFindBar keyboard navigation', () => {
   it('ArrowDown moves active index and Enter fires onGoToPage with the right page', async () => {
     const onGoToPage = vi.fn();
     const matches = [makeMatch(1, 'alpha'), makeMatch(4, 'beta'), makeMatch(7, 'gamma')];
