@@ -7,7 +7,7 @@ function getApiBaseUrl(): string {
   if (typeof window !== 'undefined') {
     return ''; // Empty string means relative URLs
   }
-  
+
   // For server-side rendering, use the env var or fallback
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
   return envUrl || 'http://localhost:8000';
@@ -21,12 +21,12 @@ const API_BASE_URL = getApiBaseUrl();
  */
 export function normalizeMediaUrl(url: string | null | undefined): string | null {
   if (!url) return null;
-  
+
   // If it's already a relative URL or data URL, return as-is
   if (url.startsWith('/') || url.startsWith('data:')) {
     return url;
   }
-  
+
   // If it's an absolute URL pointing to the backend, convert to relative
   try {
     const urlObj = new URL(url);
@@ -46,7 +46,7 @@ export function normalizeMediaUrl(url: string | null | undefined): string | null
     // If URL parsing fails, return as-is
     console.warn('Failed to parse URL:', url, e);
   }
-  
+
   return url;
 }
 
@@ -220,10 +220,10 @@ export interface SearchSuggestionsResponse {
  */
 export async function getAuthors(search?: string): Promise<AuthorsListResponse> {
   const basePath = '/api/search_engine/authors/';
-  const url = API_BASE_URL 
+  const url = API_BASE_URL
     ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
     : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-  
+
   if (search) {
     url.searchParams.append('search', search);
   }
@@ -249,10 +249,10 @@ export async function getAuthors(search?: string): Promise<AuthorsListResponse> 
  */
 export async function getCategories(search?: string): Promise<CategoriesListResponse> {
   const basePath = '/api/search_engine/categories/';
-  const url = API_BASE_URL 
+  const url = API_BASE_URL
     ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
     : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-  
+
   if (search) {
     url.searchParams.append('search', search);
   }
@@ -367,7 +367,7 @@ export async function uploadDocument(
     });
 
     // Construct URL - use relative if API_BASE_URL is empty
-    const uploadUrl = API_BASE_URL 
+    const uploadUrl = API_BASE_URL
       ? `${API_BASE_URL}${API_BASE_URL.endsWith('/') ? '' : '/'}api/search_engine/documents/`
       : '/api/search_engine/documents/';
     xhr.open('POST', uploadUrl);
@@ -399,7 +399,7 @@ export async function searchDocuments(query: string): Promise<SearchResponse> {
 
   // Use relative URL if API_BASE_URL is empty, otherwise construct full URL
   const basePath = '/api/search_engine/documents/search/';
-  const url = API_BASE_URL 
+  const url = API_BASE_URL
     ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
     : new URL(basePath, window.location.origin);
   url.searchParams.append('q', query);
@@ -425,10 +425,10 @@ export async function searchDocuments(query: string): Promise<SearchResponse> {
  */
 export async function getDocuments(params: DocumentsListParams = {}): Promise<DocumentsListResponse> {
   const basePath = '/api/search_engine/documents/';
-  const url = API_BASE_URL 
+  const url = API_BASE_URL
     ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
     : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-  
+
   if (params.page) {
     url.searchParams.append('page', params.page.toString());
   }
@@ -471,10 +471,10 @@ export async function getDocuments(params: DocumentsListParams = {}): Promise<Do
  * Get a single document by ID
  */
 export async function getDocument(id: number): Promise<Document> {
-  const url = API_BASE_URL 
+  const url = API_BASE_URL
     ? `${API_BASE_URL}${API_BASE_URL.endsWith('/') ? '' : '/'}api/search_engine/documents/${id}/`
     : `/api/search_engine/documents/${id}/`;
-  
+
   const response = await fetch(url, {
     method: 'GET',
     headers: {
@@ -500,7 +500,7 @@ export async function getDocumentPages(
   pageSize: number = 1
 ): Promise<DocumentPagesResponse> {
   const basePath = `/api/search_engine/documents/${id}/pages/`;
-  const url = API_BASE_URL 
+  const url = API_BASE_URL
     ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
     : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
   url.searchParams.append('page', page.toString());
@@ -539,7 +539,7 @@ export async function searchInDocument(
   }
 
   const basePath = `/api/search_engine/documents/${id}/search/`;
-  const url = API_BASE_URL 
+  const url = API_BASE_URL
     ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
     : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
   url.searchParams.append('q', query);
@@ -611,6 +611,47 @@ export async function getSearchSuggestions(query: string): Promise<SearchSuggest
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || error.message || 'Failed to fetch suggestions');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get paginated list of documents by author's country (nationality)
+ */
+export async function getDocumentsByCountry(
+  country: string,
+  page: number = 1
+): Promise<DocumentsListResponse> {
+  if (!country.trim()) {
+    return {
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    };
+  }
+
+  const basePath = `/api/search_engine/documents/country/${encodeURIComponent(country)}/`;
+  const url = API_BASE_URL
+    ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
+    : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+
+  if (page > 1) {
+    url.searchParams.append('page', page.toString());
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || error.message || 'Failed to fetch documents by country');
   }
 
   return response.json();

@@ -16,6 +16,8 @@ class Author(models.Model):
         upload_to='authors/photos/', blank=True, null=True, help_text="Author photo")
     description = models.TextField(
         blank=True, null=True, help_text="Author biography/description")
+    nationality = models.CharField(
+        max_length=100, blank=True, null=True, help_text="Nationality of the author")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

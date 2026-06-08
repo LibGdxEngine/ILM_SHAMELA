@@ -724,3 +724,19 @@ class CategoryListView(generics.ListAPIView):
         context = super().get_serializer_context()
         context['request'] = self.request
         return context
+
+class DocumentByCountryView(generics.ListAPIView):
+    """
+    List books (documents) for a specific country (author's nationality),
+    paginated and sorted by author name.
+    """
+    serializer_class = DocumentListSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        country = self.kwargs.get('country')
+        queryset = Document.objects.filter(
+            authors__nationality__iexact=country
+        ).prefetch_related('authors', 'alternate_names', 'categories')
+        
+        return queryset.order_by('authors__name').distinct()
