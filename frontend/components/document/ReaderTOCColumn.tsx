@@ -67,22 +67,8 @@ export default function ReaderTOCColumn({
           onClick={toggleToc}
           className="rounded-md p-2 text-text-2 transition-colors hover:bg-accent-soft hover:text-accent"
         >
-          <ListIcon />
+          <ExpandCaretIcon />
         </button>
-        {TABS.map((entry) => (
-          <button
-            key={entry.key}
-            type="button"
-            aria-label={t(entry.labelKey, entry.fallback)}
-            onClick={() => {
-              setTab(entry.key);
-              toggleToc();
-            }}
-            className="rounded-md p-2 text-text-3 transition-colors hover:bg-accent-soft hover:text-accent"
-          >
-            <TabIcon name={entry.key} />
-          </button>
-        ))}
       </div>
     );
   }
@@ -180,16 +166,6 @@ export default function ReaderTOCColumn({
 
 /* ---------- icons ---------- */
 
-function ListIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <line x1="3" y1="6" x2="21" y2="6" />
-      <line x1="3" y1="12" x2="21" y2="12" />
-      <line x1="3" y1="18" x2="21" y2="18" />
-    </svg>
-  );
-}
-
 function CaretIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -199,35 +175,11 @@ function CaretIcon() {
   );
 }
 
-function TabIcon({ name }: { name: TocTabKey }) {
-  switch (name) {
-    case 'chapters':
-      return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-        </svg>
-      );
-    case 'bookmarks':
-      return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-        </svg>
-      );
-    case 'notes':
-      return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-        </svg>
-      );
-    case 'stats':
-      return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <line x1="18" y1="20" x2="18" y2="10" />
-          <line x1="12" y1="20" x2="12" y2="4" />
-          <line x1="6" y1="20" x2="6" y2="14" />
-        </svg>
-      );
-  }
+function ExpandCaretIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="15 18 9 12 15 6" className="rtl:hidden" />
+      <polyline points="9 18 15 12 9 6" className="hidden rtl:block" />
+    </svg>
+  );
 }

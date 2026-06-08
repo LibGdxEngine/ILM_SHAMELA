@@ -9,6 +9,10 @@ import BookCardSkeleton from '@/components/BookCardSkeleton';
 import RequireAuth from '@/components/RequireAuth';
 import ContinueShelf from '@/components/documents/ContinueShelf';
 import BookSpine from '@/components/documents/BookSpine';
+import FilterSidebar from '@/components/documents/FilterSidebar';
+import ReaderPanel from '@/components/document/ReaderPanel';
+import useMediaQuery from '@/hooks/useMediaQuery';
+import useDebounce from '@/hooks/useDebounce';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLanguageName } from '@/lib/i18n/languageName';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
@@ -16,7 +20,6 @@ import { useContinueReading } from '@/lib/reader/useContinueReading';
 import { legendForDocuments } from '@/lib/coverPalettes';
 import { toLocaleDigits } from '@/lib/utils';
 
-const TOP_FACETS = 7;
 const VIEW_KEY = 'ilm.documents.viewMode';
 const PROGRESS_FETCH_LIMIT = 100;
 
@@ -24,16 +27,8 @@ type SortKey = 'relevance' | 'newest' | 'alphabetical' | 'shortest';
 type ViewMode = 'grid' | 'list' | 'shelf';
 type StatusSegment = 'all' | 'ready' | 'processing';
 
-const SECTION_EYEBROW_CLASS =
-  'text-[11px] tracking-[0.18em] uppercase text-accent font-medium';
-const PILL_BASE =
-  'inline-flex items-center justify-center gap-1.5 px-3 py-1 text-[11.5px] rounded-full border transition-all duration-200';
-const PILL_ON = `${PILL_BASE} bg-accent-soft border-accent/40 text-accent-2`;
-const PILL_OFF = `${PILL_BASE} bg-card border-border-strong text-text-2 hover:border-accent hover:text-accent-2`;
 const SEARCH_INPUT_CLASS =
   'w-full ps-10 pe-3 py-2.5 rounded-[12px] text-[14px] font-fraunces outline-none transition-all bg-card text-text placeholder:text-text-3 focus:border-accent focus:bg-accent-soft/40 focus:shadow-[0_0_0_4px_rgba(185,115,64,0.08)] border border-border';
-const DATE_INPUT_CLASS =
-  'w-full px-3 py-2 rounded-[10px] text-[12.5px] font-fraunces outline-none transition-all bg-card text-text placeholder:text-text-3 focus:border-accent focus:bg-accent-soft/40 focus:shadow-[0_0_0_4px_rgba(185,115,64,0.08)] border border-border';
 
 function UploadIcon() {
   return (
@@ -45,27 +40,8 @@ function UploadIcon() {
   );
 }
 
-function categoryName(c: unknown): string | null {
-  if (!c) return null;
-  if (typeof c === 'string') return c;
-  if (typeof c === 'object' && c !== null && 'name' in c) {
-    const n = (c as { name?: unknown }).name;
-    return typeof n === 'string' ? n : null;
-  }
-  return null;
-}
-
 function isDocReady(d: Document): boolean {
   return d.processing_status ? d.processing_status === 'succeeded' : d.processed;
-}
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState<T>(value);
-  useEffect(() => {
-    const h = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(h);
-  }, [value, delay]);
-  return debounced;
 }
 
 interface PillProps {
@@ -110,6 +86,10 @@ export default function DocumentsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [statusSegment, setStatusSegment] = useState<StatusSegment>('all');
 
+  /* ─── Layout state ─── */
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const isDesktop = useMediaQuery('(min-width: 1024px)', true);
+
   /* ─── Data state ─── */
   const [accumulated, setAccumulated] = useState<Document[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -119,19 +99,82 @@ export default function DocumentsPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /* ─── URL state sync (search, filters, sort, status, view) ─── */
+  const restoredRef = useRef(false);
+
+  const applyFromUrl = useCallback((search: string) => {
+    const p = new URLSearchParams(search);
+    const parseList = (key: string) => {
+      const v = p.get(key);
+      return v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    };
+    const q = p.get('q') ?? '';
+    setSearchQuery(q);
+    setSearchDraft(q);
+    const refine = p.get('refine') ?? '';
+    setRefineText(refine);
+    setRefineDraft(refine);
+    setSelectedAuthors(parseList('authors'));
+    setSelectedCategories(parseList('categories'));
+    setSelectedLanguages(parseList('languages'));
+    setDateFrom(p.get('date_from') ?? '');
+    setDateTo(p.get('date_to') ?? '');
+    const s = p.get('sort');
+    setSort(s === 'newest' || s === 'alphabetical' || s === 'shortest' ? s : 'relevance');
+    const st = p.get('status');
+    setStatusSegment(st === 'ready' || st === 'processing' ? st : 'all');
+    const v = p.get('view');
+    if (v === 'list' || v === 'grid' || v === 'shelf') setViewMode(v);
+  }, []);
+
+  // Restore state from URL (and view preference from localStorage) on mount.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    const q = params.get('q');
-    if (q) {
-      setSearchQuery(q);
-      setSearchDraft(q);
-    }
     const savedView = window.localStorage.getItem(VIEW_KEY);
     if (savedView === 'list' || savedView === 'grid' || savedView === 'shelf') {
       setViewMode(savedView);
     }
-  }, []);
+    applyFromUrl(window.location.search);
+    restoredRef.current = true;
+  }, [applyFromUrl]);
+
+  // Re-apply state on browser back/forward.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onPop = () => applyFromUrl(window.location.search);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [applyFromUrl]);
+
+  // Mirror all filter/view state into the URL (replaceState — no history spam).
+  useEffect(() => {
+    if (typeof window === 'undefined' || !restoredRef.current) return;
+    const params = new URLSearchParams();
+    if (searchQuery.trim()) params.set('q', searchQuery.trim());
+    if (refineText.trim()) params.set('refine', refineText.trim());
+    if (selectedAuthors.length) params.set('authors', selectedAuthors.join(','));
+    if (selectedCategories.length) params.set('categories', selectedCategories.join(','));
+    if (selectedLanguages.length) params.set('languages', selectedLanguages.join(','));
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo) params.set('date_to', dateTo);
+    if (sort !== 'relevance') params.set('sort', sort);
+    if (statusSegment !== 'all') params.set('status', statusSegment);
+    if (viewMode !== 'grid') params.set('view', viewMode);
+    const qs = params.toString();
+    const url = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`;
+    window.history.replaceState(null, '', url);
+  }, [
+    searchQuery,
+    refineText,
+    selectedAuthors,
+    selectedCategories,
+    selectedLanguages,
+    dateFrom,
+    dateTo,
+    sort,
+    statusSegment,
+    viewMode,
+  ]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -207,24 +250,16 @@ export default function DocumentsPage() {
     return m;
   }, [continueData]);
 
+  // Languages are still derived locally from loaded documents. Authors and
+  // categories are handled by FacetTypeahead, which queries the whole DB
+  // server-side (so options aren't limited to the loaded pages).
   const facetValues = useMemo(() => {
-    const authors = new Map<string, number>();
-    const categories = new Map<string, number>();
     const languages = new Map<string, number>();
     for (const d of accumulated) {
-      for (const a of d.authors ?? []) {
-        authors.set(a.name, (authors.get(a.name) ?? 0) + 1);
-      }
-      for (const c of d.categories ?? []) {
-        const name = categoryName(c);
-        if (name) categories.set(name, (categories.get(name) ?? 0) + 1);
-      }
       if (d.language) languages.set(d.language, (languages.get(d.language) ?? 0) + 1);
     }
     const byCount = (a: [string, number], b: [string, number]) => b[1] - a[1];
     return {
-      authors: [...authors.entries()].sort(byCount).map(([k]) => k),
-      categories: [...categories.entries()].sort(byCount).map(([k]) => k),
       languages: [...languages.entries()].sort(byCount).map(([k]) => k),
     };
   }, [accumulated]);
@@ -295,6 +330,15 @@ export default function DocumentsPage() {
     Boolean(dateFrom) ||
     Boolean(dateTo);
 
+  // Count of active filter *groups* — shown on the mobile "Filters (N)" trigger.
+  const activeFilterCount =
+    (searchQuery ? 1 : 0) +
+    (refineText ? 1 : 0) +
+    (selectedAuthors.length ? 1 : 0) +
+    (selectedCategories.length ? 1 : 0) +
+    (selectedLanguages.length ? 1 : 0) +
+    (dateFrom || dateTo ? 1 : 0);
+
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setSearchQuery(searchDraft);
@@ -321,82 +365,32 @@ export default function DocumentsPage() {
 
   /* ─── Sub-renderers ─── */
 
-  const renderPillGroup = (
-    values: string[],
-    selected: string[],
-    onToggle: (v: string) => void,
-    displayFn?: (v: string) => string
-  ) =>
-    values.slice(0, TOP_FACETS).map((v) => {
-      const on = selected.includes(v);
-      return (
-        <button key={v} onClick={() => onToggle(v)} className={on ? PILL_ON : PILL_OFF} title={v}>
-          {displayFn ? displayFn(v) : v}
-        </button>
-      );
-    });
+  const segments: { key: StatusSegment; label: string; count: number }[] = [
+    { key: 'all', label: t('docs.segment.all', 'الكل'), count: totalCount },
+    { key: 'ready', label: t('docs.segment.ready', 'جاهزة'), count: statusCounts.ready },
+    { key: 'processing', label: t('docs.segment.processing', 'قيد المعالجة'), count: statusCounts.processing },
+  ];
 
-  const renderFilterRow = () => {
-    const hasAny =
-      facetValues.languages.length > 0 ||
-      facetValues.authors.length > 0 ||
-      facetValues.categories.length > 0;
-    if (!hasAny) return null;
-    return (
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <span className="text-[12px] text-text-3 me-0.5">{t('docs.filterLabel', 'تصفية')}:</span>
-
-        {facetValues.categories.length > 0 &&
-          renderPillGroup(facetValues.categories, selectedCategories, (v) =>
-            setSelectedCategories((prev) => toggleIn(prev, v))
-          )}
-
-        {facetValues.languages.length > 0 && facetValues.categories.length > 0 && (
-          <span className="w-px h-4 bg-border-strong" aria-hidden />
-        )}
-        {facetValues.languages.length > 0 &&
-          renderPillGroup(
-            facetValues.languages,
-            selectedLanguages,
-            (v) => setSelectedLanguages((prev) => toggleIn(prev, v)),
-            (v) => languageName(v)
-          )}
-
-        {facetValues.authors.length > 0 && (
-          <>
-            <span className="w-px h-4 bg-border-strong" aria-hidden />
-            {renderPillGroup(facetValues.authors, selectedAuthors, (v) =>
-              setSelectedAuthors((prev) => toggleIn(prev, v))
-            )}
-          </>
-        )}
-
-        <details className="relative">
-          <summary
-            className={`${PILL_OFF} cursor-pointer list-none [&::-webkit-details-marker]:hidden ${
-              dateFrom || dateTo ? '!border-accent/40 !text-accent-2 !bg-accent-soft' : ''
-            }`}
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <path d="M16 2v4M8 2v4M3 10h18" />
-            </svg>
-            {t('docs.uploadDate', 'تاريخ الرفع')}
-          </summary>
-          <div className="absolute z-20 mt-2 end-0 w-60 bg-card border border-border rounded-[14px] p-3 shadow-[0_12px_36px_-12px_rgba(0,0,0,0.5)] space-y-3">
-            <label className="block">
-              <span className="block text-[11px] text-text-3 mb-1.5">{t('docs.from', 'من')}</span>
-              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={DATE_INPUT_CLASS} />
-            </label>
-            <label className="block">
-              <span className="block text-[11px] text-text-3 mb-1.5">{t('docs.to', 'إلى')}</span>
-              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={DATE_INPUT_CLASS} />
-            </label>
-          </div>
-        </details>
-      </div>
-    );
-  };
+  const filterSidebar = (
+    <FilterSidebar
+      segments={segments}
+      statusSegment={statusSegment}
+      onStatusChange={(key) => setStatusSegment(key as StatusSegment)}
+      facetValues={facetValues}
+      selectedCategories={selectedCategories}
+      selectedLanguages={selectedLanguages}
+      selectedAuthors={selectedAuthors}
+      onToggleCategory={(v) => setSelectedCategories((prev) => toggleIn(prev, v))}
+      onToggleLanguage={(v) => setSelectedLanguages((prev) => toggleIn(prev, v))}
+      onToggleAuthor={(v) => setSelectedAuthors((prev) => toggleIn(prev, v))}
+      dateFrom={dateFrom}
+      dateTo={dateTo}
+      onDateFromChange={setDateFrom}
+      onDateToChange={setDateTo}
+      hasActiveFilters={hasActiveFilters}
+      onClearAll={clearFilters}
+    />
+  );
 
   const renderActiveChips = () => {
     if (!hasActiveFilters) return null;
@@ -589,12 +583,6 @@ export default function DocumentsPage() {
     </div>
   );
 
-  const segments: { key: StatusSegment; label: string; count: number }[] = [
-    { key: 'all', label: t('docs.segment.all', 'الكل'), count: totalCount },
-    { key: 'ready', label: t('docs.segment.ready', 'جاهزة'), count: statusCounts.ready },
-    { key: 'processing', label: t('docs.segment.processing', 'قيد المعالجة'), count: statusCounts.processing },
-  ];
-
   const emptyLibrary = !isLoading && !error && totalCount === 0 && !hasActiveFilters;
 
   return (
@@ -653,62 +641,69 @@ export default function DocumentsPage() {
               </Link>
             </div>
           ) : (
-            <div className="pt-8">
-              {/* Search */}
-              <form onSubmit={submitSearch} className="mb-5 max-w-xl">
-                <div className="relative">
-                  <svg
-                    className="absolute top-1/2 -translate-y-1/2 start-3 w-4 h-4 text-text-3 pointer-events-none"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    aria-hidden
-                  >
-                    <circle cx="11" cy="11" r="7" />
-                    <path d="m21 21-4.3-4.3" />
-                  </svg>
-                  <input
-                    type="text"
-                    value={searchDraft}
-                    onChange={(e) => setSearchDraft(e.target.value)}
-                    placeholder={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
-                    dir="auto"
-                    aria-label={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
-                    className={SEARCH_INPUT_CLASS}
-                  />
-                </div>
-              </form>
+            <div className="pt-8 lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:gap-10 lg:items-start">
+              {/* ─── Desktop filter sidebar (#18) ─── */}
+              {isDesktop && (
+                <aside className="hidden lg:block lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto pe-1">
+                  {filterSidebar}
+                </aside>
+              )}
 
-              {/* Status segments */}
-              <div className="flex flex-wrap items-center gap-2 mb-4">
-                {segments.map((s) => (
+              {/* ─── Main column ─── */}
+              <div className="min-w-0">
+                {/* Mobile filters trigger (#19/#20) */}
+                {!isDesktop && (
                   <button
-                    key={s.key}
-                    onClick={() => setStatusSegment(s.key)}
-                    aria-pressed={statusSegment === s.key}
-                    className={statusSegment === s.key ? PILL_ON : PILL_OFF}
+                    type="button"
+                    onClick={() => setFiltersOpen(true)}
+                    className="lg:hidden inline-flex items-center gap-2 mb-4 px-4 py-2 text-[12.5px] rounded-full border border-border-strong bg-card text-text hover:border-accent transition-all"
                   >
-                    {s.label}
-                    <span className="text-text-3">{formatCount(s.count)}</span>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M6 12h12M10 20h4" />
+                    </svg>
+                    {activeFilterCount > 0
+                      ? t('docs.filters.open', 'تصفية ({count})', { count: formatCount(activeFilterCount) })
+                      : t('docs.filters', 'المرشحات')}
                   </button>
-                ))}
-              </div>
+                )}
 
-              {/* Inline filters */}
-              {renderFilterRow()}
+                {/* Search (#1/#48) */}
+                <form onSubmit={submitSearch} className="mb-5 max-w-2xl">
+                  <div className="relative">
+                    <svg
+                      className="absolute top-1/2 -translate-y-1/2 start-3 w-4 h-4 text-text-3 pointer-events-none"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      aria-hidden
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m21 21-4.3-4.3" />
+                    </svg>
+                    <input
+                      type="text"
+                      value={searchDraft}
+                      onChange={(e) => setSearchDraft(e.target.value)}
+                      placeholder={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
+                      dir="auto"
+                      aria-label={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
+                      className={SEARCH_INPUT_CLASS}
+                    />
+                  </div>
+                </form>
 
-              {/* Active chips */}
-              {renderActiveChips()}
+                {/* Active chips (#3/#4) */}
+                {renderActiveChips()}
 
-              {/* Legend */}
-              {renderLegend()}
+                {/* Legend */}
+                {renderLegend()}
 
-              {/* AI refine */}
-              {!isLoading && !error && shownCount > 0 && effectiveSearch && renderRefineBar()}
+                {/* AI refine */}
+                {!isLoading && !error && shownCount > 0 && effectiveSearch && renderRefineBar()}
 
-              {/* Toolbar */}
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+                {/* Toolbar: count + sort + view (#2/#11/#41) */}
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
                 <div className="flex items-center gap-2">
                   <label className="text-[11.5px] tracking-[0.12em] uppercase text-text-3">
                     {t('docs.sort.label', 'الترتيب')}
@@ -822,6 +817,18 @@ export default function DocumentsPage() {
 
                   {renderLoadMore()}
                 </>
+              )}
+              </div>
+
+              {/* Mobile filter drawer (#19) */}
+              {!isDesktop && (
+                <ReaderPanel
+                  isOpen={filtersOpen}
+                  onClose={() => setFiltersOpen(false)}
+                  title={t('docs.filters', 'المرشحات')}
+                >
+                  {filterSidebar}
+                </ReaderPanel>
               )}
             </div>
           )}

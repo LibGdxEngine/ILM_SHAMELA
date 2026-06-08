@@ -15,7 +15,7 @@ import { AuthProvider } from "@/lib/AuthContext";
 import QueryProvider from "@/lib/queryClient";
 import { I18nProvider } from "@/components/i18n/I18nProvider";
 import HtmlLangDirSync from "@/components/i18n/HtmlLangDirSync";
-import HeaderSwitcher from "@/components/HeaderSwitcher";
+import Navbar from "@/components/Navbar";
 import { getDictionary } from "@/lib/i18n/getDictionary";
 import { defaultLocale, isLocale, localeToDirection, type Locale } from "@/lib/i18n/config";
 
@@ -107,7 +107,7 @@ export default async function RootLayout({
               <HtmlLangDirSync />
               <div className="flex flex-col h-screen">
                 <div className="flex-1 min-h-0 overflow-y-auto">
-                  <HeaderSwitcher />
+                  <Navbar />
                   {children}
                 </div>
               </div>

@@ -12,7 +12,7 @@ import {
 } from '@/lib/api';
 import DocumentViewer from '@/components/document/DocumentViewer';
 import ReaderPanel from '@/components/document/ReaderPanel';
-import SearchToolPanel from '@/components/document/SearchToolPanel';
+import SearchFindBar from '@/components/document/SearchFindBar';
 import FontThemeControls from '@/components/document/FontThemeControls';
 import DocumentPageSkeleton from '@/components/document/DocumentPageSkeleton';
 import SelectionPopover from '@/components/document/SelectionPopover';
@@ -796,23 +796,18 @@ export default function DocumentDetailPage() {
           </div>
         )}
 
-        <ReaderPanel
-          isOpen={openBottomPanel === 'search'}
-          onClose={() => setOpenBottomPanel(null)}
-          width="wide"
-          title={t('reader.searchInBook', 'Search this book')}
-        >
-          <SearchToolPanel
+        {openBottomPanel === 'search' && (
+          <SearchFindBar
             query={searchQuery}
             isSearching={isSearching}
             searchResults={searchResults}
             onQueryChange={setSearchQuery}
-            onGoToPage={(page) => {
-              handleGoToPage(page);
-              setOpenBottomPanel(null);
-            }}
+            // Keep the bar open so the reader can step through matches (the
+            // find-next loop). Dismissal is via Escape or the close button.
+            onGoToPage={(page) => handleGoToPage(page)}
+            onClose={() => setOpenBottomPanel(null)}
           />
-        </ReaderPanel>
+        )}
 
         <ReaderPanel
           isOpen={openBottomPanel === 'fontTheme'}
