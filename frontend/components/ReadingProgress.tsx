@@ -126,12 +126,12 @@ export default function ReadingProgress({ currentPage, totalPages, documentId, s
   }
 
   return (
-    <div className="sticky top-0 z-10 bg-white/90 dark:bg-gray-800/90 backdrop-blur-md border-b border-gray-200 dark:border-gray-700">
+    <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-md border-b border-gray-200">
       <div className="max-w-4xl mx-auto px-4 py-2">
         <div className="flex items-center gap-3">
-          <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden relative">
+          <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden relative">
             <div
-              className="h-full bg-indigo-600 dark:bg-indigo-500 transition-all duration-300 ease-out"
+              className="h-full bg-indigo-600 transition-all duration-300 ease-out"
               style={{ width: `${progress}%` }}
               role="progressbar"
               aria-valuenow={Math.round(progress)}
@@ -141,12 +141,12 @@ export default function ReadingProgress({ currentPage, totalPages, documentId, s
             />
             {/* Visual reading position indicator */}
             <div
-              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-indigo-600 dark:bg-indigo-500 rounded-full border-2 border-white dark:border-gray-800 shadow-sm transition-all duration-300 ease-out"
+              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-indigo-600 rounded-full border-2 border-white shadow-sm transition-all duration-300 ease-out"
               style={{ left: `calc(${progress}% - 6px)` }}
               title={`Page ${currentPage} of ${totalPages}`}
             />
           </div>
-          <span className="text-xs font-medium text-gray-600 dark:text-gray-400 min-w-[60px] text-right">
+          <span className="text-xs font-medium text-gray-600 min-w-[60px] text-right">
             {Math.round(progress)}%
           </span>
         </div>

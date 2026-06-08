@@ -137,7 +137,7 @@ function renderContentHtml(
       inner = `<mark data-hid="${matchingHighlight.highlightId}" data-color="${color}" class="highlight-${color}">${inner}</mark>`;
     }
     if (matchingSearch) {
-      inner = `<mark class="bg-yellow-200/80 dark:bg-yellow-500/30 px-1 py-0.5 rounded text-gray-900 dark:text-gray-100">${inner}</mark>`;
+      inner = `<mark class="bg-yellow-200/80 px-1 py-0.5 rounded text-gray-900">${inner}</mark>`;
     }
     html += inner;
   }
@@ -181,12 +181,12 @@ export default function DocumentPage({
 
   return (
     <article
-      className="bg-white dark:bg-gray-800 rounded-xl shadow-sm mb-6 overflow-hidden relative group transition-all hover:shadow-md"
+      className="bg-white rounded-xl shadow-sm mb-6 overflow-hidden relative group transition-all hover:shadow-md"
       aria-label={t('reader.pageLabel', 'صفحة {page}', { page: pageNumber })}
     >
       {/* Page Header */}
-      <header className="px-6 py-3 bg-gray-50/50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+      <header className="px-6 py-3 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
           {t('reader.pageLabel', 'صفحة {page}', { page: pageNumber })}
         </span>
       </header>
@@ -200,7 +200,7 @@ export default function DocumentPage({
         aria-label={t('reader.pageLabel', 'صفحة {page}', { page: pageNumber })}
       >
         <div
-          className={`prose prose-lg dark:prose-invert max-w-none font-serif ${
+          className={`prose prose-lg max-w-none font-serif ${
             textDirection === 'rtl' ? 'text-right' : 'text-left'
           }`}
           style={{
@@ -214,7 +214,7 @@ export default function DocumentPage({
       </div>
 
       {/* Footer / Overlay (optional) */}
-      <div className="absolute inset-0 pointer-events-none border-2 border-transparent group-hover:border-indigo-500/10 dark:group-hover:border-indigo-400/10 rounded-xl transition-colors" aria-hidden="true" />
+      <div className="absolute inset-0 pointer-events-none border-2 border-transparent group-hover:border-indigo-500/10 rounded-xl transition-colors" aria-hidden="true" />
     </article>
   );
 }

@@ -6,92 +6,68 @@ import { useRouter } from 'next/navigation';
 import { Document, normalizeMediaUrl } from '@/lib/api';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { useI18n } from '@/components/i18n/I18nProvider';
+import { paletteFor } from '@/lib/coverPalettes';
+import { useLanguageName } from '@/lib/i18n/languageName';
+import { fileTypeLabel, formatRelativeDate, toLocaleDigits } from '@/lib/utils';
 
 interface BookCardProps {
   document: Document;
-  formatDate?: (date: string) => string;
+  /** Reading progress 0..100; when present the footer shows progress instead of date/type. */
+  progressPercent?: number;
 }
 
-const COVER_PALETTE = [
-  { from: '#2a1a10', to: '#4a2818', text: '#e8d4b4' },
-  { from: '#1a2a2e', to: '#2c4145', text: '#d4e0e2' },
-  { from: '#2e1a26', to: '#4a2c3e', text: '#e6d2dc' },
-  { from: '#1a2818', to: '#2a4424', text: '#d4e2cc' },
-  { from: '#2e2418', to: '#4a3a24', text: '#ecdcb8' },
-  { from: '#1f1a2c', to: '#2e2848', text: '#d8d4e6' },
-];
+const TEXT_FILE_TYPES = new Set(['PDF', 'DOC', 'DOCX', 'TXT', 'RTF', 'MD', 'EPUB']);
 
-function paletteFor(str: string) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return COVER_PALETTE[Math.abs(hash) % COVER_PALETTE.length];
-}
-
-function generateCoverPattern(title: string): string {
-  const palette = paletteFor(title);
-  return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300">
-      <defs>
-        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style="stop-color:${palette.from};stop-opacity:1" />
-          <stop offset="100%" style="stop-color:${palette.to};stop-opacity:1" />
-        </linearGradient>
-      </defs>
-      <rect width="200" height="300" fill="url(#grad)"/>
-      <rect x="24" y="40" width="152" height="1" fill="rgba(232,212,180,0.25)"/>
-      <rect x="24" y="258" width="152" height="1" fill="rgba(232,212,180,0.25)"/>
+function WatermarkIcon({ fileType, color }: { fileType: string; color: string }) {
+  const isText = !fileType || TEXT_FILE_TYPES.has(fileType);
+  return (
+    <svg
+      className="absolute left-1/2 top-1/2 w-16 h-16 -translate-x-1/2 -translate-y-1/2 opacity-[0.16]"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {isText ? (
+        <>
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+          <path d="M14 3v5h5" />
+          <path d="M9 13h6M9 17h6" />
+        </>
+      ) : (
+        <>
+          <path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z" />
+          <path d="M4 19a2 2 0 0 0 2 2h13" />
+        </>
+      )}
     </svg>
-  `;
+  );
 }
 
-function categoryName(c: unknown): string | null {
-  if (!c) return null;
-  if (typeof c === 'string') return c;
-  if (typeof c === 'object' && c !== null && 'name' in c) {
-    const n = (c as { name?: unknown }).name;
-    return typeof n === 'string' ? n : null;
-  }
-  return null;
-}
-
-function usePitch(doc: Document): string {
-  const { t } = useI18n();
-  const category = doc.categories?.map(categoryName).find(Boolean) ?? null;
-  const author = doc.authors?.[0]?.name ?? null;
-
-  if (author && category) {
-    return t('docs.card.pitchByAuthor', 'By {author}, in {category}.', {
-      author,
-      category,
-    });
-  }
-  if (author) {
-    return t('docs.card.pitchJustAuthor', 'By {author}.', { author });
-  }
-  if (category) {
-    return t('docs.card.pitchFallback', 'A book in {category}.', { category });
-  }
-  return '';
-}
-
-export default function BookCard({ document }: BookCardProps) {
-  const { t } = useI18n();
+export default function BookCard({ document, progressPercent }: BookCardProps) {
+  const { t, locale } = useI18n();
   const localizedPath = useLocalizedPath();
   const router = useRouter();
+  const languageName = useLanguageName();
 
-  const coverSvg = generateCoverPattern(document.title);
-  const coverDataUrl = `data:image/svg+xml,${encodeURIComponent(coverSvg)}`;
+  const palette = paletteFor(document);
   const [imageError, setImageError] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
 
   const coverPhotoUrl = normalizeMediaUrl(document.cover_photo_url);
-  const pitch = usePitch(document);
+  const hasPhoto = Boolean(coverPhotoUrl) && !imageError;
+  const langDisplay = document.language ? languageName(document.language) : null;
+  const fileType = fileTypeLabel(document.file);
 
   const isReady = document.processing_status
     ? document.processing_status === 'succeeded'
     : document.processed;
+
+  const hasProgress = typeof progressPercent === 'number';
+  const percent = hasProgress ? Math.max(0, Math.min(100, Math.round(progressPercent!))) : 0;
 
   const bookmarkKey = `ilm.bookmarks.${document.id}`;
 
@@ -125,6 +101,8 @@ export default function BookCard({ document }: BookCardProps) {
     [router, localizedPath, document.id]
   );
 
+  const metaParts = [formatRelativeDate(document.uploaded_at, locale, t), fileType].filter(Boolean);
+
   return (
     <div className="group relative">
       <Link
@@ -132,46 +110,62 @@ export default function BookCard({ document }: BookCardProps) {
         className="block bg-gradient-to-b from-card-2 to-card rounded-[18px] border border-border hover:border-accent/40 shadow-[0_4px_20px_-8px_rgba(0,0,0,0.5)] hover:shadow-[0_12px_36px_-12px_rgba(192,133,82,0.25)] transition-all duration-300 overflow-hidden transform hover:-translate-y-1"
       >
         <div className="relative aspect-[2/3] overflow-hidden bg-bg-2">
-          {coverPhotoUrl && !imageError ? (
+          {hasPhoto ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={coverPhotoUrl}
+              src={coverPhotoUrl as string}
               alt={document.title}
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
               onError={() => setImageError(true)}
             />
           ) : (
             <div
-              className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-[1.03]"
-              style={{ backgroundImage: `url("${coverDataUrl}")` }}
-            />
+              className="absolute inset-0 transition-transform duration-500 group-hover:scale-[1.03]"
+              style={{ backgroundImage: `linear-gradient(135deg, ${palette.from}, ${palette.to})` }}
+            >
+              {/* Manuscript-style accent hairlines + watermark — no baked title text. */}
+              <div
+                className="absolute inset-x-6 top-9 h-px"
+                style={{ background: palette.accent, opacity: 0.5 }}
+                aria-hidden
+              />
+              <div
+                className="absolute inset-x-6 bottom-9 h-px"
+                style={{ background: palette.accent, opacity: 0.5 }}
+                aria-hidden
+              />
+              <WatermarkIcon fileType={fileType} color={palette.accent} />
+            </div>
           )}
 
-          {/* Subtle bottom gradient for legibility */}
           <div
             className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent pointer-events-none"
             aria-hidden
           />
 
-          {/* Language pill — logical-start side */}
-          {document.language && (
+          {langDisplay && (
             <div className="absolute top-3 start-3">
-              <span className="px-2 py-0.5 text-[10.5px] tracking-[0.12em] rounded-full bg-bg/80 text-text-2 backdrop-blur-md uppercase border border-border-strong">
-                {document.language}
+              <span className="px-2 py-0.5 text-[10.5px] tracking-[0.04em] rounded-full bg-bg/85 text-text-2 backdrop-blur-md border border-border-strong">
+                {langDisplay}
               </span>
             </div>
           )}
 
-          {/* Processing state */}
           {!isReady && (
             <div className="absolute top-3 end-3">
-              <span className="px-2 py-0.5 text-[10.5px] tracking-[0.08em] rounded-full bg-accent/85 text-[#1a0e05] backdrop-blur-md font-medium">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10.5px] tracking-[0.08em] rounded-full bg-[var(--warm-deep)]/95 text-[#faf6ef] backdrop-blur-md">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#faf6ef]/80 animate-pulse" aria-hidden />
                 {t('book.processing', 'قيد المعالجة')}
               </span>
             </div>
           )}
 
-          {/* Ask-about-this — hover reveal */}
+          {hasProgress && (
+            <div className="absolute inset-x-0 bottom-0 h-1 bg-black/30">
+              <div className="h-full bg-accent" style={{ width: `${percent}%` }} aria-hidden />
+            </div>
+          )}
+
           <button
             type="button"
             onClick={openAsk}
@@ -183,33 +177,43 @@ export default function BookCard({ document }: BookCardProps) {
           </button>
         </div>
 
-        <div className="p-4">
-          <h3 className="font-fraunces text-[17px] leading-[1.3] text-text line-clamp-2 group-hover:text-accent-2 transition-colors">
+        <div
+          className="p-4"
+          style={hasPhoto ? { borderTop: `2px solid ${palette.accent}` } : undefined}
+        >
+          <h3
+            dir="auto"
+            className="font-fraunces text-[17px] leading-[1.3] text-text line-clamp-2 group-hover:text-accent-2 transition-colors"
+          >
             {document.title}
           </h3>
 
-          {document.authors && document.authors.length > 0 && (
-            <p className="mt-1.5 text-[12.5px] text-text-2 line-clamp-1 font-fraunces italic">
-              {document.authors.map((a) => a.name).join('، ')}
+          {hasProgress ? (
+            <p className="mt-2.5 text-[11.5px] text-accent-2 tracking-wide">
+              {t('docs.card.percentReadShort', 'قُرئ {n}٪', { n: toLocaleDigits(percent, locale) })}
             </p>
-          )}
-
-          {pitch && (
-            <p className="mt-2 text-[12px] text-text-3 leading-[1.55] line-clamp-1">
-              {pitch}
-            </p>
+          ) : (
+            metaParts.length > 0 && (
+              <p className="mt-2.5 pt-2.5 border-t border-border text-[11px] text-text-3 tracking-wide flex items-center gap-1.5">
+                {metaParts.map((part, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5">
+                    {i > 0 && <span aria-hidden className="text-text-3/60">·</span>}
+                    <span dir={part === fileType ? 'ltr' : undefined}>{part}</span>
+                  </span>
+                ))}
+              </p>
+            )
           )}
         </div>
       </Link>
 
-      {/* Bookmark button */}
       <button
         type="button"
         onClick={toggleBookmark}
         aria-pressed={bookmarked}
         aria-label={t('docs.card.bookmark', 'حفظ')}
         className={`absolute top-3 ${
-          document.language ? 'start-[4.5rem]' : 'start-3'
+          langDisplay ? 'start-[5.5rem]' : 'start-3'
         } w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border transition-all duration-200 ${
           bookmarked
             ? 'bg-accent text-[#1a0e05] border-accent opacity-100 shadow-[0_4px_14px_-4px_rgba(192,133,82,0.5)]'

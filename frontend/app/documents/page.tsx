@@ -2,95 +2,46 @@
 
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import { Document, DocumentsListParams, getDocuments } from '@/lib/api';
 import BookCard from '@/components/BookCard';
 import BookListRow from '@/components/BookListRow';
 import BookCardSkeleton from '@/components/BookCardSkeleton';
 import RequireAuth from '@/components/RequireAuth';
-import LanguageSwitcher from '@/components/i18n/LanguageSwitcher';
+import ContinueShelf from '@/components/documents/ContinueShelf';
+import BookSpine from '@/components/documents/BookSpine';
+import FilterSidebar from '@/components/documents/FilterSidebar';
+import ReaderPanel from '@/components/document/ReaderPanel';
+import useMediaQuery from '@/hooks/useMediaQuery';
+import useDebounce from '@/hooks/useDebounce';
 import { useI18n } from '@/components/i18n/I18nProvider';
+import { useLanguageName } from '@/lib/i18n/languageName';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
+import { useContinueReading } from '@/lib/reader/useContinueReading';
+import { legendForDocuments } from '@/lib/coverPalettes';
+import { toLocaleDigits } from '@/lib/utils';
 
-const PAGE_SIZE = 20;
-const TOP_FACETS = 7;
 const VIEW_KEY = 'ilm.documents.viewMode';
+const PROGRESS_FETCH_LIMIT = 100;
 
 type SortKey = 'relevance' | 'newest' | 'alphabetical' | 'shortest';
-type LengthFilter = '' | 'short' | 'medium' | 'long';
+type ViewMode = 'grid' | 'list' | 'shelf';
+type StatusSegment = 'all' | 'ready' | 'processing';
 
-const INPUT_BASE =
-  'w-full px-4 py-3 rounded-[12px] text-[14px] font-fraunces outline-none transition-all bg-white/[0.02] text-text placeholder:text-text-3 focus:border-accent focus:bg-accent-soft focus:shadow-[0_0_0_4px_rgba(192,133,82,0.08)] disabled:opacity-60 disabled:cursor-not-allowed border border-border';
-const SECTION_EYEBROW_CLASS =
-  'text-[11px] tracking-[0.18em] uppercase text-accent font-medium';
-const PILL_BASE =
-  'inline-flex items-center justify-center px-3 py-1 text-[11.5px] rounded-full border transition-all duration-200';
-const PILL_ON = `${PILL_BASE} bg-accent-soft border-accent/40 text-accent-2`;
-const PILL_OFF = `${PILL_BASE} bg-white/[0.03] border-border-strong text-text-2 hover:border-accent hover:text-accent-2`;
+const SEARCH_INPUT_CLASS =
+  'w-full ps-10 pe-3 py-2.5 rounded-[12px] text-[14px] font-fraunces outline-none transition-all bg-card text-text placeholder:text-text-3 focus:border-accent focus:bg-accent-soft/40 focus:shadow-[0_0_0_4px_rgba(185,115,64,0.08)] border border-border';
 
-function FadeIn({
-  children,
-  delay = 0,
-  className = '',
-}: {
-  children: ReactNode;
-  delay?: number;
-  className?: string;
-}) {
+function UploadIcon() {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1], delay }}
-      className={className}
-    >
-      {children}
-    </motion.div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
   );
 }
 
-function categoryName(c: unknown): string | null {
-  if (!c) return null;
-  if (typeof c === 'string') return c;
-  if (typeof c === 'object' && c !== null && 'name' in c) {
-    const n = (c as { name?: unknown }).name;
-    return typeof n === 'string' ? n : null;
-  }
-  return null;
-}
-
-function docLengthBucket(doc: Document): LengthFilter {
-  const len = doc.content?.length ?? 0;
-  if (!len) return '';
-  if (len < 60_000) return 'short';
-  if (len < 250_000) return 'medium';
-  return 'long';
-}
-
-function decadeOf(raw: string | null | undefined): number | null {
-  if (!raw) return null;
-  const y = Number(raw.slice(0, 4));
-  if (!Number.isFinite(y)) return null;
-  return Math.floor(y / 10) * 10;
-}
-
-function useRotatingIndex(length: number, intervalMs: number): number {
-  const [idx, setIdx] = useState(0);
-  useEffect(() => {
-    if (length <= 1) return;
-    const id = setInterval(() => setIdx((i) => (i + 1) % length), intervalMs);
-    return () => clearInterval(id);
-  }, [length, intervalMs]);
-  return idx;
-}
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState<T>(value);
-  useEffect(() => {
-    const h = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(h);
-  }, [value, delay]);
-  return debounced;
+function isDocReady(d: Document): boolean {
+  return d.processing_status ? d.processing_status === 'succeeded' : d.processed;
 }
 
 interface PillProps {
@@ -113,53 +64,14 @@ function ActiveChip({ label, value, onRemove }: PillProps) {
   );
 }
 
-interface FacetListProps {
-  label: string;
-  values: string[];
-  selected: string[];
-  onToggle: (v: string) => void;
-}
-function FacetList({ label, values, selected, onToggle }: FacetListProps) {
-  if (values.length === 0) return null;
-  return (
-    <div>
-      <div className={`${SECTION_EYEBROW_CLASS} mb-3`}>{label}</div>
-      <div className="flex flex-col gap-1.5">
-        {values.slice(0, TOP_FACETS).map((v) => {
-          const isOn = selected.includes(v);
-          return (
-            <label key={v} className="flex items-center gap-2.5 cursor-pointer group">
-              <input
-                type="checkbox"
-                checked={isOn}
-                onChange={() => onToggle(v)}
-                className="w-4 h-4 rounded border-border-strong bg-white/[0.04] accent-[var(--accent,#c08552)]"
-              />
-              <span
-                className={`text-[13px] truncate transition-colors ${
-                  isOn
-                    ? 'text-accent-2'
-                    : 'text-text-2 group-hover:text-text'
-                }`}
-              >
-                {v}
-              </span>
-            </label>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 export default function DocumentsPage() {
   const { t, locale } = useI18n();
+  const languageName = useLanguageName();
   const localizedPath = useLocalizedPath();
 
-  /* ─── Core query state ─── */
+  /* ─── Query state ─── */
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
-  const [moodText, setMoodText] = useState('');
   const [refineText, setRefineText] = useState('');
   const [refineDraft, setRefineDraft] = useState('');
   const [refineOpen, setRefineOpen] = useState(false);
@@ -167,13 +79,16 @@ export default function DocumentsPage() {
   const [selectedAuthors, setSelectedAuthors] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
-  const [lengthFilter, setLengthFilter] = useState<LengthFilter>('');
-  const [selectedDecade, setSelectedDecade] = useState<number | null>(null);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
   const [sort, setSort] = useState<SortKey>('relevance');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [statusSegment, setStatusSegment] = useState<StatusSegment>('all');
+
+  /* ─── Layout state ─── */
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const isDesktop = useMediaQuery('(min-width: 1024px)', true);
 
   /* ─── Data state ─── */
   const [accumulated, setAccumulated] = useState<Document[]>([]);
@@ -183,37 +98,95 @@ export default function DocumentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
-  /* ─── Hydrate from URL (?q=) and localStorage (viewMode) ─── */
+  /* ─── URL state sync (search, filters, sort, status, view) ─── */
+  const restoredRef = useRef(false);
+
+  const applyFromUrl = useCallback((search: string) => {
+    const p = new URLSearchParams(search);
+    const parseList = (key: string) => {
+      const v = p.get(key);
+      return v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    };
+    const q = p.get('q') ?? '';
+    setSearchQuery(q);
+    setSearchDraft(q);
+    const refine = p.get('refine') ?? '';
+    setRefineText(refine);
+    setRefineDraft(refine);
+    setSelectedAuthors(parseList('authors'));
+    setSelectedCategories(parseList('categories'));
+    setSelectedLanguages(parseList('languages'));
+    setDateFrom(p.get('date_from') ?? '');
+    setDateTo(p.get('date_to') ?? '');
+    const s = p.get('sort');
+    setSort(s === 'newest' || s === 'alphabetical' || s === 'shortest' ? s : 'relevance');
+    const st = p.get('status');
+    setStatusSegment(st === 'ready' || st === 'processing' ? st : 'all');
+    const v = p.get('view');
+    if (v === 'list' || v === 'grid' || v === 'shelf') setViewMode(v);
+  }, []);
+
+  // Restore state from URL (and view preference from localStorage) on mount.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    const q = params.get('q');
-    if (q) {
-      setSearchQuery(q);
-      setSearchDraft(q);
-    }
     const savedView = window.localStorage.getItem(VIEW_KEY);
-    if (savedView === 'list' || savedView === 'grid') setViewMode(savedView);
-  }, []);
+    if (savedView === 'list' || savedView === 'grid' || savedView === 'shelf') {
+      setViewMode(savedView);
+    }
+    applyFromUrl(window.location.search);
+    restoredRef.current = true;
+  }, [applyFromUrl]);
+
+  // Re-apply state on browser back/forward.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onPop = () => applyFromUrl(window.location.search);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [applyFromUrl]);
+
+  // Mirror all filter/view state into the URL (replaceState — no history spam).
+  useEffect(() => {
+    if (typeof window === 'undefined' || !restoredRef.current) return;
+    const params = new URLSearchParams();
+    if (searchQuery.trim()) params.set('q', searchQuery.trim());
+    if (refineText.trim()) params.set('refine', refineText.trim());
+    if (selectedAuthors.length) params.set('authors', selectedAuthors.join(','));
+    if (selectedCategories.length) params.set('categories', selectedCategories.join(','));
+    if (selectedLanguages.length) params.set('languages', selectedLanguages.join(','));
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo) params.set('date_to', dateTo);
+    if (sort !== 'relevance') params.set('sort', sort);
+    if (statusSegment !== 'all') params.set('status', statusSegment);
+    if (viewMode !== 'grid') params.set('view', viewMode);
+    const qs = params.toString();
+    const url = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`;
+    window.history.replaceState(null, '', url);
+  }, [
+    searchQuery,
+    refineText,
+    selectedAuthors,
+    selectedCategories,
+    selectedLanguages,
+    dateFrom,
+    dateTo,
+    sort,
+    statusSegment,
+    viewMode,
+  ]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(VIEW_KEY, viewMode);
   }, [viewMode]);
 
-  /* ─── Build effective search string ─── */
   const effectiveSearch = useMemo(() => {
-    return [searchQuery, moodText, refineText]
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(' ');
-  }, [searchQuery, moodText, refineText]);
+    return [searchQuery, refineText].map((s) => s.trim()).filter(Boolean).join(' ');
+  }, [searchQuery, refineText]);
 
   const debouncedEffective = useDebounce(effectiveSearch, 350);
 
-  /* ─── Fetch when filters change (reset) or currentPage changes (append) ─── */
   const resetKey = JSON.stringify({
     debouncedEffective,
     selectedAuthors,
@@ -223,7 +196,6 @@ export default function DocumentsPage() {
     dateTo,
   });
 
-  // Unified fetch controller: resetKey changes reset page+accumulated; currentPage>1 appends.
   const requestSeq = useRef(0);
   useEffect(() => {
     const seq = ++requestSeq.current;
@@ -242,7 +214,7 @@ export default function DocumentsPage() {
 
     getDocuments(params)
       .then((response) => {
-        if (seq !== requestSeq.current) return; // superseded
+        if (seq !== requestSeq.current) return;
         setTotalCount(response.count);
         setHasNext(Boolean(response.next));
         setAccumulated((prev) => (append ? [...prev, ...response.results] : response.results));
@@ -259,7 +231,6 @@ export default function DocumentsPage() {
       });
   }, [currentPage, debouncedEffective, selectedAuthors, selectedCategories, selectedLanguages, dateFrom, dateTo, t]);
 
-  // Reset to page 1 whenever filters change (but not on currentPage changes)
   useEffect(() => {
     setCurrentPage(1);
   }, [resetKey]);
@@ -269,36 +240,44 @@ export default function DocumentsPage() {
     setCurrentPage(1);
   }, []);
 
-  /* ─── Derived: available facet values, scanned from what we've loaded ─── */
+  /* ─── Reading progress map (only docs with progress are returned) ─── */
+  const { data: continueData } = useContinueReading(PROGRESS_FETCH_LIMIT);
+  const progressByDoc = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const it of continueData ?? []) {
+      m.set(it.document, Math.max(0, Math.min(100, Math.round((it.percent_complete ?? 0) * 100))));
+    }
+    return m;
+  }, [continueData]);
+
+  // Languages are still derived locally from loaded documents. Authors and
+  // categories are handled by FacetTypeahead, which queries the whole DB
+  // server-side (so options aren't limited to the loaded pages).
   const facetValues = useMemo(() => {
-    const authors = new Map<string, number>();
-    const categories = new Map<string, number>();
     const languages = new Map<string, number>();
     for (const d of accumulated) {
-      for (const a of d.authors ?? []) {
-        authors.set(a.name, (authors.get(a.name) ?? 0) + 1);
-      }
-      for (const c of d.categories ?? []) {
-        const name = categoryName(c);
-        if (name) categories.set(name, (categories.get(name) ?? 0) + 1);
-      }
       if (d.language) languages.set(d.language, (languages.get(d.language) ?? 0) + 1);
     }
     const byCount = (a: [string, number], b: [string, number]) => b[1] - a[1];
     return {
-      authors: [...authors.entries()].sort(byCount).map(([k]) => k),
-      categories: [...categories.entries()].sort(byCount).map(([k]) => k),
       languages: [...languages.entries()].sort(byCount).map(([k]) => k),
     };
   }, [accumulated]);
 
-  /* ─── Client-side filter (length, decade) + sort ─── */
-  const filteredSorted = useMemo(() => {
-    let list = accumulated;
-    if (lengthFilter) list = list.filter((d) => docLengthBucket(d) === lengthFilter);
-    if (selectedDecade !== null) list = list.filter((d) => decadeOf(d.written_date) === selectedDecade);
+  const legend = useMemo(() => legendForDocuments(accumulated), [accumulated]);
 
-    const sorted = [...list];
+  const statusCounts = useMemo(() => {
+    let ready = 0;
+    let processing = 0;
+    for (const d of accumulated) {
+      if (isDocReady(d)) ready++;
+      else processing++;
+    }
+    return { ready, processing };
+  }, [accumulated]);
+
+  const filteredSorted = useMemo(() => {
+    const sorted = [...accumulated];
     switch (sort) {
       case 'newest':
         sorted.sort((a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime());
@@ -314,76 +293,51 @@ export default function DocumentsPage() {
         break;
     }
     return sorted;
-  }, [accumulated, lengthFilter, selectedDecade, sort, locale]);
+  }, [accumulated, sort, locale]);
 
-  const shownCount = filteredSorted.length;
-  const decades = useMemo(() => {
-    const set = new Set<number>();
-    for (const d of accumulated) {
-      const decade = decadeOf(d.written_date);
-      if (decade !== null) set.add(decade);
-    }
-    return [...set].sort((a, b) => b - a);
-  }, [accumulated]);
+  /* ─── Grouping / segment derivation ─── */
+  const grouped = statusSegment === 'all' && viewMode !== 'shelf';
+  const flatDocs = useMemo(() => {
+    if (statusSegment === 'all') return filteredSorted;
+    const wantReady = statusSegment === 'ready';
+    return filteredSorted.filter((d) => isDocReady(d) === wantReady);
+  }, [filteredSorted, statusSegment]);
+  const processingDocs = useMemo(() => filteredSorted.filter((d) => !isDocReady(d)), [filteredSorted]);
+  const readyDocs = useMemo(() => filteredSorted.filter(isDocReady), [filteredSorted]);
 
-  /* ─── Results summary (single-sentence shape description) ─── */
-  const summarySentence = useMemo(() => {
-    if (accumulated.length === 0) return '';
-    const topCats = facetValues.categories.slice(0, 2);
-    const topLang = facetValues.languages[0];
-    if (topCats.length > 0) {
-      return t('docs.results.summaryWithCats', 'Mostly in {categories}.', {
-        categories: topCats.join('، '),
-      });
-    }
-    if (topLang) {
-      return t('docs.results.summaryWithLang', 'Most in {language}.', { language: topLang });
-    }
-    return t('docs.results.summaryFallback', 'A mixed selection across topics.');
-  }, [accumulated.length, facetValues, t]);
+  const shownCount = grouped ? filteredSorted.length : flatDocs.length;
 
-  /* ─── Rotating AI search placeholder ─── */
-  const placeholders = useMemo(
-    () => [
-      t('docs.ai.searchPlaceholder1', 'روايات قصيرة تشبه مئة عام من العزلة'),
-      t('docs.ai.searchPlaceholder2', 'كتب عن الفلسفة الإسلامية للمبتدئين'),
-      t('docs.ai.searchPlaceholder3', 'سير ذاتية لكتّاب من القرن العشرين'),
-      t('docs.ai.searchPlaceholder4', 'كتب تراث مختصرة في علم النحو'),
-    ],
-    [t]
-  );
-  const placeholderIdx = useRotatingIndex(placeholders.length, 3800);
-
-  /* ─── Handlers ─── */
-  const toggleIn = (arr: string[], v: string) =>
-    arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
+  const toggleIn = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
 
   const clearFilters = () => {
     setSearchQuery('');
     setSearchDraft('');
-    setMoodText('');
     setRefineText('');
     setRefineDraft('');
     setSelectedAuthors([]);
     setSelectedCategories([]);
     setSelectedLanguages([]);
-    setLengthFilter('');
-    setSelectedDecade(null);
     setDateFrom('');
     setDateTo('');
   };
 
   const hasActiveFilters =
     Boolean(searchQuery) ||
-    Boolean(moodText) ||
     Boolean(refineText) ||
     selectedAuthors.length > 0 ||
     selectedCategories.length > 0 ||
     selectedLanguages.length > 0 ||
-    Boolean(lengthFilter) ||
-    selectedDecade !== null ||
     Boolean(dateFrom) ||
     Boolean(dateTo);
+
+  // Count of active filter *groups* — shown on the mobile "Filters (N)" trigger.
+  const activeFilterCount =
+    (searchQuery ? 1 : 0) +
+    (refineText ? 1 : 0) +
+    (selectedAuthors.length ? 1 : 0) +
+    (selectedCategories.length ? 1 : 0) +
+    (selectedLanguages.length ? 1 : 0) +
+    (dateFrom || dateTo ? 1 : 0);
 
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -400,170 +354,42 @@ export default function DocumentsPage() {
     setRefineDraft(refineText);
   }, [refineText]);
 
-  const refinePopoverRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!refineOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (!refinePopoverRef.current) return;
-      const target = e.target as Node;
-      if (!refinePopoverRef.current.contains(target)) closeRefine();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [refineOpen, closeRefine]);
-
   const loadMore = () => {
     if (!hasNext || isLoadingMore) return;
     setCurrentPage((p) => p + 1);
   };
 
-  /* ─── Render pieces ─── */
-  const renderFacetSection = () => (
-    <div className="flex flex-col gap-7">
-      <div className="flex items-center justify-between">
-        <h2 className="font-fraunces text-[18px] text-text">
-          {t('docs.filters', 'المرشحات')}
-        </h2>
-        {hasActiveFilters && (
-          <button
-            onClick={clearFilters}
-            className="text-[12.5px] text-accent-2 hover:text-text transition-colors"
-          >
-            {t('docs.clearAll', 'مسح الكل')}
-          </button>
-        )}
-      </div>
+  const formatCount = (n: number) => toLocaleDigits(n, locale);
+  const initialLoading = isLoading && accumulated.length === 0;
+  const showLegend = legend.length > 1 || (legend.length === 1 && Boolean(legend[0].label));
 
-      <FacetList
-        label={t('docs.categories', 'التصنيفات')}
-        values={facetValues.categories}
-        selected={selectedCategories}
-        onToggle={(v) => setSelectedCategories((prev) => toggleIn(prev, v))}
-      />
+  /* ─── Sub-renderers ─── */
 
-      {facetValues.languages.length > 0 && (
-        <div>
-          <div className={`${SECTION_EYEBROW_CLASS} mb-3`}>
-            {t('docs.language', 'اللغة')}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {facetValues.languages.slice(0, TOP_FACETS).map((lang) => {
-              const on = selectedLanguages.includes(lang);
-              return (
-                <button
-                  key={lang}
-                  onClick={() => setSelectedLanguages((prev) => toggleIn(prev, lang))}
-                  className={on ? PILL_ON : PILL_OFF}
-                >
-                  {lang.toUpperCase()}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+  const segments: { key: StatusSegment; label: string; count: number }[] = [
+    { key: 'all', label: t('docs.segment.all', 'الكل'), count: totalCount },
+    { key: 'ready', label: t('docs.segment.ready', 'جاهزة'), count: statusCounts.ready },
+    { key: 'processing', label: t('docs.segment.processing', 'قيد المعالجة'), count: statusCounts.processing },
+  ];
 
-      <div>
-        <div className={`${SECTION_EYEBROW_CLASS} mb-3`}>
-          {t('docs.meta.length', 'طول القراءة')}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {(['short', 'medium', 'long'] as const).map((len) => {
-            const labels: Record<typeof len, string> = {
-              short: t('docs.meta.short', 'قراءة قصيرة'),
-              medium: t('docs.meta.medium', 'قراءة متوسطة'),
-              long: t('docs.meta.long', 'قراءة طويلة'),
-            };
-            const on = lengthFilter === len;
-            return (
-              <button
-                key={len}
-                onClick={() => setLengthFilter(on ? '' : len)}
-                className={on ? PILL_ON : PILL_OFF}
-              >
-                {labels[len]}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {decades.length > 0 && (
-        <div>
-          <div className={`${SECTION_EYEBROW_CLASS} mb-3`}>
-            {t('docs.meta.era', 'الحقبة')}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {decades.slice(0, TOP_FACETS).map((d) => {
-              const on = selectedDecade === d;
-              return (
-                <button
-                  key={d}
-                  onClick={() => setSelectedDecade(on ? null : d)}
-                  className={on ? PILL_ON : PILL_OFF}
-                >
-                  {d}s
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <FacetList
-        label={t('docs.authors', 'المؤلفون')}
-        values={facetValues.authors}
-        selected={selectedAuthors}
-        onToggle={(v) => setSelectedAuthors((prev) => toggleIn(prev, v))}
-      />
-
-      {/* Mood/theme AI input */}
-      <div className="pt-5 border-t border-border">
-        <div className={`${SECTION_EYEBROW_CLASS} mb-3`}>
-          {t('docs.mood.title', 'الموضوع أو الإحساس')}
-        </div>
-        <textarea
-          value={moodText}
-          onChange={(e) => setMoodText(e.target.value)}
-          placeholder={t('docs.mood.placeholder', 'اكتب ما تبحث عنه…')}
-          rows={2}
-          className={`${INPUT_BASE} resize-none leading-[1.7]`}
-        />
-        <p className="mt-2 text-[11.5px] text-text-3">
-          {t('docs.mood.hint', 'مثلاً: كتب هادئة للقراءة قبل النوم')}
-        </p>
-      </div>
-
-      {/* Date range */}
-      <details className="group">
-        <summary className="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer text-[11px] tracking-[0.18em] uppercase text-accent font-medium hover:text-accent-2 transition-colors">
-          <span>{t('docs.uploadDate', 'تاريخ الرفع')}</span>
-          <svg className="w-3 h-3 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </summary>
-        <div className="mt-3 space-y-3">
-          <label className="block">
-            <span className="block text-[11px] text-text-3 mb-1.5">{t('docs.from', 'من')}</span>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className={`${INPUT_BASE} !text-[12.5px] !py-2`}
-            />
-          </label>
-          <label className="block">
-            <span className="block text-[11px] text-text-3 mb-1.5">{t('docs.to', 'إلى')}</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className={`${INPUT_BASE} !text-[12.5px] !py-2`}
-            />
-          </label>
-        </div>
-      </details>
-    </div>
+  const filterSidebar = (
+    <FilterSidebar
+      segments={segments}
+      statusSegment={statusSegment}
+      onStatusChange={(key) => setStatusSegment(key as StatusSegment)}
+      facetValues={facetValues}
+      selectedCategories={selectedCategories}
+      selectedLanguages={selectedLanguages}
+      selectedAuthors={selectedAuthors}
+      onToggleCategory={(v) => setSelectedCategories((prev) => toggleIn(prev, v))}
+      onToggleLanguage={(v) => setSelectedLanguages((prev) => toggleIn(prev, v))}
+      onToggleAuthor={(v) => setSelectedAuthors((prev) => toggleIn(prev, v))}
+      dateFrom={dateFrom}
+      dateTo={dateTo}
+      onDateFromChange={setDateFrom}
+      onDateToChange={setDateTo}
+      hasActiveFilters={hasActiveFilters}
+      onClearAll={clearFilters}
+    />
   );
 
   const renderActiveChips = () => {
@@ -573,9 +399,6 @@ export default function DocumentsPage() {
         {searchQuery && (
           <ActiveChip label={t('docs.search', 'بحث')} value={searchQuery} onRemove={() => { setSearchQuery(''); setSearchDraft(''); }} />
         )}
-        {moodText && (
-          <ActiveChip label={t('docs.mood.title', 'الموضوع')} value={moodText} onRemove={() => setMoodText('')} />
-        )}
         {refineText && (
           <ActiveChip label={t('docs.refine.button', 'تنقيح')} value={refineText} onRemove={() => { setRefineText(''); setRefineDraft(''); }} />
         )}
@@ -583,27 +406,11 @@ export default function DocumentsPage() {
           <ActiveChip key={c} label={t('docs.filter.category', 'تصنيف')} value={c} onRemove={() => setSelectedCategories((prev) => prev.filter((x) => x !== c))} />
         ))}
         {selectedLanguages.map((l) => (
-          <ActiveChip key={l} label={t('docs.language', 'اللغة')} value={l.toUpperCase()} onRemove={() => setSelectedLanguages((prev) => prev.filter((x) => x !== l))} />
+          <ActiveChip key={l} label={t('docs.language', 'اللغة')} value={languageName(l)} onRemove={() => setSelectedLanguages((prev) => prev.filter((x) => x !== l))} />
         ))}
         {selectedAuthors.map((a) => (
           <ActiveChip key={a} label={t('docs.filter.author', 'مؤلف')} value={a} onRemove={() => setSelectedAuthors((prev) => prev.filter((x) => x !== a))} />
         ))}
-        {lengthFilter && (
-          <ActiveChip
-            label={t('docs.meta.length', 'الطول')}
-            value={
-              lengthFilter === 'short'
-                ? t('docs.meta.short', 'قراءة قصيرة')
-                : lengthFilter === 'medium'
-                ? t('docs.meta.medium', 'قراءة متوسطة')
-                : t('docs.meta.long', 'قراءة طويلة')
-            }
-            onRemove={() => setLengthFilter('')}
-          />
-        )}
-        {selectedDecade !== null && (
-          <ActiveChip label={t('docs.meta.era', 'حقبة')} value={`${selectedDecade}s`} onRemove={() => setSelectedDecade(null)} />
-        )}
         {(dateFrom || dateTo) && (
           <ActiveChip label={t('docs.filter.date', 'تاريخ')} value={`${dateFrom || '…'} — ${dateTo || '…'}`} onRemove={() => { setDateFrom(''); setDateTo(''); }} />
         )}
@@ -614,39 +421,34 @@ export default function DocumentsPage() {
     );
   };
 
-  const renderEmpty = () => (
-    <div className="bg-gradient-to-b from-card-2 to-card border border-border rounded-[22px] p-10 text-center relative overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+  const renderLegend = () => {
+    if (!showLegend) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-5 text-[11.5px] text-text-3">
+        <span className="text-accent">{t('docs.legend.title', 'الألوان حسب الفئة')}:</span>
+        {legend.map((e) => (
+          <span key={e.key} className="inline-flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: e.color }} aria-hidden />
+            <span dir="auto">{e.label || t('docs.legend.other', 'غير مصنّف')}</span>
+          </span>
+        ))}
+      </div>
+    );
+  };
+
+  const renderEmptyResults = () => (
+    <div className="bg-card border border-border rounded-[22px] p-10 text-center">
       <div className="flex items-center justify-center gap-3.5 text-accent mb-6">
         <div className="h-[1px] w-10 bg-gradient-to-r from-transparent to-accent" />
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" /></svg>
         <div className="h-[1px] w-10 bg-gradient-to-r from-accent to-transparent" />
       </div>
-      <h3 className="font-fraunces font-light text-[clamp(24px,3vw,32px)] leading-[1.15] text-text mb-3">
+      <h3 className="font-reem-kufi font-semibold text-[clamp(20px,2.4vw,28px)] leading-[1.15] text-text mb-3">
         {t('docs.empty.didYouMean', 'هل تقصد…؟')}
       </h3>
       <p className="text-[14px] text-text-2 mb-7 max-w-md mx-auto leading-[1.8]">
         {t('docs.adjustFilters', 'جرّب تعديل المرشحات لعرض نتائج أكثر.')}
       </p>
-      <div className="flex flex-wrap justify-center gap-2 mb-7">
-        {[
-          t('docs.empty.suggest1', 'تصفّح حسب التصنيف'),
-          t('docs.empty.suggest2', 'أحدث الإضافات'),
-          t('docs.empty.suggest3', 'الأكثر قراءة'),
-        ].map((s, i) => (
-          <button
-            key={i}
-            onClick={() => {
-              if (i === 1) { setSort('newest'); clearFilters(); }
-              else if (i === 2) { setSort('newest'); clearFilters(); }
-              else { clearFilters(); }
-            }}
-            className={PILL_OFF}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
       <button
         onClick={clearFilters}
         className="inline-flex items-center gap-2 text-[13px] text-accent-2 hover:text-text transition-colors"
@@ -659,189 +461,249 @@ export default function DocumentsPage() {
     </div>
   );
 
-  const currentPlaceholder = placeholders[placeholderIdx] ?? placeholders[0];
+  const renderRefineBar = () => (
+    <div className="mb-5 bg-card border border-border rounded-[18px] overflow-hidden">
+      {refineOpen ? (
+        <div className="p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-accent" aria-hidden>✦</span>
+            <span className="font-fraunces text-[14.5px] text-text">
+              {t('docs.refine.inline.title', 'نقّح هذه النتائج بالذكاء الاصطناعي')}
+            </span>
+          </div>
+          <textarea
+            value={refineDraft}
+            onChange={(e) => setRefineDraft(e.target.value)}
+            placeholder={t('docs.refine.inline.hint', 'اجعلها أقصر، استبعد الروايات، ركّز على القرن العاشر…')}
+            rows={2}
+            autoFocus
+            onKeyDown={(e) => { if (e.key === 'Escape') closeRefine(); }}
+            className="w-full px-3 py-2 rounded-[10px] text-[14px] font-fraunces outline-none transition-all bg-bg-2 text-text placeholder:text-text-3 focus:border-accent focus:shadow-[0_0_0_4px_rgba(185,115,64,0.08)] border border-border resize-none leading-[1.7]"
+          />
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <button onClick={closeRefine} className="px-3 py-1.5 text-[12.5px] text-text-3 hover:text-text transition-colors">
+              {t('docs.refine.cancel', 'إلغاء')}
+            </button>
+            <button onClick={applyRefine} className="btn-primary !text-[12.5px] !px-4 !py-1.5">
+              {t('docs.refine.apply', 'تطبيق')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setRefineOpen(true)}
+          className="w-full text-start p-4 flex items-start gap-3 hover:bg-accent-soft/30 transition-colors"
+        >
+          <span className="mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full bg-accent/15 text-accent flex-shrink-0">✦</span>
+          <span className="flex-1 min-w-0">
+            <span className="block font-fraunces text-[14.5px] text-text">
+              {t('docs.refine.inline.title', 'نقّح هذه النتائج بالذكاء الاصطناعي')}
+            </span>
+            <span className="block mt-0.5 text-[12.5px] text-text-3 line-clamp-1">
+              {t('docs.refine.inline.hint', 'اجعلها أقصر، استبعد الروايات، ركّز على القرن العاشر…')}
+            </span>
+          </span>
+          <svg className="w-4 h-4 text-text-3 mt-1 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+
+  const renderDocs = (docs: Document[]): ReactNode => {
+    if (viewMode === 'list') {
+      return (
+        <div className="flex flex-col gap-3">
+          {docs.map((doc) => (
+            <BookListRow key={doc.id} document={doc} />
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        {docs.map((doc) => (
+          <BookCard key={doc.id} document={doc} progressPercent={progressByDoc.get(doc.id)} />
+        ))}
+      </div>
+    );
+  };
+
+  const renderGroup = (title: string, docs: Document[]) => {
+    if (docs.length === 0) return null;
+    return (
+      <section className="mb-10">
+        <div className="mb-4 flex items-baseline gap-2.5">
+          <h2 className="font-reem-kufi font-semibold text-[clamp(18px,2vw,22px)] leading-[1.15] text-text">{title}</h2>
+          <span className="text-[12px] text-text-3">{formatCount(docs.length)}</span>
+        </div>
+        {renderDocs(docs)}
+      </section>
+    );
+  };
+
+  const renderShelf = (docs: Document[]) => (
+    <div className="pb-1">
+      <div className="flex flex-wrap items-end gap-1.5 pb-3 border-b-[3px] border-[var(--warm-deep)]/40 shadow-[0_10px_20px_-16px_rgba(0,0,0,0.7)]">
+        {docs.map((doc) => (
+          <BookSpine key={doc.id} document={doc} progressPercent={progressByDoc.get(doc.id)} />
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderLoadMore = () => (
+    <div className="mt-10 flex flex-col items-center gap-2.5">
+      {hasNext ? (
+        <button
+          onClick={loadMore}
+          disabled={isLoadingMore}
+          className="inline-flex items-center gap-2 px-6 py-3 text-[13.5px] rounded-full border border-border-strong text-text bg-card hover:bg-bg-2 hover:border-accent transition-all disabled:opacity-60"
+        >
+          {isLoadingMore ? (
+            <span className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+          )}
+          {t('docs.loadMore', 'عرض المزيد')}
+        </button>
+      ) : (
+        <span className="text-[12px] text-text-3">{t('docs.endOfResults', 'انتهت النتائج')}</span>
+      )}
+      <span className="text-[11.5px] text-text-3 tracking-wide">
+        {t('docs.loadMoreProgress', '{shown} من {total}', {
+          shown: formatCount(accumulated.length),
+          total: formatCount(totalCount),
+        })}
+      </span>
+    </div>
+  );
+
+  const emptyLibrary = !isLoading && !error && totalCount === 0 && !hasActiveFilters;
 
   return (
     <RequireAuth>
       <main className="landing-shell min-h-screen">
-        {/* Top bar — brand mark + back to home */}
-        <div className="px-6 sm:px-10 lg:px-16 pt-8 flex items-center justify-between relative z-10">
-          <Link href={localizedPath('/')} className="flex items-center gap-2">
-            <span className="font-fraunces text-[24px] text-accent-2 leading-none">ع</span>
-            <span className="font-fraunces text-[18px] tracking-tight">
-              ILM <em className="italic text-text-2">Shamela</em>
-            </span>
-          </Link>
-          <div className="flex items-center gap-5 sm:gap-7">
-            <Link
-              href={localizedPath('/upload')}
-              className="hidden sm:flex items-center gap-2 text-[13px] text-text-3 hover:text-text-2 transition-colors"
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-              {t('nav.upload', 'Upload')}
-            </Link>
-            <Link
-              href={localizedPath('/profile')}
-              className="hidden sm:flex items-center gap-2 text-[13px] text-text-3 hover:text-text-2 transition-colors"
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-              {t('nav.profile', 'Profile')}
-            </Link>
-            <Link
-              href={localizedPath('/')}
-              className="flex items-center gap-2 text-[13px] text-text-3 hover:text-text-2 transition-colors"
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <path d="m15 18-6-6 6-6" />
-              </svg>
-              {t('login.backHome', 'Back to home')}
-            </Link>
-            <LanguageSwitcher />
-          </div>
-        </div>
-
-        {/* Header */}
-        <div className="mx-auto max-w-[1280px] px-6 sm:px-10 lg:px-16 pt-12 relative z-10">
-          <header className="mb-10 max-w-3xl">
-            <FadeIn>
-              <span className="section-eyebrow">{t('docs.eyebrow', 'Library')}</span>
-            </FadeIn>
-            <FadeIn delay={0.05}>
-              <h1 className="font-fraunces font-light text-[clamp(36px,5vw,56px)] leading-[1.05] tracking-tight mt-5 text-text">
-                {t('docs.title', 'المكتبة')}
-              </h1>
-            </FadeIn>
-            <FadeIn delay={0.1}>
-              <p className="mt-4 text-[16px] leading-relaxed text-text-2">
-                {t('docs.subtitle', 'تصفّح كتبك والنتائج بسهولة.')}
-              </p>
-            </FadeIn>
-          </header>
-        </div>
-
-        {/* Sticky AI search bar */}
-        <div className="sticky top-0 z-30 backdrop-blur-xl bg-bg/80 border-b border-border">
-          <div className="max-w-[1280px] mx-auto px-6 sm:px-10 lg:px-16 py-4">
-            <form
-              onSubmit={submitSearch}
-              className="search-shell bg-gradient-to-b from-card-2/90 to-card/90 border border-border rounded-[20px] p-1.5 shadow-2xl relative"
-            >
-              <div className="flex items-center gap-3 px-4">
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  className="text-accent flex-shrink-0"
+        <div className="mx-auto max-w-[1280px] px-6 sm:px-10 lg:px-16 relative z-10">
+          {/* ─── Slim header ─── */}
+          <section className="pt-10 sm:pt-14 pb-6 border-b border-border">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+              <div className="min-w-0">
+                <h1
+                  className="font-reem-kufi font-semibold text-text leading-[1.05] tracking-tight"
+                  style={{ fontSize: 'clamp(26px, 2.8vw, 38px)' }}
                 >
-                  <circle cx="11" cy="11" r="7" />
-                  <path d="m21 21-4.3-4.3" />
-                </svg>
-                <input
-                  type="text"
-                  value={searchDraft}
-                  onChange={(e) => setSearchDraft(e.target.value)}
-                  placeholder={currentPlaceholder}
-                  aria-label={t('docs.ai.searchAria', 'بحث بالذكاء الاصطناعي')}
-                  dir="auto"
-                  className="bg-transparent border-none outline-none font-fraunces text-[15px] text-text placeholder:text-text-3 placeholder:italic w-full py-2.5 px-1 min-w-0"
-                />
-                <button
-                  type="submit"
-                  className="btn-primary flex-shrink-0 flex items-center gap-2 !text-[13px]"
-                >
-                  {t('docs.ai.searchSubmit', 'ابحث')}
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M5 12h14M13 5l7 7-7 7" />
-                  </svg>
-                </button>
+                  {t('nav.app.library', 'مكتبتي')}
+                </h1>
+                {initialLoading ? (
+                  <div className="mt-3 h-4 w-72 max-w-full rounded-[6px] bg-card animate-pulse" />
+                ) : totalCount > 0 ? (
+                  <p className="mt-2 text-[13px] text-text-2">
+                    {t('docs.header.counts', '{total} مستندات · {ready} جاهزة · {processing} قيد المعالجة', {
+                      total: formatCount(totalCount),
+                      ready: formatCount(statusCounts.ready),
+                      processing: formatCount(statusCounts.processing),
+                    })}
+                  </p>
+                ) : null}
               </div>
-            </form>
-          </div>
-        </div>
 
-        <div className="max-w-[1280px] mx-auto px-6 sm:px-10 lg:px-16 py-8 relative z-10">
-          <div className="flex flex-col lg:flex-row gap-6">
-            {/* Mobile filter toggle */}
-            <button
-              onClick={() => setShowMobileFilters((v) => !v)}
-              className="lg:hidden inline-flex items-center justify-center gap-2 px-4 py-3 text-[13px] rounded-[14px] border border-border-strong text-text bg-white/5 hover:bg-white/10 hover:border-accent transition-all"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-              </svg>
-              {showMobileFilters
-                ? t('docs.hideFilters', 'إخفاء المرشحات')
-                : t('docs.showFilters', 'إظهار المرشحات')}
-              {hasActiveFilters && (
-                <span className="w-2 h-2 rounded-full bg-accent" aria-hidden />
+              <div className="flex-shrink-0">
+                <Link
+                  href={localizedPath('/upload')}
+                  className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-accent-2 to-accent text-white text-[13.5px] font-medium px-5 h-11 shadow-[0_4px_20px_-4px_rgba(185,115,64,0.45),inset_0_1px_0_rgba(255,255,255,0.22)] hover:-translate-y-[1px] hover:shadow-[0_10px_30px_-6px_rgba(185,115,64,0.6),inset_0_1px_0_rgba(255,255,255,0.28)] transition-all"
+                >
+                  <UploadIcon />
+                  {t('nav.app.uploadBook', 'رفع كتاب')}
+                </Link>
+              </div>
+            </div>
+          </section>
+
+          {emptyLibrary ? (
+            <div className="py-20 text-center">
+              <h2 className="font-reem-kufi font-semibold text-[clamp(22px,2.6vw,32px)] text-text mb-3">
+                {t('docs.hero.empty.headline', 'ابدأ مكتبتك.')}
+              </h2>
+              <p className="text-[14px] text-text-2 mb-7 max-w-md mx-auto leading-[1.8]">
+                {t('docs.hero.empty.subtext', 'ارفع كتابك الأوّل لتبدأ القراءة مع علم.')}
+              </p>
+              <Link
+                href={localizedPath('/upload')}
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-accent-2 to-accent text-white text-[13.5px] font-medium px-5 h-11 shadow-[0_4px_20px_-4px_rgba(185,115,64,0.45)] transition-all"
+              >
+                <UploadIcon />
+                {t('docs.hero.empty.cta', 'ارفع كتابك الأوّل')}
+              </Link>
+            </div>
+          ) : (
+            <div className="pt-8 lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:gap-10 lg:items-start">
+              {/* ─── Desktop filter sidebar (#18) ─── */}
+              {isDesktop && (
+                <aside className="hidden lg:block lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto pe-1">
+                  {filterSidebar}
+                </aside>
               )}
-            </button>
 
-            {/* Filter rail */}
-            <aside
-              className={`lg:w-72 flex-shrink-0 ${
-                showMobileFilters ? 'block' : 'hidden lg:block'
-              }`}
-            >
-              <FadeIn delay={0.15}>
-                <div className="bg-gradient-to-b from-card-2 to-card border border-border rounded-[22px] p-6 lg:sticky lg:top-[110px] relative overflow-hidden">
-                  <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/5 to-transparent" />
-                  {renderFacetSection()}
-                </div>
-              </FadeIn>
-            </aside>
+              {/* ─── Main column ─── */}
+              <div className="min-w-0">
+                {/* Mobile filters trigger (#19/#20) */}
+                {!isDesktop && (
+                  <button
+                    type="button"
+                    onClick={() => setFiltersOpen(true)}
+                    className="lg:hidden inline-flex items-center gap-2 mb-4 px-4 py-2 text-[12.5px] rounded-full border border-border-strong bg-card text-text hover:border-accent transition-all"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M6 12h12M10 20h4" />
+                    </svg>
+                    {activeFilterCount > 0
+                      ? t('docs.filters.open', 'تصفية ({count})', { count: formatCount(activeFilterCount) })
+                      : t('docs.filters', 'المرشحات')}
+                  </button>
+                )}
 
-            {/* Main results area */}
-            <section className="flex-1 min-w-0">
-              {renderActiveChips()}
-
-              {/* Results summary strip */}
-              {!isLoading && accumulated.length > 0 && (
-                <FadeIn className="mb-5">
-                  <div className="flex items-start gap-3 p-4 rounded-[14px] bg-accent-soft border border-accent/20">
-                    <span className="mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full bg-accent/20 text-accent-2 text-[11px] flex-shrink-0">
-                      ✦
-                    </span>
-                    <p className="text-[13.5px] leading-[1.7] text-text-2 font-fraunces">
-                      {summarySentence}
-                    </p>
+                {/* Search (#1/#48) */}
+                <form onSubmit={submitSearch} className="mb-5 max-w-2xl">
+                  <div className="relative">
+                    <svg
+                      className="absolute top-1/2 -translate-y-1/2 start-3 w-4 h-4 text-text-3 pointer-events-none"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      aria-hidden
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m21 21-4.3-4.3" />
+                    </svg>
+                    <input
+                      type="text"
+                      value={searchDraft}
+                      onChange={(e) => setSearchDraft(e.target.value)}
+                      placeholder={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
+                      dir="auto"
+                      aria-label={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
+                      className={SEARCH_INPUT_CLASS}
+                    />
                   </div>
-                </FadeIn>
-              )}
+                </form>
 
-              {/* Sort + refine + view toggle */}
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+                {/* Active chips (#3/#4) */}
+                {renderActiveChips()}
+
+                {/* Legend */}
+                {renderLegend()}
+
+                {/* AI refine */}
+                {!isLoading && !error && shownCount > 0 && effectiveSearch && renderRefineBar()}
+
+                {/* Toolbar: count + sort + view (#2/#11/#41) */}
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
                 <div className="flex items-center gap-2">
                   <label className="text-[11.5px] tracking-[0.12em] uppercase text-text-3">
                     {t('docs.sort.label', 'الترتيب')}
@@ -849,79 +711,33 @@ export default function DocumentsPage() {
                   <select
                     value={sort}
                     onChange={(e) => setSort(e.target.value as SortKey)}
-                    className="px-3 py-2 text-[12.5px] font-fraunces bg-white/[0.03] border border-border-strong rounded-[10px] focus:border-accent focus:bg-accent-soft outline-none text-text cursor-pointer transition-all"
+                    className="px-3 py-2 text-[12.5px] font-fraunces bg-card border border-border-strong rounded-[10px] focus:border-accent outline-none text-text cursor-pointer transition-all"
                   >
                     <option value="relevance">{t('docs.sort.relevance', 'الأكثر صلة')}</option>
                     <option value="newest">{t('docs.sort.newest', 'الأحدث')}</option>
                     <option value="alphabetical">{t('docs.sort.alphabetical', 'أبجدي')}</option>
                     <option value="shortest">{t('docs.sort.shortest', 'الأقصر أولًا')}</option>
                   </select>
-
-                  <div className="relative" ref={refinePopoverRef}>
-                    <button
-                      onClick={() => setRefineOpen((v) => !v)}
-                      aria-haspopup="dialog"
-                      aria-expanded={refineOpen}
-                      className={`inline-flex items-center gap-1.5 px-3 py-2 text-[12.5px] rounded-[10px] border transition-all ${
-                        refineText
-                          ? 'bg-accent-soft border-accent/40 text-accent-2'
-                          : 'bg-white/[0.03] border-border-strong text-text-2 hover:border-accent hover:text-accent-2'
-                      }`}
-                    >
-                      <span aria-hidden>✦</span>
-                      {t('docs.refine.button', 'نقّح بالذكاء الاصطناعي')}
-                    </button>
-                    {refineOpen && (
-                      <div
-                        role="dialog"
-                        aria-label={t('docs.refine.button', 'نقّح بالذكاء الاصطناعي')}
-                        onKeyDown={(e) => { if (e.key === 'Escape') closeRefine(); }}
-                        className="absolute top-full mt-2 start-0 z-20 w-[320px] p-4 bg-card-2 border border-border-strong rounded-[16px] shadow-[0_18px_42px_-10px_rgba(0,0,0,0.55)]"
-                      >
-                        <textarea
-                          value={refineDraft}
-                          onChange={(e) => setRefineDraft(e.target.value)}
-                          placeholder={t('docs.refine.placeholder', 'اجعل النتائج أقصر، استبعد الروايات…')}
-                          rows={2}
-                          autoFocus
-                          className={`${INPUT_BASE} resize-none leading-[1.7]`}
-                        />
-                        <div className="mt-3 flex items-center justify-end gap-2">
-                          <button
-                            onClick={closeRefine}
-                            className="px-3 py-1.5 text-[12px] text-text-3 hover:text-text transition-colors"
-                          >
-                            {t('docs.refine.cancel', 'إلغاء')}
-                          </button>
-                          <button
-                            onClick={applyRefine}
-                            className="btn-primary !text-[12px] !px-3.5 !py-1.5"
-                          >
-                            {t('docs.refine.apply', 'تطبيق')}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 </div>
 
                 <div className="flex items-center gap-3">
                   {!isLoading && !error && (
                     <span className="text-[11.5px] tracking-wide text-text-3">
                       {t('docs.loadMoreProgress', '{shown} من {total}', {
-                        shown: accumulated.length,
-                        total: totalCount,
+                        shown: formatCount(accumulated.length),
+                        total: formatCount(totalCount),
                       })}
                     </span>
                   )}
-                  <div className="flex items-center gap-1 p-1 bg-white/[0.04] border border-border rounded-[12px]">
+                  <div className="flex items-center gap-1 p-1 bg-card border border-border rounded-[12px]">
                     <button
                       onClick={() => setViewMode('grid')}
                       aria-pressed={viewMode === 'grid'}
                       aria-label={t('docs.grid', 'عرض شبكي')}
+                      title={t('docs.grid', 'عرض شبكي')}
                       className={`p-1.5 rounded-[8px] transition-all ${
                         viewMode === 'grid'
-                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(192,133,82,0.25)]'
+                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
                           : 'text-text-3 hover:text-text'
                       }`}
                     >
@@ -933,9 +749,10 @@ export default function DocumentsPage() {
                       onClick={() => setViewMode('list')}
                       aria-pressed={viewMode === 'list'}
                       aria-label={t('docs.list', 'عرض قائمة')}
+                      title={t('docs.list', 'عرض قائمة')}
                       className={`p-1.5 rounded-[8px] transition-all ${
                         viewMode === 'list'
-                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(192,133,82,0.25)]'
+                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
                           : 'text-text-3 hover:text-text'
                       }`}
                     >
@@ -943,84 +760,78 @@ export default function DocumentsPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                       </svg>
                     </button>
+                    <button
+                      onClick={() => setViewMode('shelf')}
+                      aria-pressed={viewMode === 'shelf'}
+                      aria-label={t('docs.view.shelf', 'عرض الرف')}
+                      title={t('docs.view.shelf', 'عرض الرف')}
+                      className={`p-1.5 rounded-[8px] transition-all ${
+                        viewMode === 'shelf'
+                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
+                          : 'text-text-3 hover:text-text'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v16M9 4v16M14 5l3 15M19 4v16" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* Content area */}
+              {/* Body */}
               {error ? (
-                <div className="bg-gradient-to-b from-card-2 to-card border border-red-500/30 rounded-[22px] p-8 text-center">
-                  <p className="text-red-300 mb-4 text-[14px]">{error}</p>
-                  <button
-                    onClick={retry}
-                    className="btn-primary !text-[13px]"
-                  >
+                <div className="bg-card border border-red-500/30 rounded-[22px] p-8 text-center">
+                  <p className="text-red-700 mb-4 text-[14px]">{error}</p>
+                  <button onClick={retry} className="btn-primary !text-[13px]">
                     {t('docs.tryAgain', 'إعادة المحاولة')}
                   </button>
                 </div>
               ) : isLoading ? (
                 <div
                   className={
-                    viewMode === 'grid'
-                      ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4'
-                      : 'flex flex-col gap-3'
+                    viewMode === 'list'
+                      ? 'flex flex-col gap-3'
+                      : 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4'
                   }
                 >
                   {Array.from({ length: 8 }).map((_, i) => (
-                    <BookCardSkeleton key={i} variant={viewMode} />
+                    <BookCardSkeleton key={i} variant={viewMode === 'list' ? 'list' : 'grid'} />
                   ))}
                 </div>
               ) : shownCount === 0 ? (
-                renderEmpty()
+                renderEmptyResults()
               ) : (
                 <>
-                  {viewMode === 'grid' ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {filteredSorted.map((doc) => (
-                        <BookCard key={doc.id} document={doc} />
-                      ))}
-                    </div>
+                  {grouped ? (
+                    <>
+                      <ContinueShelf />
+                      {renderGroup(t('docs.group.processing', 'قيد المعالجة'), processingDocs)}
+                      {renderGroup(t('docs.group.all', t('docs.zoneC.title', 'كامل مكتبتك')), readyDocs)}
+                    </>
+                  ) : viewMode === 'shelf' ? (
+                    renderShelf(flatDocs)
                   ) : (
-                    <div className="flex flex-col gap-3">
-                      {filteredSorted.map((doc) => (
-                        <BookListRow key={doc.id} document={doc} />
-                      ))}
-                    </div>
+                    renderDocs(flatDocs)
                   )}
 
-                  {/* Load more */}
-                  <div className="mt-10 flex flex-col items-center gap-2.5">
-                    {hasNext ? (
-                      <button
-                        onClick={loadMore}
-                        disabled={isLoadingMore}
-                        className="inline-flex items-center gap-2 px-6 py-3 text-[13.5px] rounded-full border border-border-strong text-text bg-white/5 hover:bg-white/10 hover:border-accent transition-all disabled:opacity-60"
-                      >
-                        {isLoadingMore ? (
-                          <span className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                          </svg>
-                        )}
-                        {t('docs.loadMore', 'عرض المزيد')}
-                      </button>
-                    ) : (
-                      <span className="text-[12px] text-text-3">
-                        {t('docs.endOfResults', 'انتهت النتائج')}
-                      </span>
-                    )}
-                    <span className="text-[11.5px] text-text-3 tracking-wide">
-                      {t('docs.loadMoreProgress', '{shown} من {total}', {
-                        shown: accumulated.length,
-                        total: totalCount,
-                      })}
-                    </span>
-                  </div>
+                  {renderLoadMore()}
                 </>
               )}
-            </section>
-          </div>
+              </div>
+
+              {/* Mobile filter drawer (#19) */}
+              {!isDesktop && (
+                <ReaderPanel
+                  isOpen={filtersOpen}
+                  onClose={() => setFiltersOpen(false)}
+                  title={t('docs.filters', 'المرشحات')}
+                >
+                  {filterSidebar}
+                </ReaderPanel>
+              )}
+            </div>
+          )}
         </div>
       </main>
     </RequireAuth>

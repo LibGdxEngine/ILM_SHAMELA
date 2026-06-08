@@ -16,6 +16,8 @@ interface CreatePayload {
 interface SelectionPopoverProps {
   enabled: boolean;
   onCreateHighlight: (payload: CreatePayload) => void;
+  /** Optional: invoked with the selected text when "Ask AI" is clicked. */
+  onAskAssistant?: (selectedText: string) => void;
 }
 
 interface PopoverState {
@@ -95,7 +97,7 @@ function paragraphIndexFor(root: HTMLElement, target: Node): number {
   return paragraphIndex;
 }
 
-export default function SelectionPopover({ enabled, onCreateHighlight }: SelectionPopoverProps) {
+export default function SelectionPopover({ enabled, onCreateHighlight, onAskAssistant }: SelectionPopoverProps) {
   const { t } = useI18n();
   const [state, setState] = useState<PopoverState | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -220,6 +222,22 @@ export default function SelectionPopover({ enabled, onCreateHighlight }: Selecti
           className={`h-5 w-5 rounded-full border border-white/30 transition-transform hover:scale-110 ${COLOR_CLASS[color]}`}
         />
       ))}
+      {onAskAssistant && (
+        <button
+          type="button"
+          onClick={() => {
+            const text = window.getSelection()?.toString() ?? '';
+            if (text.trim()) onAskAssistant(text.trim());
+            window.getSelection()?.removeAllRanges();
+            setState(null);
+          }}
+          aria-label={t('reader.askAssistant', 'Ask AI')}
+          className="ms-1 inline-flex h-7 items-center gap-1 rounded-full bg-accent-soft px-2.5 text-[11.5px] text-accent transition-colors hover:bg-accent/15"
+        >
+          <span aria-hidden>✦</span>
+          {t('reader.askAssistant', 'Ask AI')}
+        </button>
+      )}
       <button
         type="button"
         onClick={() => {

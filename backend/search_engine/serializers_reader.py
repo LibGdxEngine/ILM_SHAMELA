@@ -1,6 +1,15 @@
 from rest_framework import serializers
 
-from .models import Bookmark, Highlight, Note, ReaderPreference, ReadingProgress
+from .models import (
+    Bookmark,
+    Chapter,
+    ChatMessage,
+    ChatSession,
+    Highlight,
+    Note,
+    ReaderPreference,
+    ReadingProgress,
+)
 from .utils import split_document_content_into_pages
 
 
@@ -28,6 +37,21 @@ def _validate_tags(value):
             )
         cleaned.append(entry)
     return cleaned
+
+
+class ChapterSerializer(serializers.ModelSerializer):
+    """Serializes a Chapter with nested children for TOC display."""
+    children = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Chapter
+        fields = ['id', 'title', 'order', 'page_start', 'page_end', 'children']
+        read_only_fields = fields
+
+    def get_children(self, obj):
+        return ChapterSerializer(
+            obj.children.all().order_by('order'), many=True, context=self.context
+        ).data
 
 
 class ReaderPreferenceSerializer(serializers.ModelSerializer):
@@ -136,6 +160,28 @@ class ReadingProgressSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'updated_at']
+
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    """Serializes a single chat message (user or assistant)."""
+
+    class Meta:
+        model = ChatMessage
+        fields = ['id', 'role', 'content', 'citations', 'context_page', 'created_at']
+        read_only_fields = fields
+
+
+class ChatSessionSerializer(serializers.ModelSerializer):
+    """Serializes a chat session; messages are fetched separately."""
+    message_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatSession
+        fields = ['id', 'document', 'created_at', 'updated_at', 'message_count']
+        read_only_fields = fields
+
+    def get_message_count(self, obj):
+        return obj.messages.count()
 
 
 class ContinueReadingSerializer(serializers.ModelSerializer):

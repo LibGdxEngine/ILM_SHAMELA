@@ -10,7 +10,8 @@ FRONTEND = $(COMPOSE) exec frontend
         migrate makemigrations superuser collectstatic \
         test test-backend test-frontend lint \
         frontend-install frontend-dev frontend-build \
-        reindex clean-volumes prune
+        reindex clean-volumes prune \
+        deploy-public redeploy-public
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -109,6 +110,24 @@ frontend-dev: ## Run frontend dev server on host
 
 frontend-build: ## Build frontend on host
 	cd frontend && npm run build
+
+## --- Public deployment ------------------------------------------------------
+
+deploy-public: ## Build images + start the public stack (tesseract + docling + caddy on :80/:443)
+	git pull --ff-only || true
+	$(COMPOSE) --profile docling up -d --build
+	$(BACKEND) python manage.py migrate --noinput
+	$(BACKEND) python manage.py collectstatic --noinput
+	$(COMPOSE) ps
+
+redeploy-public: ## Pull latest code, rebuild from scratch, and restart the public stack
+	git pull --ff-only
+	$(COMPOSE) --profile docling down
+	$(COMPOSE) --profile docling build --no-cache
+	$(COMPOSE) --profile docling up -d
+	$(BACKEND) python manage.py migrate --noinput
+	$(BACKEND) python manage.py collectstatic --noinput
+	$(COMPOSE) ps
 
 ## --- Cleanup -----------------------------------------------------------------
 

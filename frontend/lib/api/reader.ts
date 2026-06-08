@@ -183,6 +183,174 @@ function detailUrl(resource: 'bookmarks' | 'notes' | 'highlights', id: number): 
   return buildUrl(`${READER_BASE}/${resource}/${id}/`);
 }
 
+// --- AI assistant chat -----------------------------------------------------
+
+export type ChatRole = 'user' | 'assistant';
+
+export type ApiChatCitation = {
+  page: number;
+  quote: string;
+};
+
+export type ApiChatMessage = {
+  id: number;
+  role: ChatRole;
+  content: string;
+  citations: ApiChatCitation[];
+  context_page: number | null;
+  created_at: string;
+};
+
+export type ApiChatSession = {
+  id: number;
+  document: number;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+};
+
+function chatBase(documentId: number): string {
+  return `/api/search_engine/documents/${documentId}/chat`;
+}
+
+export async function listChatSessions(documentId: number): Promise<ApiChatSession[]> {
+  const response = await fetch(buildUrl(`${chatBase(documentId)}/sessions/`), {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  await ensureOk(response, 'Failed to fetch chat sessions');
+  return response.json();
+}
+
+export async function createChatSession(documentId: number): Promise<ApiChatSession> {
+  const response = await fetch(buildUrl(`${chatBase(documentId)}/sessions/`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    credentials: 'include',
+    body: '{}',
+  });
+  await ensureOk(response, 'Failed to create chat session');
+  return response.json();
+}
+
+export async function listChatMessages(
+  documentId: number,
+  sessionId: number,
+): Promise<ApiChatMessage[]> {
+  const response = await fetch(
+    buildUrl(`${chatBase(documentId)}/sessions/${sessionId}/messages/`),
+    {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    },
+  );
+  await ensureOk(response, 'Failed to fetch chat messages');
+  return response.json();
+}
+
+export type StreamChatEvent =
+  | { type: 'delta'; text: string }
+  | { type: 'done'; messageId: number; citations: ApiChatCitation[] }
+  | { type: 'error'; error: string };
+
+/**
+ * Posts a user message and yields parsed Server-Sent Events.
+ * Caller iterates and updates the UI per event; on `done`/`error` the stream ends.
+ */
+export async function* streamChatMessage(
+  documentId: number,
+  sessionId: number,
+  content: string,
+  contextPage: number | null,
+): AsyncGenerator<StreamChatEvent, void, void> {
+  const response = await fetch(
+    buildUrl(`${chatBase(documentId)}/sessions/${sessionId}/messages/`),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      credentials: 'include',
+      body: JSON.stringify({ content, context_page: contextPage }),
+    },
+  );
+  if (!response.ok || !response.body) {
+    const fallback = await readErrorMessage(response, 'Chat request failed');
+    yield { type: 'error', error: fallback };
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+
+    // Parse complete SSE frames separated by blank line.
+    let idx;
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const frame = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const event = parseSseFrame(frame);
+      if (event) yield event;
+    }
+  }
+}
+
+function parseSseFrame(frame: string): StreamChatEvent | null {
+  let eventName: string | null = null;
+  let data = '';
+  for (const line of frame.split('\n')) {
+    if (line.startsWith('event:')) eventName = line.slice(6).trim();
+    else if (line.startsWith('data:')) data += line.slice(5).trim();
+  }
+  if (!eventName) return null;
+  try {
+    const payload = JSON.parse(data);
+    if (eventName === 'delta' && typeof payload.text === 'string') {
+      return { type: 'delta', text: payload.text };
+    }
+    if (eventName === 'done') {
+      return {
+        type: 'done',
+        messageId: payload.message_id ?? 0,
+        citations: Array.isArray(payload.citations) ? payload.citations : [],
+      };
+    }
+    if (eventName === 'error') {
+      return { type: 'error', error: payload.error ?? 'Unknown error' };
+    }
+  } catch {
+    // ignore malformed payloads
+  }
+  return null;
+}
+
+// --- Chapters --------------------------------------------------------------
+
+export type ApiChapter = {
+  id: number;
+  title: string;
+  order: number;
+  page_start: number;
+  page_end: number | null;
+  children: ApiChapter[];
+};
+
+export async function listChapters(documentId: number): Promise<ApiChapter[]> {
+  const url = buildUrl(`/api/search_engine/documents/${documentId}/chapters/`);
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  await ensureOk(response, 'Failed to fetch chapters');
+  return response.json();
+}
+
 // --- Bookmarks -------------------------------------------------------------
 
 export async function listBookmarks(documentId: number): Promise<ApiBookmark[]> {

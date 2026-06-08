@@ -26,7 +26,7 @@ class ProcessDocumentTaskTests(APITestCase):
         )
         return Document.objects.create(title='Task Test Doc', file=upload)
 
-    @patch('search_engine.tasks.build_embedding', return_value=[0.1] * 768)
+    @patch('search_engine.tasks.build_embedding', return_value=[0.1] * 3072)
     @patch('search_engine.tasks.DocumentIndex')
     @patch('search_engine.tasks.parser.from_buffer')
     def test_process_document_success_marks_document_succeeded(self, mock_parser, mock_index_class, mock_embed):

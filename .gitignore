@@ -5,6 +5,7 @@ caddy/config/
 # Local environment and build artifacts
 .env.local
 .env.*.local
+.env
 frontend/node_modules/
 frontend/.next/
 backend/__pycache__/

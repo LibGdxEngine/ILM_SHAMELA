@@ -302,6 +302,94 @@ class Highlight(models.Model):
         )
 
 
+class Chapter(models.Model):
+    """A chapter/section entry in a document's table of contents.
+
+    Self-referencing via `parent` to support nested subsections.
+    Populated post-ingest by the `extract_chapters` management command
+    (parses h1/h2/h3 in DocumentPage.content) or via admin.
+    """
+    document = models.ForeignKey(
+        Document, on_delete=models.CASCADE, related_name='chapters'
+    )
+    parent = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='children',
+    )
+    title = models.CharField(max_length=512)
+    order = models.PositiveIntegerField(default=0)
+    page_start = models.PositiveIntegerField()
+    page_end = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'search_engine_chapters'
+        verbose_name = 'Chapter'
+        verbose_name_plural = 'Chapters'
+        ordering = ['document', 'order']
+        indexes = [models.Index(fields=['document', 'order'])]
+
+    def __str__(self):
+        return f"Chapter(doc={self.document_id}, '{self.title}', p{self.page_start})"
+
+
+class ChatSession(models.Model):
+    """A single conversation between a user and the AI assistant about a document."""
+    document = models.ForeignKey(
+        Document, on_delete=models.CASCADE, related_name='chat_sessions'
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='chat_sessions',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'search_engine_chat_sessions'
+        verbose_name = 'Chat Session'
+        verbose_name_plural = 'Chat Sessions'
+        ordering = ['-updated_at']
+        indexes = [models.Index(fields=['user', 'document', '-updated_at'])]
+
+    def __str__(self):
+        return f"ChatSession(user={self.user_id}, doc={self.document_id})"
+
+
+class ChatMessage(models.Model):
+    """One user-or-assistant message within a ChatSession."""
+    ROLE_CHOICES = [('user', 'user'), ('assistant', 'assistant')]
+
+    session = models.ForeignKey(
+        ChatSession, on_delete=models.CASCADE, related_name='messages'
+    )
+    role = models.CharField(max_length=12, choices=ROLE_CHOICES)
+    content = models.TextField()
+    citations = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Assistant citations: [{page: int, quote: str}, ...]",
+    )
+    context_page = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Page the user was reading when this message was sent",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'search_engine_chat_messages'
+        verbose_name = 'Chat Message'
+        verbose_name_plural = 'Chat Messages'
+        ordering = ['session', 'created_at']
+        indexes = [models.Index(fields=['session', 'created_at'])]
+
+    def __str__(self):
+        return f"ChatMessage({self.role}, session={self.session_id})"
+
+
 class ReadingProgress(models.Model):
     """Per-user reading position within a document (one row per user+document)."""
     user = models.ForeignKey(

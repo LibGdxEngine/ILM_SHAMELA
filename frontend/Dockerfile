@@ -1,26 +1,34 @@
 # Stage 1: Dependencies
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
 
-# Copy package files
-COPY package.json ./
+# Copy package files (lockfile included so installs are deterministic;
+# without it npm re-resolves and can pick broken/yanked transitive versions).
+COPY package.json package-lock.json* ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies from the lockfile
+RUN npm ci
 
 # Stage 2: Builder
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# NEXT_PUBLIC_* vars are inlined into the bundle at build time, so they must be
+# present here (not just at runtime) for client code (e.g. Google login) and SSR.
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
+
 # Build Next.js application
 RUN npm run build
 
 # Stage 3: Runner
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

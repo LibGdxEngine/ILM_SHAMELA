@@ -6,6 +6,7 @@ const config: Config = {
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  darkMode: ["class"],
   theme: {
     extend: {
       colors: {
@@ -31,19 +32,20 @@ const config: Config = {
         },
         "error-crimson": "#b53333",
         "focus-blue": "#3898ec",
-        // Landing page (dark / "library at night") palette.
-        bg: "#0a0805",
-        "bg-2": "#0f0c09",
-        card: "#16110c",
-        "card-2": "#1a1410",
-        text: "#ede4d3",
-        "text-2": "#a89d8a",
-        "text-3": "#766c5a",
-        accent: "#c08552",
+        // Landing / app shell palette (light parchment).
+        bg: "#faf6ef",
+        "bg-2": "#faf9f5",
+        card: "#ffffff",
+        "card-2": "#faf9f5",
+        text: "#1f1a14",
+        "text-2": "#5e5d59",
+        "text-3": "#87867f",
+        "text-muted": "rgba(31,26,20,0.6)",
+        accent: "#b97340",
         "accent-2": "#d8a373",
-        "accent-soft": "rgba(192,133,82,0.12)",
-        border: "rgba(255,255,255,0.06)",
-        "border-strong": "rgba(255,255,255,0.10)",
+        "accent-soft": "rgba(185,115,64,0.12)",
+        border: "rgba(0,0,0,0.06)",
+        "border-strong": "rgba(0,0,0,0.10)",
       },
       fontFamily: {
         serif: [
@@ -59,18 +61,46 @@ const config: Config = {
           "sans-serif",
         ],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        arabic: ["var(--font-arabic)", "system-ui", "sans-serif"],
         fraunces: ["var(--font-fraunces)", "Georgia", "serif"],
         amiri: ["var(--font-amiri)", "var(--font-arabic)", "serif"],
-        geist: ["var(--font-geist)", "var(--font-manrope)", "system-ui", "sans-serif"],
+        geist: ["var(--font-inter)", "var(--font-manrope)", "system-ui", "sans-serif"],
+        "display-ar": [
+          "var(--font-display-ar)",
+          "var(--font-amiri)",
+          "Amiri",
+          "Noto Naskh Arabic",
+          "serif",
+        ],
+        "body-ar": [
+          "var(--font-body-ar)",
+          "Readex Pro",
+          "var(--font-arabic)",
+          "system-ui",
+          "sans-serif",
+        ],
+        inter: ["var(--font-inter)", "system-ui", "sans-serif"],
+        "reem-kufi": [
+          "var(--font-reem-kufi)",
+          "var(--font-arabic)",
+          "var(--font-amiri)",
+          "system-ui",
+          "sans-serif",
+        ],
       },
       keyframes: {
         "cursor-blink": {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0" },
         },
+        "live-dot": {
+          "0%, 100%": { transform: "scale(1)", opacity: "1" },
+          "50%": { transform: "scale(1.35)", opacity: "0.55" },
+        },
       },
       animation: {
         "cursor-blink": "cursor-blink 1.1s ease-in-out infinite",
+        "live-dot": "live-dot 2s ease-in-out infinite",
       },
       borderRadius: {
         sm: "4px",
@@ -86,6 +116,10 @@ const config: Config = {
         "ring-deep": "0 0 0 1px #c2c0b6",
         "ring-cream": "0 0 0 1px #f0eee6",
         whisper: "0 4px 24px rgba(0,0,0,0.05)",
+        "hero-search":
+          "0 1px 2px rgba(0,0,0,0.04), 0 12px 32px rgba(120,80,40,0.08)",
+        "hero-search-hover":
+          "0 1px 2px rgba(0,0,0,0.05), 0 18px 42px rgba(120,80,40,0.12)",
       },
     },
   },

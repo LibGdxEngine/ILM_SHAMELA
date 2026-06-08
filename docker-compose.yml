@@ -145,9 +145,14 @@ services:
     profiles: ["docling"]
     environment:
       - DOCLING_OCR_ENABLED=${DOCLING_OCR_ENABLED:-false}
-      - DOCLING_OCR_LANG=${DOCLING_OCR_LANG:-ara,eng,fas,urd}
-      - DOCLING_TABLE_MODE=${DOCLING_TABLE_MODE:-accurate}
+      - DOCLING_OCR_LANG=${DOCLING_OCR_LANG:-ar,en,fa,ur}
+      - DOCLING_TABLE_MODE=${DOCLING_TABLE_MODE:-fast}
       - HF_HOME=/root/.cache/huggingface
+      # Keep the model runtimes from spawning a thread per core; on a 2-CPU host
+      # the extra parallelism inflates RSS without speeding things up.
+      - OMP_NUM_THREADS=${DOCLING_OMP_THREADS:-2}
+      - MKL_NUM_THREADS=${DOCLING_OMP_THREADS:-2}
+      - TORCH_NUM_THREADS=${DOCLING_OMP_THREADS:-2}
     volumes:
       - ocr_docling_models:/root/.cache/huggingface
     ports:
@@ -160,6 +165,11 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+    # Cap memory so a single oversized PDF cannot OOM-kill the host.
+    # Host has 7.8 GB RAM, no swap; ES alone takes ~2 GB. 3 GB leaves docling
+    # enough headroom for layout + table models while protecting other services.
+    mem_limit: ${DOCLING_MEM_LIMIT:-3g}
+    memswap_limit: ${DOCLING_MEM_LIMIT:-3g}
     restart: unless-stopped
 
   backend:
@@ -198,9 +208,15 @@ services:
       - DEBUG=${DEBUG:-false}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,https://localhost:3000}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://localhost,http://localhost,https://127.0.0.1,http://127.0.0.1,http://localhost:3000,http://127.0.0.1:3000}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_CHAT_MODEL=${OPENROUTER_CHAT_MODEL:-google/gemini-2.5-flash-lite}
+      - OPENROUTER_REFERER=${OPENROUTER_REFERER:-https://ilmshamela.com}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_CHAT_MODEL=${ANTHROPIC_CHAT_MODEL:-claude-sonnet-4-6}
       - OCR_TESSERACT_URL=${OCR_TESSERACT_URL:-http://ocr-tesseract:7860}
       - OCR_CHANDRA_URL=${OCR_CHANDRA_URL:-http://ocr-chandra:7860}
       - OCR_DOCLING_URL=${OCR_DOCLING_URL:-http://ocr-docling:7860}
@@ -246,7 +262,13 @@ services:
       - DEBUG=${DEBUG:-false}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,https://localhost:3000}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://localhost,http://localhost,https://127.0.0.1,http://127.0.0.1,http://localhost:3000,http://127.0.0.1:3000}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_CHAT_MODEL=${OPENROUTER_CHAT_MODEL:-google/gemini-2.5-flash-lite}
+      - OPENROUTER_REFERER=${OPENROUTER_REFERER:-https://ilmshamela.com}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_CHAT_MODEL=${ANTHROPIC_CHAT_MODEL:-claude-sonnet-4-6}
       - OCR_TESSERACT_URL=${OCR_TESSERACT_URL:-http://ocr-tesseract:7860}
       - OCR_CHANDRA_URL=${OCR_CHANDRA_URL:-http://ocr-chandra:7860}
       - OCR_DOCLING_URL=${OCR_DOCLING_URL:-http://ocr-docling:7860}
@@ -271,23 +293,15 @@ services:
     build:
       context: ./frontend
       dockerfile: ${FRONTEND_DOCKERFILE:-Dockerfile}
+      args:
+        # Baked into the production bundle at build time (NEXT_PUBLIC_* are inlined).
+        NEXT_PUBLIC_API_URL: http://backend:8000
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
     container_name: search_frontend
-    command: >
-      sh -c "
-      if [ \"$${ENVIRONMENT:-prod}\" = \"dev\" ]; then
-        npm run dev
-      else
-        node server.js
-      fi
-      "
+    # Production: run the built standalone server (image CMD `node server.js`).
+    # For local frontend hot-reload, run `make frontend-dev` on the host instead.
     ports:
       - "3000:3000"
-    volumes:
-      # Volumes are mounted for dev mode hot-reload
-      # Note: In production, volumes should be removed to use the built image
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
     environment:
       # Frontend (Next.js) server-side code runs inside this container.
       # It should talk directly to the Django backend service over the Docker network.

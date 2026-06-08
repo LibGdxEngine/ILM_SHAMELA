@@ -45,7 +45,7 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # CSRF settings - required for Django 4.0+
 # Allow configuration via environment variable, with sensible defaults
 csrf_origins = os.environ.get(
-    'CSRF_TRUSTED_ORIGINS', 'https://127.0.0.1,https://localhost,http://127.0.0.1,http://localhost')
+    'CSRF_TRUSTED_ORIGINS', 'https://127.0.0.1,https://localhost,http://127.0.0.1,http://localhost,http://localhost:3000,http://127.0.0.1:3000')
 CSRF_TRUSTED_ORIGINS = [origin.strip()
                         for origin in csrf_origins.split(',') if origin.strip()]
 

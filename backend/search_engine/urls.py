@@ -10,11 +10,16 @@ from .views import (
 from .views_reader import (
     BookmarkViewSet,
     ContinueReadingView,
+    DocumentChapterListView,
     HighlightViewSet,
     NoteExportView,
     NoteViewSet,
     ReaderPreferenceView,
     ReadingProgressUpsertView,
+)
+from .views_chat import (
+    ChatMessageListCreateView,
+    ChatSessionListCreateView,
 )
 
 
@@ -28,6 +33,17 @@ urlpatterns = [
     path('documents/', DocumentListCreateView.as_view(), name='document-list-create'),
     path('documents/<int:pk>/', DocumentDetailView.as_view(), name='document-detail'),
     path('documents/<int:pk>/pages/', DocumentContentPagesView.as_view(), name='document-pages'),
+    path('documents/<int:pk>/chapters/', DocumentChapterListView.as_view(), name='document-chapters'),
+    path(
+        'documents/<int:pk>/chat/sessions/',
+        ChatSessionListCreateView.as_view(),
+        name='document-chat-sessions',
+    ),
+    path(
+        'documents/<int:pk>/chat/sessions/<int:session_id>/messages/',
+        ChatMessageListCreateView.as_view(),
+        name='document-chat-messages',
+    ),
     path('documents/<int:pk>/search/', DocumentInDocumentSearchView.as_view(), name='document-in-search'),
     path('documents/search/', DocumentSearchView.as_view(), name='document-search'),
     path('documents/suggest/', DocumentSuggestionsView.as_view(), name='document-suggest'),

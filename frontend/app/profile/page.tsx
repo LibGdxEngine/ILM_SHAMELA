@@ -1,12 +1,10 @@
 'use client';
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 
 import RequireAuth from '@/components/RequireAuth';
-import LanguageSwitcher from '@/components/i18n/LanguageSwitcher';
 import { useAuth } from '@/lib/AuthContext';
 import { AuthValidationError } from '@/lib/auth';
 import { useI18n } from '@/components/i18n/I18nProvider';
@@ -303,36 +301,29 @@ export default function ProfilePage() {
   return (
     <RequireAuth>
       <main className="landing-shell min-h-screen">
-        {/* Top bar — brand mark + back to home */}
-        <div className="px-6 sm:px-10 lg:px-16 pt-8 flex items-center justify-between relative z-10">
-          <Link href={localizedPath('/')} className="flex items-center gap-2">
-            <span className="font-fraunces text-[24px] text-accent-2 leading-none">ع</span>
-            <span className="font-fraunces text-[18px] tracking-tight">
-              ILM <em className="italic text-text-2">Shamela</em>
-            </span>
-          </Link>
-          <div className="flex items-center gap-5 sm:gap-7">
-            <Link
-              href={localizedPath('/')}
-              className="hidden sm:flex items-center gap-2 text-[13px] text-text-3 hover:text-text-2 transition-colors"
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <path d="m15 18-6-6 6-6" />
-              </svg>
-              {t('login.backHome', 'Back to home')}
-            </Link>
+        <div className="mx-auto max-w-3xl px-6 sm:px-10 lg:px-16 py-14 relative z-10">
+          {/* Header */}
+          <header className="mb-10 flex items-start justify-between gap-6">
+            <div>
+              <FadeIn>
+                <span className="section-eyebrow">{t('profile.eyebrow', 'Account')}</span>
+              </FadeIn>
+              <FadeIn delay={0.05}>
+                <h1 className="font-fraunces font-light text-[clamp(36px,5vw,56px)] leading-[1.05] tracking-tight mt-5 text-text">
+                  {t('profile.title', 'Profile')}
+                </h1>
+              </FadeIn>
+              <FadeIn delay={0.1}>
+                <p className="mt-4 text-[16px] leading-relaxed text-text-2 max-w-xl">
+                  {t('profile.subtitle', 'Manage your account details.')}
+                </p>
+              </FadeIn>
+            </div>
             <button
               type="button"
               onClick={handleLogout}
               disabled={isLoggingOut}
-              className="inline-flex items-center gap-2 text-[13px] text-text-2 hover:text-accent-2 transition-colors disabled:opacity-60 disabled:cursor-wait"
+              className="shrink-0 inline-flex items-center gap-2 rounded-full border border-border-strong px-4 py-2 text-[13px] text-text-2 hover:text-accent-2 hover:border-accent transition-colors disabled:opacity-60 disabled:cursor-wait"
             >
               {isLoggingOut ? (
                 <Spinner />
@@ -354,26 +345,6 @@ export default function ProfilePage() {
               )}
               {t('nav.signOut', 'Sign out')}
             </button>
-            <LanguageSwitcher />
-          </div>
-        </div>
-
-        <div className="mx-auto max-w-3xl px-6 sm:px-10 lg:px-16 py-14 relative z-10">
-          {/* Header */}
-          <header className="mb-10">
-            <FadeIn>
-              <span className="section-eyebrow">{t('profile.eyebrow', 'Account')}</span>
-            </FadeIn>
-            <FadeIn delay={0.05}>
-              <h1 className="font-fraunces font-light text-[clamp(36px,5vw,56px)] leading-[1.05] tracking-tight mt-5 text-text">
-                {t('profile.title', 'Profile')}
-              </h1>
-            </FadeIn>
-            <FadeIn delay={0.1}>
-              <p className="mt-4 text-[16px] leading-relaxed text-text-2 max-w-xl">
-                {t('profile.subtitle', 'Manage your account details.')}
-              </p>
-            </FadeIn>
           </header>
 
           {generalError && (

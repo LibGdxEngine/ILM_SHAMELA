@@ -11,13 +11,23 @@ import {
   DocumentSearchResponse,
 } from '@/lib/api';
 import DocumentViewer from '@/components/document/DocumentViewer';
-import ReaderBottomBar from '@/components/document/ReaderBottomBar';
-import ReadingProgressBar from '@/components/document/ReadingProgressBar';
-import DocumentHero from '@/components/document/DocumentHero';
-import DocumentHeroSkeleton from '@/components/document/DocumentHeroSkeleton';
+import ReaderPanel from '@/components/document/ReaderPanel';
+import SearchFindBar from '@/components/document/SearchFindBar';
+import FontThemeControls from '@/components/document/FontThemeControls';
 import DocumentPageSkeleton from '@/components/document/DocumentPageSkeleton';
-import CompactReaderHeader from '@/components/document/CompactReaderHeader';
 import SelectionPopover from '@/components/document/SelectionPopover';
+import ReaderShell from '@/components/document/ReaderShell';
+import ReaderHeader from '@/components/document/ReaderHeader';
+import ReaderTOCColumn from '@/components/document/ReaderTOCColumn';
+import AssistantColumn from '@/components/document/AssistantColumn';
+import ChapterTree from '@/components/document/ChapterTree';
+import BookmarksToolPanel from '@/components/document/BookmarksToolPanel';
+import NotesToolPanel from '@/components/document/NotesToolPanel';
+import ReadingStatsPanel from '@/components/document/ReadingStatsPanel';
+import ReaderInfoContent from '@/components/document/ReaderInfoContent';
+import type { AssistantColumnHandle } from '@/components/document/AssistantColumn';
+import { useChapters, findActiveChapter } from '@/lib/reader/useChapters';
+import { useReadingStats } from '@/hooks/useReadingStats';
 import type { Bookmark, Note } from '@/components/document/readerToolsTypes';
 import type { ReaderTheme, FontSizeKey, FontWeightKey } from '@/components/document/FontThemeControls';
 import { FONT_SIZE_VALUES } from '@/components/document/FontThemeControls';
@@ -70,6 +80,7 @@ export default function DocumentDetailPage() {
   const isFetchingRef = useRef(false);
   const earliestBatchRef = useRef(1);
   const scrollAdjustRef = useRef<number | null>(null);
+  const assistantRef = useRef<AssistantColumnHandle | null>(null);
 
   useEffect(() => {
     hasMoreRef.current = hasMore;
@@ -92,6 +103,7 @@ export default function DocumentDetailPage() {
   const highlightsHook = useHighlights(documentId);
   const preferencesHook = useReaderPreferences();
   const progressHook = useReadingProgress(documentId);
+  const chaptersHook = useChapters(documentId);
 
   // Map API shapes to legacy panel shapes used by Bookmarks/Notes panels.
   const bookmarks: Bookmark[] = useMemo(
@@ -130,10 +142,6 @@ export default function DocumentDetailPage() {
   const [letterSpacing, setLetterSpacing] = useState<number>(0);
   const [lineHeight, setLineHeight] = useState<number>(1.8);
   const [fontWeight, setFontWeight] = useState<FontWeightKey>(400);
-
-  // Hero collapse state driven by IntersectionObserver on the sentinel below the hero.
-  const [isHeroCollapsed, setIsHeroCollapsed] = useState(false);
-  const heroSentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Controlled bottom-bar panel so we can auto-open search from URL `?q=`.
   const [openBottomPanel, setOpenBottomPanel] = useState<BottomBarPanel>(null);
@@ -454,22 +462,6 @@ export default function DocumentDetailPage() {
     [bookmarksHook]
   );
 
-  const handleShareFromHero = useCallback(() => {
-    const url = `${window.location.href.split('?')[0]}?page=${visiblePageNum}`;
-    navigator.clipboard.writeText(url).catch(() => {
-      // ignore clipboard failure silently
-    });
-  }, [visiblePageNum]);
-
-  const handleStartReading = useCallback(() => {
-    // Prefer the current page (from any previous session) if known; otherwise page 1.
-    const target = visiblePageNum > 0 ? visiblePageNum : 1;
-    const element = window.document.querySelector(`[data-page="${target}"]`);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [visiblePageNum]);
-
   useEffect(() => {
     setIsLoading(true);
     setError(null);
@@ -617,29 +609,6 @@ export default function DocumentDetailPage() {
     }
   }, [fontSize, readerTheme, letterSpacing, lineHeight, fontWeight]);
 
-  // IntersectionObserver sentinel drives the hero -> compact header transition.
-  useEffect(() => {
-    if (isLoading || !document) return;
-    const sentinel = heroSentinelRef.current;
-    const scrollContainer = window.document.getElementById('document-scroll-container');
-    if (!sentinel || !scrollContainer) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          // When sentinel leaves the viewport (scrolled past), collapse the hero.
-          setIsHeroCollapsed(!entry.isIntersecting);
-        });
-      },
-      {
-        root: scrollContainer,
-        threshold: 0,
-      }
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [isLoading, document]);
-
   // Clear highlighted page after the pulse animation duration so the same page
   // can be re-highlighted on a second click.
   useEffect(() => {
@@ -651,10 +620,9 @@ export default function DocumentDetailPage() {
   if (isLoading || !document) {
     return (
       <RequireAuth>
-        <div className="landing-shell relative h-full min-h-0 flex flex-col overflow-hidden">
+        <div className="reader-shell relative h-full min-h-0 flex flex-col overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto pb-16">
-            <DocumentHeroSkeleton />
-            <div className="mx-auto max-w-5xl px-4 py-8 xl:max-w-6xl space-y-6">
+            <div className="mx-auto max-w-3xl px-4 py-8 space-y-6">
               <DocumentPageSkeleton />
               <DocumentPageSkeleton />
               <DocumentPageSkeleton />
@@ -668,7 +636,7 @@ export default function DocumentDetailPage() {
   if (error) {
     return (
       <RequireAuth>
-        <div className="landing-shell flex min-h-screen items-center justify-center px-6">
+        <div className="reader-shell flex min-h-screen items-center justify-center px-6">
           <div className="bg-gradient-to-b from-card-2 to-card border border-red-500/30 rounded-[22px] p-8 max-w-md w-full text-center relative overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/5 to-transparent" />
             <span className="inline-flex items-center gap-2.5 text-[11.5px] tracking-[0.16em] uppercase text-red-300 font-medium">
@@ -683,42 +651,89 @@ export default function DocumentDetailPage() {
   }
 
   const isCurrentBookmarked = bookmarks.some((b) => b.page === visiblePageNum);
+  const activeChapter = findActiveChapter(chaptersHook.data, visiblePageNum);
 
   return (
     <RequireAuth>
-      <div className="landing-shell relative h-full min-h-0 flex flex-col overflow-hidden">
-        <ReadingProgressBar currentPage={visiblePageNum} totalPages={totalPages} />
-
-        <CompactReaderHeader
-          document={document}
-          currentPage={visiblePageNum}
-          totalPages={totalPages}
-          isVisible={isHeroCollapsed}
-        />
-
-        {resumeToast && (
-          <div className="fixed bottom-24 start-1/2 z-[60] -translate-x-1/2 inline-flex items-center gap-3 rounded-full border border-accent/40 bg-bg/90 px-4 py-2 text-[13px] text-text shadow-[0_10px_30px_-10px_rgba(0,0,0,0.55)] backdrop-blur-md rtl:translate-x-1/2">
-            <span className="flex items-center gap-2">
-              <span className="text-accent" aria-hidden>✦</span>
-              {t('reader.resumedFromPage', 'Resumed from page {page}', { page: resumeToast.page })}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                handleGoToPage(1);
-                setResumeToast(null);
-              }}
-              className="rounded-full bg-accent-soft border border-accent/30 px-2.5 py-1 text-[11.5px] font-medium text-accent-2 hover:bg-accent/15 transition-colors"
-            >
-              {t('reader.startOver', 'Start over')}
-            </button>
-          </div>
-        )}
-
+      <ReaderShell
+        header={
+          <ReaderHeader
+            document={document}
+            currentPage={visiblePageNum}
+            totalPages={totalPages}
+            currentChapterTitle={activeChapter?.title ?? null}
+            isBookmarked={isCurrentBookmarked}
+            onOpenSearch={() => setOpenBottomPanel('search')}
+            onToggleBookmark={handleToggleCurrentBookmark}
+            onOpenFontControls={() => setOpenBottomPanel('fontTheme')}
+            onOpenMore={() => setOpenBottomPanel('info')}
+          />
+        }
+        tocColumn={
+          <ReaderTOCColumn
+            document={document}
+            currentPage={visiblePageNum}
+            totalPages={totalPages}
+            chaptersContent={
+              chaptersHook.data.length > 0 ? (
+                <div className="py-2">
+                  <ChapterTree
+                    chapters={chaptersHook.data}
+                    activeChapterId={activeChapter?.id ?? null}
+                    onSelect={handleGoToPage}
+                  />
+                </div>
+              ) : (
+                <p className="p-4 text-[13px] text-text-3">
+                  {t(
+                    'reader.toc.empty',
+                    'No chapters indexed for this document yet.',
+                  )}
+                </p>
+              )
+            }
+            bookmarksContent={
+              <BookmarksToolPanel
+                bookmarks={bookmarks}
+                currentPage={visiblePageNum}
+                selectedTags={bookmarkSelectedTags}
+                onSelectedTagsChange={setBookmarkSelectedTags}
+                onToggleCurrentBookmark={handleToggleCurrentBookmark}
+                onRemoveBookmark={handleRemoveBookmark}
+                onGoToPage={handleGoToPage}
+              />
+            }
+            notesContent={
+              <NotesToolPanel
+                notes={notes}
+                noteInput={noteInput}
+                currentPage={visiblePageNum}
+                documentId={documentId}
+                pendingNoteTags={pendingNoteTags}
+                selectedTags={noteSelectedTags}
+                onPendingNoteTagsChange={setPendingNoteTags}
+                onSelectedTagsChange={setNoteSelectedTags}
+                onNoteInputChange={setNoteInput}
+                onAddNote={handleAddNote}
+                onDeleteNote={handleDeleteNote}
+                onGoToPage={handleGoToPage}
+              />
+            }
+            statsContent={<ReadingStatsTab documentId={documentId} currentPage={visiblePageNum} />}
+          />
+        }
+        assistantColumn={
+          <AssistantColumn
+            ref={assistantRef}
+            documentId={documentId}
+            currentPage={visiblePageNum}
+            onCitationClick={handleGoToPage}
+          />
+        }
+      >
         <div
-          className="flex-1 min-h-0 overflow-y-auto pb-16 relative"
-          id="document-scroll-container"
           data-reader-theme={readerTheme}
+          className="relative mx-auto max-w-3xl px-4 py-6"
           style={{
             '--reader-font-size': FONT_SIZE_VALUES[fontSize],
             '--reader-letter-spacing': `${letterSpacing}em`,
@@ -726,20 +741,6 @@ export default function DocumentDetailPage() {
             '--reader-font-weight': String(fontWeight),
           } as React.CSSProperties}
         >
-          <DocumentHero
-            document={document}
-            currentPage={visiblePageNum}
-            totalPages={totalPages}
-            isBookmarked={isCurrentBookmarked}
-            onStartReading={handleStartReading}
-            onToggleBookmark={handleToggleCurrentBookmark}
-            onShare={handleShareFromHero}
-            onOpenInfo={() => setOpenBottomPanel('info')}
-          />
-
-          {/* Sentinel below the hero; IO watches this to flip the compact header. */}
-          <div ref={heroSentinelRef} aria-hidden="true" className="h-px w-full" />
-
           <DocumentViewer
             pages={pages}
             isLoading={isLoadingMore}
@@ -767,50 +768,82 @@ export default function DocumentDetailPage() {
                 note: '',
               });
             }}
+            onAskAssistant={(text) => {
+              const quoted = `> ${text}\n\n`;
+              assistantRef.current?.setDraft(quoted);
+            }}
           />
         </div>
 
-        <ReaderBottomBar
-          searchQuery={searchQuery}
-          isSearching={isSearching}
-          searchResults={searchResults}
-          onSearchQueryChange={setSearchQuery}
-          notes={notes}
-          noteInput={noteInput}
-          onNoteInputChange={setNoteInput}
-          onAddNote={handleAddNote}
-          onDeleteNote={handleDeleteNote}
-          documentId={documentId}
-          pendingNoteTags={pendingNoteTags}
-          onPendingNoteTagsChange={setPendingNoteTags}
-          noteSelectedTags={noteSelectedTags}
-          onNoteSelectedTagsChange={setNoteSelectedTags}
-          bookmarks={bookmarks}
-          bookmarkSelectedTags={bookmarkSelectedTags}
-          onBookmarkSelectedTagsChange={setBookmarkSelectedTags}
-          onToggleCurrentBookmark={handleToggleCurrentBookmark}
-          onRemoveBookmark={handleRemoveBookmark}
-          currentPage={visiblePageNum}
-          totalPages={totalPages}
-          onGoToPage={handleGoToPage}
-          fontSize={fontSize}
-          theme={readerTheme}
-          onFontSizeChange={handleFontSizeChange}
-          onThemeChange={handleThemeChange}
-          tashkeelEnabled={tashkeelEnabled}
-          onTashkeelChange={handleTashkeelChange}
-          letterSpacing={letterSpacing}
-          onLetterSpacingChange={handleLetterSpacingChange}
-          lineHeight={lineHeight}
-          onLineHeightChange={handleLineHeightChange}
-          fontWeight={fontWeight}
-          onFontWeightChange={handleFontWeightChange}
-          language={document.language}
-          document={document}
-          openPanel={openBottomPanel}
-          onOpenPanelChange={setOpenBottomPanel}
-        />
-      </div>
+        {resumeToast && (
+          <div className="fixed bottom-24 start-1/2 z-[60] -translate-x-1/2 inline-flex items-center gap-3 rounded-full border border-accent/40 bg-bg/90 px-4 py-2 text-[13px] text-text shadow-[0_10px_30px_-10px_rgba(0,0,0,0.55)] backdrop-blur-md rtl:translate-x-1/2">
+            <span className="flex items-center gap-2">
+              <span className="text-accent" aria-hidden>✦</span>
+              {t('reader.resumedFromPage', 'Resumed from page {page}', { page: resumeToast.page })}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                handleGoToPage(1);
+                setResumeToast(null);
+              }}
+              className="rounded-full bg-accent-soft border border-accent/30 px-2.5 py-1 text-[11.5px] font-medium text-accent-2 hover:bg-accent/15 transition-colors"
+            >
+              {t('reader.startOver', 'Start over')}
+            </button>
+          </div>
+        )}
+
+        {openBottomPanel === 'search' && (
+          <SearchFindBar
+            query={searchQuery}
+            isSearching={isSearching}
+            searchResults={searchResults}
+            onQueryChange={setSearchQuery}
+            // Keep the bar open so the reader can step through matches (the
+            // find-next loop). Dismissal is via Escape or the close button.
+            onGoToPage={(page) => handleGoToPage(page)}
+            onClose={() => setOpenBottomPanel(null)}
+          />
+        )}
+
+        <ReaderPanel
+          isOpen={openBottomPanel === 'fontTheme'}
+          onClose={() => setOpenBottomPanel(null)}
+          width="narrow"
+          title={t('reader.header.font', 'Text settings')}
+        >
+          <FontThemeControls
+            fontSize={fontSize}
+            theme={readerTheme}
+            onFontSizeChange={handleFontSizeChange}
+            onThemeChange={handleThemeChange}
+            tashkeelEnabled={tashkeelEnabled}
+            onTashkeelChange={handleTashkeelChange}
+            letterSpacing={letterSpacing}
+            onLetterSpacingChange={handleLetterSpacingChange}
+            lineHeight={lineHeight}
+            onLineHeightChange={handleLineHeightChange}
+            fontWeight={fontWeight}
+            onFontWeightChange={handleFontWeightChange}
+            language={document.language}
+          />
+        </ReaderPanel>
+
+        <ReaderPanel
+          isOpen={openBottomPanel === 'info'}
+          onClose={() => setOpenBottomPanel(null)}
+          width="wide"
+          title={t('reader.info', 'Info')}
+        >
+          <ReaderInfoContent document={document} currentPage={visiblePageNum} />
+        </ReaderPanel>
+      </ReaderShell>
     </RequireAuth>
   );
+}
+
+function ReadingStatsTab({ documentId, currentPage }: { documentId: number; currentPage: number }) {
+  const { stats, resetStats } = useReadingStats(documentId, currentPage);
+  return <ReadingStatsPanel stats={stats} onReset={resetStats} />;
 }
