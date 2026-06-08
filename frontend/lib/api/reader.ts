@@ -252,6 +252,7 @@ export async function listChatMessages(
 
 export type StreamChatEvent =
   | { type: 'delta'; text: string }
+  | { type: 'tool'; name: string; status: 'running' | 'done' }
   | { type: 'done'; messageId: number; citations: ApiChatCitation[] }
   | { type: 'error'; error: string };
 
@@ -312,6 +313,13 @@ function parseSseFrame(frame: string): StreamChatEvent | null {
     const payload = JSON.parse(data);
     if (eventName === 'delta' && typeof payload.text === 'string') {
       return { type: 'delta', text: payload.text };
+    }
+    if (eventName === 'tool' && typeof payload.name === 'string') {
+      return {
+        type: 'tool',
+        name: payload.name,
+        status: payload.status === 'done' ? 'done' : 'running',
+      };
     }
     if (eventName === 'done') {
       return {

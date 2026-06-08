@@ -18,11 +18,18 @@ export interface UseChatResult {
   messages: ApiChatMessage[];
   /** Partial assistant text being streamed for the in-flight message. */
   pendingAssistantText: string;
+  /** Friendly label for the tool the assistant is currently running, or null. */
+  toolStatus: string | null;
   isStreaming: boolean;
   error: string | null;
   send: (content: string, contextPage: number | null) => Promise<void>;
   startNewSession: () => Promise<void>;
 }
+
+/** Human-friendly status shown while the assistant runs a backend tool. */
+const TOOL_LABELS: Record<string, string> = {
+  search_in_document: 'Searching this book…',
+};
 
 /**
  * Owns a single chat session per document.
@@ -35,6 +42,7 @@ export function useChat(documentId: number): UseChatResult {
   const [session, setSession] = useState<ApiChatSession | null>(null);
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
   const [pendingAssistantText, setPendingAssistantText] = useState('');
+  const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const initRef = useRef(false);
@@ -67,6 +75,7 @@ export function useChat(documentId: number): UseChatResult {
       setError(null);
       setIsStreaming(true);
       setPendingAssistantText('');
+      setToolStatus(null);
 
       // Optimistic user message; the server persists its own copy on receipt.
       const optimisticUser: ApiChatMessage = {
@@ -88,6 +97,13 @@ export function useChat(documentId: number): UseChatResult {
           if (event.type === 'delta') {
             collected += event.text;
             setPendingAssistantText(collected);
+            setToolStatus(null); // first answer token clears any tool status
+          } else if (event.type === 'tool') {
+            setToolStatus(
+              event.status === 'running'
+                ? TOOL_LABELS[event.name] ?? 'Working…'
+                : null,
+            );
           } else if (event.type === 'done') {
             citations = event.citations;
             messageId = event.messageId;
@@ -113,6 +129,7 @@ export function useChat(documentId: number): UseChatResult {
       } finally {
         setIsStreaming(false);
         setPendingAssistantText('');
+        setToolStatus(null);
       }
     },
     [documentId, session],
@@ -124,6 +141,7 @@ export function useChat(documentId: number): UseChatResult {
       setSession(next);
       setMessages([]);
       setPendingAssistantText('');
+      setToolStatus(null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start new session');
@@ -134,6 +152,7 @@ export function useChat(documentId: number): UseChatResult {
     sessionId: session?.id ?? null,
     messages,
     pendingAssistantText,
+    toolStatus,
     isStreaming,
     error,
     send,
