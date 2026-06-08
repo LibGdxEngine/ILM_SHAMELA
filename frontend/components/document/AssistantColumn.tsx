@@ -23,6 +23,7 @@ export interface AssistantColumnHandle {
 
 const SUGGESTED_PROMPT_KEYS: Array<{ key: string; fallback: string }> = [
   { key: 'assistant.suggested.summarize', fallback: 'Summarize this page' },
+  { key: 'assistant.suggested.find', fallback: 'Find where this book discusses…' },
   { key: 'assistant.suggested.glossary', fallback: 'Define the key terms here' },
   { key: 'assistant.suggested.context', fallback: 'What is the broader context?' },
 ];
@@ -81,6 +82,9 @@ const AssistantColumn = forwardRef<AssistantColumnHandle, AssistantColumnProps>(
                 className="ms-1 inline-block h-1.5 w-1.5 animate-live-dot rounded-full bg-accent"
                 aria-label={t('assistant.streaming.thinking', 'Thinking…')}
               />
+            )}
+            {chat.toolStatus && (
+              <span className="ms-1 text-[12px] text-text-3">{chat.toolStatus}</span>
             )}
           </div>
           <div className="flex items-center gap-1">

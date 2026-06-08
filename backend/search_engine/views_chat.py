@@ -30,7 +30,6 @@ from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
 
 from .models import ChatMessage, ChatSession, Document, DocumentChunk
-from .semantic import build_embedding, cosine_similarity
 from .serializers_reader import ChatMessageSerializer, ChatSessionSerializer
 from .utils import split_document_content_into_pages
 
@@ -43,6 +42,13 @@ MAX_HISTORY_MESSAGES = 20
 MAX_DOCUMENT_CONTEXT_CHARS = 60_000
 RAG_TOP_K = 10
 DEFAULT_MODEL = os.environ.get('OPENROUTER_CHAT_MODEL', 'google/gemini-2.5-flash-lite')
+# The assistant runs as a tool-calling agent (counting, metadata, chapters,
+# in-document search). The agent model is separately configurable from the
+# plain-chat model so it can be tuned for tool-call reliability. langchain-anthropic
+# is already a dependency, so a Claude model id works here too if Gemini misfires.
+AGENT_MODEL = os.environ.get('OPENROUTER_AGENT_MODEL', 'google/gemini-3.1-flash-lite')
+# Max tool-call rounds before we force a final prose answer (loop termination).
+MAX_TOOL_ROUNDS = 3
 OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 CITATION_RE = re.compile(r'<cite\s+page="(\d+)">(.*?)</cite>', re.IGNORECASE | re.DOTALL)
 
@@ -63,14 +69,24 @@ def _build_system_prompt(
     page_hint = f' Current page being read: {current_page}.' if current_page else ''
     coverage_note = ''
     if available_pages:
-        # RAG mode: only a subset of pages is in the model's context.
+        # RAG mode: only the most relevant pages are inline. The model can reach
+        # the rest of the book through the search_in_document tool.
         pages_str = ', '.join(str(p) for p in available_pages)
         coverage_note = (
             '\n\nNOTE: To keep the context concise, only the most relevant '
-            f'pages were included for this turn: {pages_str}. If the answer '
-            'requires other pages, say so and ask the user to point to a '
-            'page. Cite only pages from the list above.'
+            f'pages were included inline for this turn: {pages_str}. The rest of '
+            'the book is NOT in your context — to answer about other parts, call '
+            'search_in_document rather than guessing.'
         )
+    tools_note = (
+        '\n\nYou have one tool, search_in_document(query), which searches THIS '
+        'book by combining fuzzy keyword matching (exact and near-exact spellings) '
+        'with semantic search, and returns ranked page snippets plus total_matches. '
+        'Call it to locate specific words/passages and to gather evidence before '
+        'answering — do not guess at wording or invent page numbers. When asked '
+        'roughly how often a term appears, use total_matches, and say it reflects '
+        'matching passages rather than an exact count.'
+    )
     return (
         'You are a thoughtful Arabic-literate reading assistant embedded in '
         'a document reader app. The user is reading the document below.\n\n'
@@ -82,6 +98,7 @@ def _build_system_prompt(
         '<cite page="N">short quote</cite> tags so the UI can render citations '
         'that link back to that page. Prefer concise, direct answers. If the '
         'answer is not in the provided document, say so.'
+        f'{tools_note}'
         f'{coverage_note}'
     )
 
@@ -109,41 +126,61 @@ def _full_document_context(document: Document) -> Tuple[str, List[int]]:
 
 
 def _rag_context_block(document: Document, user_question: str) -> Tuple[str, List[int]]:
-    """Retrieve the top-K DocumentChunks by cosine similarity to the user
-    question and format them as the model's context. Falls back to a truncated
-    full-document slice when no embedding is available.
+    """Select the most relevant pages via hybrid (fuzzy keyword + vector) search,
+    then feed those pages' full text to the model. This is the same retrieval the
+    `search_in_document` tool uses, so the baseline context already merges exact-word
+    and semantic matches. Falls back to a truncated full-document slice when search
+    is unavailable or returns nothing.
     """
-    query_vec = build_embedding(user_question, task_type="RETRIEVAL_QUERY")
-    if not query_vec:
-        logger.warning('[CHAT] RAG: query embedding unavailable, falling back to truncated full doc')
+    from .views import search_within_document  # lazy: avoid import cycle at load
+
+    try:
+        result = search_within_document(document, user_question, top_k=RAG_TOP_K)
+    except Exception:  # noqa: BLE001
+        logger.warning('[CHAT] RAG: hybrid search failed, falling back to full doc', exc_info=True)
         return _full_document_context(document)
 
-    chunks = list(
+    matches = result.get('matches', [])
+    if not matches:
+        logger.info('[CHAT] RAG: hybrid search found nothing for doc=%s, falling back', document.id)
+        return _full_document_context(document)
+
+    # Ranked, de-duplicated pages (search may return several snippets per page).
+    ranked_pages: List[int] = []
+    for match in matches:
+        pn = match['page_number']
+        if pn not in ranked_pages:
+            ranked_pages.append(pn)
+
+    # Pull each ranked page's full text. DocumentChunk.page_number is the same
+    # positional page the search maps snippets to, so these align with the
+    # citation pages the model will reference.
+    chunk_rows = (
         DocumentChunk.objects
-        .filter(document=document)
-        .values('chunk_index', 'page_number', 'content', 'embedding')
+        .filter(document=document, page_number__in=ranked_pages)
+        .values('page_number', 'chunk_index', 'content')
     )
-    scored = []
-    for chunk in chunks:
-        emb = chunk.get('embedding') or []
-        if not emb:
-            continue
-        score = cosine_similarity(query_vec, emb)
-        scored.append((score, chunk))
-
-    if not scored:
-        logger.warning('[CHAT] RAG: no chunk embeddings for doc=%s, falling back', document.id)
-        return _full_document_context(document)
-
-    scored.sort(key=lambda item: item[0], reverse=True)
-    top = [chunk for _score, chunk in scored[:RAG_TOP_K]]
-    top.sort(key=lambda c: (c['page_number'], c['chunk_index']))
+    content_by_page: dict = {}
+    for row in chunk_rows:
+        content_by_page.setdefault(row['page_number'], []).append(
+            (row['chunk_index'], row['content'])
+        )
 
     parts: List[str] = []
     page_numbers: List[int] = []
-    for chunk in top:
-        page_numbers.append(chunk['page_number'])
-        parts.append(f"\n[page {chunk['page_number']}]\n{chunk['content']}\n---")
+    for pn in ranked_pages:
+        rows = sorted(content_by_page.get(pn, []), key=lambda r: r[0])
+        if rows:
+            body = '\n'.join(content for _idx, content in rows)
+        else:
+            # Lexical-only page with no stored chunk: fall back to the snippet.
+            body = next(
+                (re.sub(r'</?mark>', '', m['snippet'])
+                 for m in matches if m['page_number'] == pn),
+                '',
+            )
+        parts.append(f"\n[page {pn}]\n{body}\n---")
+        page_numbers.append(pn)
     text = ''.join(parts).strip() or '[no relevant passages found]'
     return text, page_numbers
 
@@ -259,7 +296,9 @@ class ChatMessageListCreateView(views.APIView):
                 AIMessage,
                 HumanMessage,
                 SystemMessage,
+                ToolMessage,
             )
+            from .agent_tools import TOOL_SCHEMAS, build_tool_registry
         except ImportError as exc:
             yield _sse('error', {
                 'error': f'langchain-openai not installed on server: {exc}'
@@ -271,17 +310,23 @@ class ChatMessageListCreateView(views.APIView):
             yield _sse('error', {'error': 'OPENROUTER_API_KEY is not configured'})
             return
 
-        chat = ChatOpenAI(
-            model=DEFAULT_MODEL,
-            api_key=api_key,
-            base_url=OPENROUTER_BASE_URL,
-            max_tokens=2048,
-            streaming=True,
-            default_headers={
-                'HTTP-Referer': os.environ.get('OPENROUTER_REFERER', 'https://ilm-shamela.local'),
-                'X-Title': 'ILM Shamela Reader',
-            },
-        )
+        def _make_chat():
+            return ChatOpenAI(
+                model=AGENT_MODEL,
+                api_key=api_key,
+                base_url=OPENROUTER_BASE_URL,
+                max_tokens=2048,
+                streaming=True,
+                default_headers={
+                    'HTTP-Referer': os.environ.get('OPENROUTER_REFERER', 'https://ilm-shamela.local'),
+                    'X-Title': 'ILM Shamela Reader',
+                },
+            )
+
+        # Tools are bound for the agent rounds; a plain (un-bound) instance is
+        # used to force a final prose answer if rounds are exhausted.
+        chat = _make_chat().bind_tools(TOOL_SCHEMAS)
+        registry = build_tool_registry(document, session.user)
 
         document_block, available_pages = _document_context_block(document, user_msg.content)
         system_prompt = _build_system_prompt(document, context_page, available_pages)
@@ -306,16 +351,62 @@ class ChatMessageListCreateView(views.APIView):
             else:  # assistant
                 messages.append(AIMessage(content=msg.content))
 
-        full_text_parts = []
+        # Agentic loop: stream each round; if the model asked for tools, run them,
+        # append the results, and loop. A round that streams prose with no tool
+        # call is the final answer. The model streams text tokens as `delta`
+        # events exactly as before; tool activity is surfaced via `tool` events
+        # (which older clients safely ignore).
+        full_text_parts: List[str] = []
+        answered = False
         try:
-            for chunk in chat.stream(messages):
-                # chunk.content may be a string or a list of content blocks
-                # depending on the provider; normalize to text.
-                text = self._chunk_text(chunk)
-                if not text:
-                    continue
-                full_text_parts.append(text)
-                yield _sse('delta', {'text': text})
+            for _round in range(MAX_TOOL_ROUNDS):
+                gathered = None
+                for chunk in chat.stream(messages):
+                    text = self._chunk_text(chunk)
+                    if text:
+                        full_text_parts.append(text)
+                        yield _sse('delta', {'text': text})
+                    gathered = chunk if gathered is None else gathered + chunk
+
+                tool_calls = getattr(gathered, 'tool_calls', None) or []
+                if not tool_calls:
+                    answered = True
+                    break
+
+                # This round was a tool-decision round: discard any prose it may
+                # have emitted from the persisted answer, run the tools, and loop.
+                full_text_parts.clear()
+                messages.append(gathered)
+                for call in tool_calls:
+                    name = call.get('name', '')
+                    yield _sse('tool', {'name': name, 'status': 'running'})
+                    fn = registry.get(name)
+                    try:
+                        result = fn(**(call.get('args') or {})) if fn else {
+                            'error': f'unknown tool: {name}'
+                        }
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception('[CHAT] tool %s failed', name)
+                        result = {'error': str(exc)}
+                    messages.append(ToolMessage(
+                        content=json.dumps(result, ensure_ascii=False),
+                        tool_call_id=call.get('id', ''),
+                    ))
+                    yield _sse('tool', {'name': name, 'status': 'done'})
+
+            if not answered:
+                # Rounds exhausted while still wanting tools — force a final,
+                # tool-free answer so the loop always terminates with prose.
+                messages.append(SystemMessage(content=(
+                    'Answer the user now using the information gathered above. '
+                    'Do not call any more tools.'
+                )))
+                full_text_parts.clear()
+                for chunk in _make_chat().stream(messages):
+                    text = self._chunk_text(chunk)
+                    if text:
+                        full_text_parts.append(text)
+                        yield _sse('delta', {'text': text})
         except Exception as exc:  # noqa: BLE001
             logger.exception('LangChain stream failed')
             yield _sse('error', {'error': str(exc)})

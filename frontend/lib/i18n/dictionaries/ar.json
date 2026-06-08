@@ -299,6 +299,7 @@
   "assistant.empty.heading": "اسأل عن أي شيء في هذا الكتاب",
   "assistant.empty.subheading": "اختر اقتراحًا أو اكتب سؤالك الخاص.",
   "assistant.suggested.summarize": "لخّص هذه الصفحة",
+  "assistant.suggested.find": "ابحث عن موضع ذكر… في هذا الكتاب",
   "assistant.suggested.glossary": "اشرح المصطلحات الأساسية هنا",
   "assistant.suggested.context": "ما السياق الأوسع لهذا الجزء؟",
   "assistant.input.placeholder": "اسأل عن أي شيء في هذا الكتاب…",

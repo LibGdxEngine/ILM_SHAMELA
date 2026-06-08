@@ -16,6 +16,8 @@ class Author(models.Model):
         upload_to='authors/photos/', blank=True, null=True, help_text="Author photo")
     description = models.TextField(
         blank=True, null=True, help_text="Author biography/description")
+    nationality = models.CharField(
+        max_length=100, blank=True, null=True, help_text="Nationality of the author")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -122,6 +124,18 @@ class Document(models.Model):
         blank=True,
         default='',
         help_text="OCR engine actually executed during processing (audit trail)",
+    )
+    word_count = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Cached count of whitespace-delimited words in `content`; "
+                  "computed lazily by the assistant's metadata tool",
+    )
+    page_count = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Cached count of distinct DocumentChunk.page_number; "
+                  "computed lazily by the assistant's metadata tool",
     )
 
     class Meta:

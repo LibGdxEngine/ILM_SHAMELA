@@ -107,7 +107,7 @@ export default function Home() {
       {/* BOOKSHELF */}
       <section id="shelf" className="py-32 px-6 overflow-hidden">
         <div className="max-w-6xl mx-auto">
-          <FadeIn className="flex flex-wrap items-end justify-between gap-8 mb-14">
+            <FadeIn className="flex flex-wrap items-end justify-between gap-8 mb-14">
             <div className="max-w-2xl">
               <span className="section-eyebrow">{t('home.shelf.eyebrow', 'The Shelf')}</span>
               <h2 className="font-display-ar font-light text-[clamp(32px,4.5vw,56px)] leading-[1.05] tracking-tight mt-5">

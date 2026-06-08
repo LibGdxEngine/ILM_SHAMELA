@@ -1,6 +1,7 @@
 import React from 'react';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import type { ApiHighlight } from '@/lib/api/reader';
+import { isRtlLanguage } from '@/lib/reader/pageImage';
 
 interface DocumentPageProps {
   pageNumber: number;
@@ -154,8 +155,8 @@ export default function DocumentPage({
 }: DocumentPageProps) {
   const { t } = useI18n();
 
-  // Determine text direction: Arabic = RTL, others = LTR
-  const textDirection = language === 'ar' ? 'rtl' : 'ltr';
+  // Determine text direction: Arabic & Persian = RTL, others = LTR
+  const textDirection = isRtlLanguage(language) ? 'rtl' : 'ltr';
 
   // Strip tashkeel client-side for Arabic pages when toggled off so highlights
   // and search use the same visible offsets. Highlights store offsets against
