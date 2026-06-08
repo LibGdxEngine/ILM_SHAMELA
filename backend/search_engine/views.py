@@ -740,3 +740,22 @@ class DocumentByCountryView(generics.ListAPIView):
         ).prefetch_related('authors', 'alternate_names', 'categories')
         
         return queryset.order_by('authors__name').distinct()
+
+
+class CountryDocumentStatsView(views.APIView):
+    """
+    Return aggregated document counts per country from the denormalized
+    CountryDocumentCount table.
+
+    Response: [{ country, document_count }, ...]
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from .models import CountryDocumentCount
+
+        rows = CountryDocumentCount.objects.all().values(
+            'country', 'document_count',
+        )
+        return Response(list(rows), status=status.HTTP_200_OK)
+

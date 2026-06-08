@@ -8,7 +8,7 @@ import {
     ZoomableGroup,
 } from 'react-simple-maps';
 import { AnimatePresence, motion } from 'framer-motion';
-import { COUNTRY_BOOKS } from './mapData';
+import type { CountryInfo } from '@/app/map/page';
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 
@@ -24,11 +24,12 @@ interface TooltipState {
 interface InteractiveWorldMapProps {
     selectedCountry: string | null;
     onCountrySelect: (country: string | null) => void;
+    countryMap: Record<string, CountryInfo>;
 }
 
 /* ─── Component ─── */
 
-export default function InteractiveWorldMap({ selectedCountry, onCountrySelect }: InteractiveWorldMapProps) {
+export default function InteractiveWorldMap({ selectedCountry, onCountrySelect, countryMap }: InteractiveWorldMapProps) {
     const [tooltip, setTooltip] = useState<TooltipState | null>(null);
     const [position, setPosition] = useState<{ coordinates: [number, number]; zoom: number }>({
         coordinates: [20, 20],
@@ -37,7 +38,7 @@ export default function InteractiveWorldMap({ selectedCountry, onCountrySelect }
     const mapContainerRef = useRef<HTMLDivElement>(null);
 
     /* countries that have books */
-    const activeCountries = useMemo(() => new Set(Object.keys(COUNTRY_BOOKS)), []);
+    const activeCountries = useMemo(() => new Set(Object.keys(countryMap)), [countryMap]);
 
     const handleCountryClick = useCallback(
         (geo: { properties: { name: string } }) => {
@@ -52,18 +53,18 @@ export default function InteractiveWorldMap({ selectedCountry, onCountrySelect }
     const handleCountryMouseEnter = useCallback(
         (geo: { properties: { name: string } }, evt: React.MouseEvent) => {
             const name = geo.properties.name;
-            const countryData = COUNTRY_BOOKS[name];
+            const countryData = countryMap[name];
             if (countryData) {
                 const rect = mapContainerRef.current?.getBoundingClientRect();
                 setTooltip({
                     x: evt.clientX - (rect?.left ?? 0),
                     y: evt.clientY - (rect?.top ?? 0),
                     name: countryData.countryName,
-                    bookCount: countryData.books.length,
+                    bookCount: countryData.documentCount,
                 });
             }
         },
-        [],
+        [countryMap],
     );
 
     const handleCountryMouseLeave = useCallback(() => {

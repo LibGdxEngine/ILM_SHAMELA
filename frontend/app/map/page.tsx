@@ -1,11 +1,88 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import InteractiveWorldMap from '@/components/InteractiveWorldMap';
 import MapSidePanel from '@/components/MapSidePanel';
+import { getCountryDocumentStats, CountryDocumentStat } from '@/lib/api';
+
+/** Country-name → flag emoji (extend as needed). */
+const COUNTRY_FLAGS: Record<string, string> = {
+    Egypt: '🇪🇬',
+    Iraq: '🇮🇶',
+    'Saudi Arabia': '🇸🇦',
+    Syria: '🇸🇾',
+    Morocco: '🇲🇦',
+    Tunisia: '🇹🇳',
+    Iran: '🇮🇷',
+    Spain: '🇪🇸',
+    Turkey: '🇹🇷',
+    India: '🇮🇳',
+    Libya: '🇱🇾',
+    'United States of America': '🇺🇸',
+    Algeria: '🇩🇿',
+    Jordan: '🇯🇴',
+    Lebanon: '🇱🇧',
+    Palestine: '🇵🇸',
+    Yemen: '🇾🇪',
+    Oman: '🇴🇲',
+    Kuwait: '🇰🇼',
+    'United Arab Emirates': '🇦🇪',
+    Qatar: '🇶🇦',
+    Bahrain: '🇧🇭',
+    Sudan: '🇸🇩',
+    Pakistan: '🇵🇰',
+    Afghanistan: '🇦🇫',
+    Indonesia: '🇮🇩',
+    Malaysia: '🇲🇾',
+    Somalia: '🇸🇴',
+    Mauritania: '🇲🇷',
+    Uzbekistan: '🇺🇿',
+    Tajikistan: '🇹🇯',
+    Bangladesh: '🇧🇩',
+    Nigeria: '🇳🇬',
+    Senegal: '🇸🇳',
+    Mali: '🇲🇱',
+    China: '🇨🇳',
+    Japan: '🇯🇵',
+    Germany: '🇩🇪',
+    France: '🇫🇷',
+    'United Kingdom': '🇬🇧',
+    Italy: '🇮🇹',
+    Russia: '🇷🇺',
+    Canada: '🇨🇦',
+    Australia: '🇦🇺',
+    Brazil: '🇧🇷',
+    Mexico: '🇲🇽',
+    'South Africa': '🇿🇦',
+};
+
+export interface CountryInfo {
+    countryName: string;
+    flag: string;
+    documentCount: number;
+}
 
 export default function MapPage() {
     const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
+    const [countryMap, setCountryMap] = useState<Record<string, CountryInfo>>({});
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        getCountryDocumentStats()
+            .then((stats: CountryDocumentStat[]) => {
+                const map: Record<string, CountryInfo> = {};
+                for (const s of stats) {
+                    map[s.country] = {
+                        countryName: s.country,
+                        flag: COUNTRY_FLAGS[s.country] ?? '🏳️',
+                        documentCount: s.document_count,
+                    };
+                }
+                setCountryMap(map);
+            })
+            .catch((err) => console.error('Failed to load country stats:', err))
+            .finally(() => setIsLoading(false));
+    }, []);
 
     return (
         <main className="landing-shell flex flex-col relative" style={{ height: 'calc(100dvh - 56px)' }}>
@@ -28,11 +105,13 @@ export default function MapPage() {
                     <InteractiveWorldMap
                         selectedCountry={selectedCountry}
                         onCountrySelect={setSelectedCountry}
+                        countryMap={countryMap}
                     />
 
                     <MapSidePanel
                         selectedCountry={selectedCountry}
                         onClose={() => setSelectedCountry(null)}
+                        countryMap={countryMap}
                     />
                 </div>
             </div>

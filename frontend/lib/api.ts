@@ -656,3 +656,34 @@ export async function getDocumentsByCountry(
 
   return response.json();
 }
+
+export interface CountryDocumentStat {
+  country: string;
+  document_count: number;
+}
+
+/**
+ * Get aggregated document counts per country from the denormalized table.
+ */
+export async function getCountryDocumentStats(): Promise<CountryDocumentStat[]> {
+  const basePath = '/api/search_engine/documents/country-stats/';
+  const url = API_BASE_URL
+    ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
+    : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || error.message || 'Failed to fetch country stats');
+  }
+
+  return response.json();
+}
+

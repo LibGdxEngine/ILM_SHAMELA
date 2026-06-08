@@ -420,3 +420,75 @@ class ReadingProgress(models.Model):
             f"ReadingProgress(user={self.user_id}, doc={self.document_id}, "
             f"page={self.last_page})"
         )
+
+
+class CountryDocumentCount(models.Model):
+    """Denormalized aggregation table: document counts per country.
+
+    Derived from Author.nationality via the Document ↔ Author M2M.
+    Kept in sync automatically by Django signals so that map / stats
+    endpoints can read a single small table instead of running
+    expensive JOINs + GROUP BY on every request.
+
+    Use ``manage.py rebuild_country_counts`` for a full rebuild.
+    """
+    country = models.CharField(
+        max_length=100, unique=True, db_index=True,
+        help_text="Country name (normalised to match Author.nationality)",
+    )
+    document_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of distinct documents whose authors belong to this country",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'search_engine_country_document_counts'
+        verbose_name = 'Country Document Count'
+        verbose_name_plural = 'Country Document Counts'
+        ordering = ['-document_count', 'country']
+
+    def __str__(self):
+        return f"{self.country}: {self.document_count}"
+
+    @classmethod
+    def refresh_country(cls, country_name):
+        """Recompute the count for a single country and upsert the row."""
+        if not country_name or not country_name.strip():
+            return
+        country_name = country_name.strip()
+        count = (
+            Document.objects
+            .filter(authors__nationality__iexact=country_name)
+            .distinct()
+            .count()
+        )
+        if count > 0:
+            cls.objects.update_or_create(
+                country=country_name,
+                defaults={'document_count': count},
+            )
+        else:
+            cls.objects.filter(country=country_name).delete()
+
+    @classmethod
+    def refresh_all(cls):
+        """Full rebuild of every country row from scratch."""
+        from django.db.models import Count
+        stats = (
+            Author.objects
+            .exclude(nationality__isnull=True)
+            .exclude(nationality='')
+            .values('nationality')
+            .annotate(doc_count=Count('documents', distinct=True))
+            .order_by()
+        )
+        # Wipe stale rows and bulk-upsert.
+        cls.objects.all().delete()
+        cls.objects.bulk_create(
+            [
+                cls(country=row['nationality'], document_count=row['doc_count'])
+                for row in stats if row['doc_count'] > 0
+            ],
+            ignore_conflicts=True,
+        )
