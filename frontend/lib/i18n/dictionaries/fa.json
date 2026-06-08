@@ -284,6 +284,7 @@
   "assistant.empty.heading": "هر چیزی درباره این کتاب بپرس",
   "assistant.empty.subheading": "یکی از پیشنهادها را انتخاب کن یا سؤال خود را بنویس.",
   "assistant.suggested.summarize": "این صفحه را خلاصه کن",
+  "assistant.suggested.find": "جایی را که این کتاب دربارهٔ… بحث می‌کند پیدا کن",
   "assistant.suggested.glossary": "اصطلاحات کلیدی این صفحه را توضیح بده",
   "assistant.suggested.context": "زمینهٔ گسترده‌تر این بخش چیست؟",
   "assistant.input.placeholder": "هر چیزی درباره این کتاب بپرس…",

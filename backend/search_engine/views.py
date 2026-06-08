@@ -489,12 +489,149 @@ class DocumentContentPagesView(views.APIView):
             )
 
 
+SEMANTIC_FALLBACK_THRESHOLD = 0.3
+SEMANTIC_FALLBACK_TOP_K = 20
+
+
+def search_within_document(document, query: str, top_k: int | None = None) -> Dict:
+    """Hybrid in-document search: ES lexical/fuzzy + per-chunk semantic, merged
+    as ``0.60*lexical + 0.40*semantic``, with a pure-semantic fallback when
+    there are no lexical hits.
+
+    Returns ``{'matches': [...], 'total_matches': int, 'query': str,
+    'has_semantic': bool}``. When ``top_k`` is given the match list is capped.
+
+    Extracted from ``DocumentInDocumentSearchView`` so the assistant's
+    ``search_in_document`` tool can reuse the exact same scoring (the view now
+    calls this; the scoring must not drift between the two callers).
+    """
+    content = document.content or ''
+    pages = split_document_content_into_pages(content)
+
+    # --- Stage 1: ES lexical/fuzzy search ---
+    search = DocumentIndex.search()
+    search = search.filter('ids', values=[str(document.id)])
+    search = search.query(
+        'match',
+        content={'query': query, 'fuzziness': 'AUTO', 'operator': 'and'},
+    )
+    search = search.highlight(
+        'content',
+        fragment_size=150,
+        number_of_fragments=50,
+        pre_tags=['<mark>'],
+        post_tags=['</mark>'],
+        max_analyzed_offset=1000000,
+    )
+    try:
+        response = search.execute()
+    except Exception as exc:  # noqa: BLE001
+        # Elasticsearch down or index missing: degrade to the semantic stage
+        # rather than failing the whole search.
+        logger.warning('[DOC_SEARCH] ES lexical stage unavailable, using semantic only: %s', exc)
+        response = None
+
+    lexical_matches: List[Dict] = []
+    es_score = 0.0
+    if response is not None and response.hits:
+        hit = response.hits[0]
+        es_score = float(getattr(hit.meta, 'score', 0.0) or 0.0)
+        if 'highlight' in hit.meta:
+            for snippet in hit.meta.highlight.content:
+                plain_snippet = re.sub(r'</?mark>', '', snippet)
+                page_number = 1
+                for page in pages:
+                    if plain_snippet and plain_snippet in page['content']:
+                        page_number = page['page_number']
+                        break
+                lexical_matches.append({
+                    'page_number': page_number,
+                    'snippet': snippet,
+                    'es_score': es_score,
+                })
+
+    # --- Stage 2: Per-chunk semantic scoring ---
+    chunks = list(
+        DocumentChunk.objects.filter(document=document)
+        .order_by('chunk_index')
+        .values('chunk_index', 'page_number', 'content', 'embedding')
+    )
+    has_semantic = bool(chunks)
+
+    query_vector: List[float] = []
+    page_semantic: Dict[int, float] = {}
+
+    if has_semantic:
+        query_vector = build_embedding(query, task_type="RETRIEVAL_QUERY")
+        if query_vector:
+            for chunk in chunks:
+                emb = chunk['embedding'] or []
+                sim = max(0.0, cosine_similarity(query_vector, emb))
+                pn = chunk['page_number']
+                page_semantic[pn] = max(page_semantic.get(pn, 0.0), sim)
+
+    # --- Stage 3: Merge & hybrid score ---
+    if lexical_matches:
+        max_lexical = max(m['es_score'] for m in lexical_matches) or 1.0
+        results: List[Dict] = []
+        for match in lexical_matches:
+            norm_lex = match['es_score'] / max_lexical
+            sem = page_semantic.get(match['page_number'], 0.0)
+            if has_semantic and query_vector:
+                final = 0.60 * norm_lex + 0.40 * sem
+            else:
+                final = norm_lex
+                sem = None  # signal: no chunks
+            results.append({
+                'page_number': match['page_number'],
+                'snippet': match['snippet'],
+                'score': match['es_score'],
+                'score_lexical': round(norm_lex, 4),
+                'score_semantic': round(sem, 4) if sem is not None else None,
+                'score_final': round(final, 4),
+            })
+        results.sort(key=lambda r: r['score_final'], reverse=True)
+        if top_k:
+            results = results[:top_k]
+        return {
+            'matches': results,
+            'total_matches': len(results),
+            'query': query,
+            'has_semantic': has_semantic,
+        }
+
+    # --- Stage 4: Pure semantic fallback (0 lexical hits) ---
+    if not has_semantic or not query_vector:
+        return {'matches': [], 'total_matches': 0, 'query': query, 'has_semantic': has_semantic}
+
+    sem_results = []
+    for chunk in chunks:
+        emb = chunk['embedding'] or []
+        sim = max(0.0, cosine_similarity(query_vector, emb))
+        if sim >= SEMANTIC_FALLBACK_THRESHOLD:
+            pn = chunk['page_number']
+            snippet = chunk['content'][:300].replace('\n', ' ')
+            sem_results.append({
+                'page_number': pn,
+                'snippet': snippet,
+                'score': sim,
+                'score_lexical': 0.0,
+                'score_semantic': round(sim, 4),
+                'score_final': round(sim, 4),
+            })
+    sem_results.sort(key=lambda r: r['score_final'], reverse=True)
+    sem_results = sem_results[:(top_k or SEMANTIC_FALLBACK_TOP_K)]
+    return {
+        'matches': sem_results,
+        'total_matches': len(sem_results),
+        'query': query,
+        'has_semantic': True,
+    }
+
+
 class DocumentInDocumentSearchView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
     throttle_scope = 'search'
-
-    SEMANTIC_FALLBACK_THRESHOLD = 0.3
-    SEMANTIC_FALLBACK_TOP_K = 20
 
     def get(self, request, pk):
         query = request.query_params.get('q', '').strip()
@@ -507,136 +644,13 @@ class DocumentInDocumentSearchView(views.APIView):
         try:
             try:
                 document = Document.objects.get(id=pk)
-                content = document.content or ''
             except Document.DoesNotExist:
                 return Response(
                     {'error': f'Document with ID {pk} not found'},
                     status=status.HTTP_404_NOT_FOUND,
                 )
-
-            pages = split_document_content_into_pages(content)
-
-            # --- Stage 1: ES lexical/fuzzy search ---
-            search = DocumentIndex.search()
-            search = search.filter('ids', values=[str(pk)])
-            search = search.query(
-                'match',
-                content={'query': query, 'fuzziness': 'AUTO', 'operator': 'and'},
-            )
-            search = search.highlight(
-                'content',
-                fragment_size=150,
-                number_of_fragments=50,
-                pre_tags=['<mark>'],
-                post_tags=['</mark>'],
-                max_analyzed_offset=1000000,
-            )
-            response = search.execute()
-
-            lexical_matches: List[Dict] = []
-            es_score = 0.0
-            if response.hits:
-                hit = response.hits[0]
-                es_score = float(getattr(hit.meta, 'score', 0.0) or 0.0)
-                if 'highlight' in hit.meta:
-                    for snippet in hit.meta.highlight.content:
-                        plain_snippet = re.sub(r'</?mark>', '', snippet)
-                        page_number = 1
-                        for page in pages:
-                            if plain_snippet and plain_snippet in page['content']:
-                                page_number = page['page_number']
-                                break
-                        lexical_matches.append({
-                            'page_number': page_number,
-                            'snippet': snippet,
-                            'es_score': es_score,
-                        })
-
-            # --- Stage 2: Per-chunk semantic scoring ---
-            chunks = list(
-                DocumentChunk.objects.filter(document=document)
-                .order_by('chunk_index')
-                .values('chunk_index', 'page_number', 'content', 'embedding')
-            )
-            has_semantic = bool(chunks)
-
-            query_vector: List[float] = []
-            page_semantic: Dict[int, float] = {}
-
-            if has_semantic:
-                query_vector = build_embedding(query, task_type="RETRIEVAL_QUERY")
-                if query_vector:
-                    for chunk in chunks:
-                        emb = chunk['embedding'] or []
-                        sim = max(0.0, cosine_similarity(query_vector, emb))
-                        pn = chunk['page_number']
-                        page_semantic[pn] = max(page_semantic.get(pn, 0.0), sim)
-
-            # --- Stage 3: Merge & hybrid score ---
-            if lexical_matches:
-                max_lexical = max(m['es_score'] for m in lexical_matches) or 1.0
-                results: List[Dict] = []
-                for match in lexical_matches:
-                    norm_lex = match['es_score'] / max_lexical
-                    sem = page_semantic.get(match['page_number'], 0.0)
-                    if has_semantic and query_vector:
-                        final = 0.60 * norm_lex + 0.40 * sem
-                    else:
-                        final = norm_lex
-                        sem = None  # signal: no chunks
-                    results.append({
-                        'page_number': match['page_number'],
-                        'snippet': match['snippet'],
-                        'score': match['es_score'],
-                        'score_lexical': round(norm_lex, 4),
-                        'score_semantic': round(sem, 4) if sem is not None else None,
-                        'score_final': round(final, 4),
-                    })
-                results.sort(key=lambda r: r['score_final'], reverse=True)
-                return Response(
-                    {
-                        'matches': results,
-                        'total_matches': len(results),
-                        'query': query,
-                        'has_semantic': has_semantic,
-                    },
-                    status=status.HTTP_200_OK,
-                )
-
-            # --- Stage 4: Pure semantic fallback (0 lexical hits) ---
-            if not has_semantic or not query_vector:
-                return Response(
-                    {'matches': [], 'total_matches': 0, 'query': query, 'has_semantic': has_semantic},
-                    status=status.HTTP_200_OK,
-                )
-
-            sem_results = []
-            for chunk in chunks:
-                emb = chunk['embedding'] or []
-                sim = max(0.0, cosine_similarity(query_vector, emb))
-                if sim >= self.SEMANTIC_FALLBACK_THRESHOLD:
-                    pn = chunk['page_number']
-                    snippet = chunk['content'][:300].replace('\n', ' ')
-                    sem_results.append({
-                        'page_number': pn,
-                        'snippet': snippet,
-                        'score': sim,
-                        'score_lexical': 0.0,
-                        'score_semantic': round(sim, 4),
-                        'score_final': round(sim, 4),
-                    })
-            sem_results.sort(key=lambda r: r['score_final'], reverse=True)
-            sem_results = sem_results[:self.SEMANTIC_FALLBACK_TOP_K]
-            return Response(
-                {
-                    'matches': sem_results,
-                    'total_matches': len(sem_results),
-                    'query': query,
-                    'has_semantic': True,
-                },
-                status=status.HTTP_200_OK,
-            )
-
+            result = search_within_document(document, query)
+            return Response(result, status=status.HTTP_200_OK)
         except Exception as exc:
             logger.error('[DOC_SEARCH] Error: %s', str(exc), exc_info=True)
             return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -123,6 +123,18 @@ class Document(models.Model):
         default='',
         help_text="OCR engine actually executed during processing (audit trail)",
     )
+    word_count = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Cached count of whitespace-delimited words in `content`; "
+                  "computed lazily by the assistant's metadata tool",
+    )
+    page_count = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Cached count of distinct DocumentChunk.page_number; "
+                  "computed lazily by the assistant's metadata tool",
+    )
 
     class Meta:
         db_table = 'search_engine_documents'

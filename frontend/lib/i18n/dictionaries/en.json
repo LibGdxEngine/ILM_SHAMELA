@@ -284,6 +284,7 @@
   "assistant.empty.heading": "Ask anything about this book",
   "assistant.empty.subheading": "Pick a starter or type your own question.",
   "assistant.suggested.summarize": "Summarize this page",
+  "assistant.suggested.find": "Find where this book discusses…",
   "assistant.suggested.glossary": "Define the key terms here",
   "assistant.suggested.context": "What is the broader context?",
   "assistant.input.placeholder": "Ask anything about this book…",
