@@ -2,17 +2,18 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
-import { COUNTRY_BOOKS } from './mapData';
 import { getDocumentsByCountry, Document } from '@/lib/api';
 import { paletteFor } from '@/lib/coverPalettes';
+import type { CountryInfo } from '@/app/map/page';
 
 interface MapSidePanelProps {
     selectedCountry: string | null;
     onClose: () => void;
+    countryMap: Record<string, CountryInfo>;
 }
 
-export default function MapSidePanel({ selectedCountry, onClose }: MapSidePanelProps) {
-    const selectedData = selectedCountry ? COUNTRY_BOOKS[selectedCountry] : null;
+export default function MapSidePanel({ selectedCountry, onClose, countryMap }: MapSidePanelProps) {
+    const selectedData = selectedCountry ? countryMap[selectedCountry] : null;
     const [documents, setDocuments] = useState<Document[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
