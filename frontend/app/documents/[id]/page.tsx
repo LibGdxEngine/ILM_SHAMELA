@@ -742,7 +742,6 @@ export default function DocumentDetailPage() {
           } as React.CSSProperties}
         >
           <DocumentViewer
-            documentId={documentId}
             pages={pages}
             isLoading={isLoadingMore}
             hasMore={hasMore}
@@ -754,7 +753,6 @@ export default function DocumentDetailPage() {
             highlightedPage={highlightedPage}
             tashkeelEnabled={tashkeelEnabled}
             highlights={highlightsHook.data}
-            styleSignature={`${fontSize}|${readerTheme}|${letterSpacing}|${lineHeight}|${fontWeight}`}
           />
 
           <SelectionPopover

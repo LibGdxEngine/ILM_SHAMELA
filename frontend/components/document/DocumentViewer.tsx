@@ -2,15 +2,13 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { DocumentPage as DocumentPageType } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
-import DocumentPageImage from './DocumentPageImage';
+import DocumentPage from './DocumentPage';
 import DocumentPageSkeleton from './DocumentPageSkeleton';
 import ErrorDisplay from '@/components/ErrorDisplay';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
-import { isRtlLanguage } from '@/lib/reader/pageImage';
 
 interface DocumentViewerProps {
-  documentId: number;
   pages: DocumentPageType[];
   isLoading: boolean;
   hasMore: boolean;
@@ -26,12 +24,9 @@ interface DocumentViewerProps {
   highlightedPage?: number | null;
   tashkeelEnabled?: boolean;
   highlights?: ApiHighlight[];
-  /** Signature of reader layout settings; changes trigger page-image regen. */
-  styleSignature?: string;
 }
 
 export default function DocumentViewer({
-  documentId,
   pages,
   isLoading,
   hasMore,
@@ -46,8 +41,7 @@ export default function DocumentViewer({
   totalPages,
   highlightedPage,
   tashkeelEnabled = true,
-  highlights = [],
-  styleSignature = ''
+  highlights = []
 }: DocumentViewerProps) {
   const { t } = useI18n();
   const localizedPath = useLocalizedPath();
@@ -363,8 +357,8 @@ export default function DocumentViewer({
   // We attach this to window so parent can call it if needed, 
   // but better to expose via ref. For now keeping it simple.
   
-  // Determine text direction based on language (Arabic AND Persian are RTL)
-  const textDirection = isRtlLanguage(language) ? 'rtl' : 'ltr';
+  // Determine text direction based on language
+  const textDirection = language === 'ar' ? 'rtl' : 'ltr';
 
   return (
     <div 
@@ -400,13 +394,13 @@ export default function DocumentViewer({
             }}
             data-page={page.page_number}
           >
-            <DocumentPageImage
-              documentId={documentId}
+            <DocumentPage
               pageNumber={page.page_number}
               content={page.content}
+              searchQuery={searchQuery}
               language={language}
               tashkeelEnabled={tashkeelEnabled}
-              styleSignature={styleSignature}
+              highlights={highlights.filter((h) => h.page_number === page.page_number)}
             />
           </div>
         );
