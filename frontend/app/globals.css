@@ -344,6 +344,14 @@ mark {
 /* User-created highlight colors. Each `<mark data-color="...">` gets a
    semi-transparent background so the underlying serif text remains legible.
    The dark-theme variants reduce alpha for AA contrast. */
+mark[data-hid] { cursor: context-menu; }
+
+/* Hover hint shown above a highlight; fades/rises in subtly. */
+@keyframes highlight-tooltip-in {
+  from { opacity: 0; transform: translate(-50%, calc(-100% + 4px)); }
+  to   { opacity: 1; transform: translate(-50%, -100%); }
+}
+.highlight-tooltip { animation: highlight-tooltip-in 0.12s ease-out; }
 .highlight-yellow { background: rgba(254, 240, 138, 0.6); }
 .highlight-green  { background: rgba(187, 247, 208, 0.6); }
 .highlight-blue   { background: rgba(191, 219, 254, 0.6); }

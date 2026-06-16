@@ -16,6 +16,7 @@ import SearchFindBar from '@/components/document/SearchFindBar';
 import FontThemeControls from '@/components/document/FontThemeControls';
 import DocumentPageSkeleton from '@/components/document/DocumentPageSkeleton';
 import SelectionPopover from '@/components/document/SelectionPopover';
+import HighlightTooltip from '@/components/document/HighlightTooltip';
 import ReaderShell from '@/components/document/ReaderShell';
 import ReaderHeader from '@/components/document/ReaderHeader';
 import ReaderTOCColumn from '@/components/document/ReaderTOCColumn';
@@ -101,9 +102,31 @@ export default function DocumentDetailPage() {
   const bookmarksHook = useBookmarks(documentId);
   const notesHook = useNotes(documentId);
   const highlightsHook = useHighlights(documentId);
+  // Latest `remove` in a ref so the delegated contextmenu listener stays stable.
+  const removeHighlightRef = useRef(highlightsHook.remove);
+  removeHighlightRef.current = highlightsHook.remove;
   const preferencesHook = useReaderPreferences();
   const progressHook = useReadingProgress(documentId);
   const chaptersHook = useChapters(documentId);
+
+  // Right-click a highlight to delete it. Highlights are injected via
+  // dangerouslySetInnerHTML, so we use a delegated contextmenu listener rather
+  // than per-element React handlers.
+  useEffect(() => {
+    const handleContextMenu = (event: MouseEvent) => {
+      const mark = (event.target as HTMLElement | null)?.closest?.('mark[data-hid]') as
+        | HTMLElement
+        | null;
+      if (!mark) return;
+      const id = parseInt(mark.getAttribute('data-hid') ?? '', 10);
+      // Skip optimistic temp highlights (negative ids) not yet persisted.
+      if (!Number.isFinite(id) || id <= 0) return;
+      event.preventDefault();
+      void removeHighlightRef.current(id);
+    };
+    window.document.addEventListener('contextmenu', handleContextMenu);
+    return () => window.document.removeEventListener('contextmenu', handleContextMenu);
+  }, []);
 
   // Map API shapes to legacy panel shapes used by Bookmarks/Notes panels.
   const bookmarks: Bookmark[] = useMemo(
@@ -742,7 +765,6 @@ export default function DocumentDetailPage() {
           } as React.CSSProperties}
         >
           <DocumentViewer
-            documentId={documentId}
             pages={pages}
             isLoading={isLoadingMore}
             hasMore={hasMore}
@@ -754,7 +776,6 @@ export default function DocumentDetailPage() {
             highlightedPage={highlightedPage}
             tashkeelEnabled={tashkeelEnabled}
             highlights={highlightsHook.data}
-            styleSignature={`${fontSize}|${readerTheme}|${letterSpacing}|${lineHeight}|${fontWeight}`}
           />
 
           <SelectionPopover
@@ -775,6 +796,8 @@ export default function DocumentDetailPage() {
               assistantRef.current?.setDraft(quoted);
             }}
           />
+
+          <HighlightTooltip enabled />
         </div>
 
         {resumeToast && (
