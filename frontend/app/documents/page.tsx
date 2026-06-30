@@ -10,6 +10,8 @@ import RequireAuth from '@/components/RequireAuth';
 import ContinueShelf from '@/components/documents/ContinueShelf';
 import BookSpine from '@/components/documents/BookSpine';
 import FilterSidebar from '@/components/documents/FilterSidebar';
+import ReadingRoomTopicBar from '@/components/documents/ReadingRoomTopicBar';
+import LibraryAssistantPanel from '@/components/documents/LibraryAssistantPanel';
 import ReaderPanel from '@/components/document/ReaderPanel';
 import useMediaQuery from '@/hooks/useMediaQuery';
 import useDebounce from '@/hooks/useDebounce';
@@ -28,7 +30,7 @@ type ViewMode = 'grid' | 'list' | 'shelf';
 type StatusSegment = 'all' | 'ready' | 'processing';
 
 const SEARCH_INPUT_CLASS =
-  'w-full ps-10 pe-3 py-2.5 rounded-[12px] text-[14px] font-fraunces outline-none transition-all bg-card text-text placeholder:text-text-3 focus:border-accent focus:bg-accent-soft/40 focus:shadow-[0_0_0_4px_rgba(185,115,64,0.08)] border border-border';
+  'w-full ps-11 pe-3 py-3 rounded-[12px] text-[14.5px] outline-none transition-all bg-[#fcf8ee] text-[#2c2620] placeholder:text-[#9a8b70] border border-[#e2d5ba] focus:border-[#b07d2b] focus:shadow-[0_0_0_4px_rgba(176,125,43,0.10)]';
 
 function UploadIcon() {
   return (
@@ -53,9 +55,9 @@ function ActiveChip({ label, value, onRemove }: PillProps) {
   return (
     <button
       onClick={onRemove}
-      className="inline-flex items-center gap-1.5 px-3 py-1 text-[12px] bg-accent-soft border border-accent/30 text-accent-2 rounded-full hover:border-accent hover:bg-accent/15 transition-colors"
+      className="inline-flex items-center gap-1.5 px-3 py-1 text-[12px] bg-[rgba(176,125,43,0.12)] border border-[rgba(176,125,43,0.35)] text-[#8a6a23] rounded-full hover:border-[#b07d2b] hover:bg-[rgba(176,125,43,0.18)] transition-colors"
     >
-      <span className="text-text-3">{label}:</span>
+      <span className="text-[#9a8b70]">{label}:</span>
       <span>{value}</span>
       <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -88,6 +90,7 @@ export default function DocumentsPage() {
 
   /* ─── Layout state ─── */
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const isDesktop = useMediaQuery('(min-width: 1024px)', true);
 
   /* ─── Data state ─── */
@@ -344,6 +347,13 @@ export default function DocumentsPage() {
     setSearchQuery(searchDraft);
   };
 
+  // Drive a real library search from the assistant panel.
+  const askLibrary = useCallback((query: string) => {
+    setSearchQuery(query);
+    setSearchDraft(query);
+    setAssistantOpen(false);
+  }, []);
+
   const applyRefine = () => {
     setRefineText(refineDraft);
     setRefineOpen(false);
@@ -392,6 +402,52 @@ export default function DocumentsPage() {
     />
   );
 
+  // Green "explore on the map" promo — links to the existing /map atlas.
+  const mapPromo = (
+    <Link
+      href={localizedPath('/map')}
+      className="relative block mt-5 rounded-[13px] overflow-hidden p-[18px] text-[#efe7d2] group"
+      style={{ background: 'linear-gradient(150deg,#2e5347,#24433a)' }}
+    >
+      <span
+        className="absolute inset-0 opacity-[0.13] pointer-events-none"
+        style={{ backgroundImage: 'url(/images/landing/star-tile.svg)', backgroundSize: '90px 90px' }}
+        aria-hidden
+      />
+      <span className="relative block">
+        <span className="flex items-center gap-2 mb-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e9c77a" strokeWidth="2" aria-hidden>
+            <path d="M12 21 C12 21 5 14.5 5 9.2 a7 7 0 0 1 14 0 c0 5.3 -7 11.8 -7 11.8 Z" />
+            <circle cx="12" cy="9.2" r="2.4" />
+          </svg>
+          <span className="font-reem-kufi font-semibold text-[15px]">{t('docs.rr.map.title', 'استكشف على الخريطة')}</span>
+        </span>
+        <span className="block text-[12.5px] leading-[1.7] text-[#cbd8cc]">
+          {t('docs.rr.map.desc', 'تصفّح المؤلفين حسب موطنهم عبر الأقاليم من الأندلس إلى الهند.')}
+        </span>
+        <span className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[#e9c77a]">
+          {t('docs.rr.map.cta', 'افتح الأطلس')}
+          <span className="text-[15px] transition-transform group-hover:-translate-x-0.5 rtl:group-hover:translate-x-0.5">‹</span>
+        </span>
+      </span>
+    </Link>
+  );
+
+  const railContent = (
+    <>
+      <div className="flex items-center justify-between mb-4">
+        <span className="rr-title text-[16px]">{t('docs.rr.filtersTitle', 'تصفية النتائج')}</span>
+        {hasActiveFilters && (
+          <button onClick={clearFilters} className="text-[12px] text-[#b07d2b] hover:text-[#2c2620] transition-colors">
+            {t('docs.clearAll', 'مسح الكل')}
+          </button>
+        )}
+      </div>
+      {filterSidebar}
+      {mapPromo}
+    </>
+  );
+
   const renderActiveChips = () => {
     if (!hasActiveFilters) return null;
     return (
@@ -414,7 +470,7 @@ export default function DocumentsPage() {
         {(dateFrom || dateTo) && (
           <ActiveChip label={t('docs.filter.date', 'تاريخ')} value={`${dateFrom || '…'} — ${dateTo || '…'}`} onRemove={() => { setDateFrom(''); setDateTo(''); }} />
         )}
-        <button onClick={clearFilters} className="text-[12px] text-accent-2 hover:text-text transition-colors px-2 py-1">
+        <button onClick={clearFilters} className="text-[12px] text-[#b07d2b] hover:text-[#2c2620] transition-colors px-2 py-1">
           {t('docs.clearAll', 'مسح الكل')}
         </button>
       </div>
@@ -424,8 +480,8 @@ export default function DocumentsPage() {
   const renderLegend = () => {
     if (!showLegend) return null;
     return (
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-5 text-[11.5px] text-text-3">
-        <span className="text-accent">{t('docs.legend.title', 'الألوان حسب الفئة')}:</span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-5 text-[11.5px] text-[#9a8b70]">
+        <span className="text-[#b07d2b]">{t('docs.legend.title', 'الألوان حسب الفئة')}:</span>
         {legend.map((e) => (
           <span key={e.key} className="inline-flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: e.color }} aria-hidden />
@@ -437,21 +493,21 @@ export default function DocumentsPage() {
   };
 
   const renderEmptyResults = () => (
-    <div className="bg-card border border-border rounded-[22px] p-10 text-center">
-      <div className="flex items-center justify-center gap-3.5 text-accent mb-6">
-        <div className="h-[1px] w-10 bg-gradient-to-r from-transparent to-accent" />
+    <div className="rr-card p-10 text-center">
+      <div className="flex items-center justify-center gap-3.5 text-[#b07d2b] mb-6">
+        <div className="h-[1px] w-10 bg-gradient-to-r from-transparent to-[#b07d2b]" />
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" /></svg>
-        <div className="h-[1px] w-10 bg-gradient-to-r from-accent to-transparent" />
+        <div className="h-[1px] w-10 bg-gradient-to-r from-[#b07d2b] to-transparent" />
       </div>
-      <h3 className="font-reem-kufi font-semibold text-[clamp(20px,2.4vw,28px)] leading-[1.15] text-text mb-3">
+      <h3 className="rr-title text-[clamp(20px,2.4vw,28px)] mb-3">
         {t('docs.empty.didYouMean', 'هل تقصد…؟')}
       </h3>
-      <p className="text-[14px] text-text-2 mb-7 max-w-md mx-auto leading-[1.8]">
+      <p className="text-[14px] text-[#6e6354] mb-7 max-w-md mx-auto leading-[1.8]">
         {t('docs.adjustFilters', 'جرّب تعديل المرشحات لعرض نتائج أكثر.')}
       </p>
       <button
         onClick={clearFilters}
-        className="inline-flex items-center gap-2 text-[13px] text-accent-2 hover:text-text transition-colors"
+        className="inline-flex items-center gap-2 text-[13px] text-[#b07d2b] hover:text-[#2c2620] transition-colors"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -462,12 +518,12 @@ export default function DocumentsPage() {
   );
 
   const renderRefineBar = () => (
-    <div className="mb-5 bg-card border border-border rounded-[18px] overflow-hidden">
+    <div className="mb-5 rr-card overflow-hidden">
       {refineOpen ? (
         <div className="p-4">
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-accent" aria-hidden>✦</span>
-            <span className="font-fraunces text-[14.5px] text-text">
+            <span className="text-[#b07d2b]" aria-hidden>✦</span>
+            <span className="text-[14.5px] text-[#2c2620]">
               {t('docs.refine.inline.title', 'نقّح هذه النتائج بالذكاء الاصطناعي')}
             </span>
           </div>
@@ -478,13 +534,13 @@ export default function DocumentsPage() {
             rows={2}
             autoFocus
             onKeyDown={(e) => { if (e.key === 'Escape') closeRefine(); }}
-            className="w-full px-3 py-2 rounded-[10px] text-[14px] font-fraunces outline-none transition-all bg-bg-2 text-text placeholder:text-text-3 focus:border-accent focus:shadow-[0_0_0_4px_rgba(185,115,64,0.08)] border border-border resize-none leading-[1.7]"
+            className="w-full px-3 py-2 rounded-[10px] text-[14px] outline-none transition-all bg-[#f7efdc] text-[#2c2620] placeholder:text-[#9a8b70] focus:border-[#b07d2b] focus:shadow-[0_0_0_4px_rgba(176,125,43,0.10)] border border-[#e2d5ba] resize-none leading-[1.7]"
           />
           <div className="mt-3 flex items-center justify-end gap-2">
-            <button onClick={closeRefine} className="px-3 py-1.5 text-[12.5px] text-text-3 hover:text-text transition-colors">
+            <button onClick={closeRefine} className="px-3 py-1.5 text-[12.5px] text-[#9a8b70] hover:text-[#2c2620] transition-colors">
               {t('docs.refine.cancel', 'إلغاء')}
             </button>
-            <button onClick={applyRefine} className="btn-primary !text-[12.5px] !px-4 !py-1.5">
+            <button onClick={applyRefine} className="rr-brand-btn text-[12.5px] px-4 py-1.5">
               {t('docs.refine.apply', 'تطبيق')}
             </button>
           </div>
@@ -493,18 +549,18 @@ export default function DocumentsPage() {
         <button
           type="button"
           onClick={() => setRefineOpen(true)}
-          className="w-full text-start p-4 flex items-start gap-3 hover:bg-accent-soft/30 transition-colors"
+          className="w-full text-start p-4 flex items-start gap-3 hover:bg-[rgba(176,125,43,0.06)] transition-colors"
         >
-          <span className="mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full bg-accent/15 text-accent flex-shrink-0">✦</span>
+          <span className="mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full bg-[rgba(176,125,43,0.15)] text-[#b07d2b] flex-shrink-0">✦</span>
           <span className="flex-1 min-w-0">
-            <span className="block font-fraunces text-[14.5px] text-text">
+            <span className="block text-[14.5px] text-[#2c2620]">
               {t('docs.refine.inline.title', 'نقّح هذه النتائج بالذكاء الاصطناعي')}
             </span>
-            <span className="block mt-0.5 text-[12.5px] text-text-3 line-clamp-1">
+            <span className="block mt-0.5 text-[12.5px] text-[#9a8b70] line-clamp-1">
               {t('docs.refine.inline.hint', 'اجعلها أقصر، استبعد الروايات، ركّز على القرن العاشر…')}
             </span>
           </span>
-          <svg className="w-4 h-4 text-text-3 mt-1 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-[#9a8b70] mt-1 flex-shrink-0 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
         </button>
@@ -523,7 +579,7 @@ export default function DocumentsPage() {
       );
     }
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-4 gap-4">
         {docs.map((doc) => (
           <BookCard key={doc.id} document={doc} progressPercent={progressByDoc.get(doc.id)} />
         ))}
@@ -531,13 +587,16 @@ export default function DocumentsPage() {
     );
   };
 
-  const renderGroup = (title: string, docs: Document[]) => {
+  const renderGroup = (title: string, docs: Document[], action?: ReactNode) => {
     if (docs.length === 0) return null;
     return (
-      <section className="mb-10">
-        <div className="mb-4 flex items-baseline gap-2.5">
-          <h2 className="font-reem-kufi font-semibold text-[clamp(18px,2vw,22px)] leading-[1.15] text-text">{title}</h2>
-          <span className="text-[12px] text-text-3">{formatCount(docs.length)}</span>
+      <section className="mb-9">
+        <div className="mb-4 flex items-baseline justify-between gap-2.5">
+          <h2 className="rr-title text-[clamp(18px,2vw,19px)] flex items-baseline gap-2.5">
+            {title}
+            <span className="text-[13px] text-[#9a8b70] font-normal">{formatCount(docs.length)}</span>
+          </h2>
+          {action}
         </div>
         {renderDocs(docs)}
       </section>
@@ -546,7 +605,7 @@ export default function DocumentsPage() {
 
   const renderShelf = (docs: Document[]) => (
     <div className="pb-1">
-      <div className="flex flex-wrap items-end gap-1.5 pb-3 border-b-[3px] border-[var(--warm-deep)]/40 shadow-[0_10px_20px_-16px_rgba(0,0,0,0.7)]">
+      <div className="flex flex-wrap items-end gap-1.5 pb-3 border-b-[3px] border-[#b07d2b]/40 shadow-[0_10px_20px_-16px_rgba(0,0,0,0.5)]">
         {docs.map((doc) => (
           <BookSpine key={doc.id} document={doc} progressPercent={progressByDoc.get(doc.id)} />
         ))}
@@ -560,10 +619,10 @@ export default function DocumentsPage() {
         <button
           onClick={loadMore}
           disabled={isLoadingMore}
-          className="inline-flex items-center gap-2 px-6 py-3 text-[13.5px] rounded-full border border-border-strong text-text bg-card hover:bg-bg-2 hover:border-accent transition-all disabled:opacity-60"
+          className="inline-flex items-center gap-2 px-6 py-3 text-[13.5px] rounded-full border border-[#e2d5ba] text-[#2c2620] bg-[#fcf8ee] hover:border-[#b07d2b] transition-all disabled:opacity-60"
         >
           {isLoadingMore ? (
-            <span className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+            <span className="inline-block w-4 h-4 border-2 border-[#b07d2b] border-t-transparent rounded-full animate-spin" />
           ) : (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
@@ -572,9 +631,9 @@ export default function DocumentsPage() {
           {t('docs.loadMore', 'عرض المزيد')}
         </button>
       ) : (
-        <span className="text-[12px] text-text-3">{t('docs.endOfResults', 'انتهت النتائج')}</span>
+        <span className="text-[12px] text-[#9a8b70]">{t('docs.endOfResults', 'انتهت النتائج')}</span>
       )}
-      <span className="text-[11.5px] text-text-3 tracking-wide">
+      <span className="text-[11.5px] text-[#9a8b70] tracking-wide">
         {t('docs.loadMoreProgress', '{shown} من {total}', {
           shown: formatCount(accumulated.length),
           total: formatCount(totalCount),
@@ -585,24 +644,31 @@ export default function DocumentsPage() {
 
   const emptyLibrary = !isLoading && !error && totalCount === 0 && !hasActiveFilters;
 
+  const showAll = (
+    <button
+      type="button"
+      onClick={clearFilters}
+      className="text-[12.5px] text-[#b07d2b] hover:text-[#2c2620] transition-colors"
+    >
+      {t('docs.rr.showAll', 'عرض الكل')}
+    </button>
+  );
+
   return (
     <RequireAuth>
-      <main className="landing-shell min-h-screen">
-        <div className="mx-auto max-w-[1280px] px-6 sm:px-10 lg:px-16 relative z-10">
-          {/* ─── Slim header ─── */}
-          <section className="pt-10 sm:pt-14 pb-6 border-b border-border">
+      <main className="reading-room min-h-screen">
+        <div className="mx-auto max-w-[1400px] px-5 sm:px-9 lg:px-12 relative z-10">
+          {/* ─── Header ─── */}
+          <section className="pt-9 sm:pt-12 pb-5 border-b border-[#e2d5ba]">
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
               <div className="min-w-0">
-                <h1
-                  className="font-reem-kufi font-semibold text-text leading-[1.05] tracking-tight"
-                  style={{ fontSize: 'clamp(26px, 2.8vw, 38px)' }}
-                >
+                <h1 className="rr-title leading-[1.05] tracking-tight" style={{ fontSize: 'clamp(26px, 2.8vw, 38px)' }}>
                   {t('nav.app.library', 'مكتبتي')}
                 </h1>
                 {initialLoading ? (
-                  <div className="mt-3 h-4 w-72 max-w-full rounded-[6px] bg-card animate-pulse" />
+                  <div className="mt-3 h-4 w-72 max-w-full rounded-[6px] bg-[#fcf8ee] animate-pulse" />
                 ) : totalCount > 0 ? (
-                  <p className="mt-2 text-[13px] text-text-2">
+                  <p className="mt-2 text-[13px] text-[#6e6354]">
                     {t('docs.header.counts', '{total} مستندات · {ready} جاهزة · {processing} قيد المعالجة', {
                       total: formatCount(totalCount),
                       ready: formatCount(statusCounts.ready),
@@ -615,63 +681,86 @@ export default function DocumentsPage() {
               <div className="flex-shrink-0">
                 <Link
                   href={localizedPath('/upload')}
-                  className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-accent-2 to-accent text-white text-[13.5px] font-medium px-5 h-11 shadow-[0_4px_20px_-4px_rgba(185,115,64,0.45),inset_0_1px_0_rgba(255,255,255,0.22)] hover:-translate-y-[1px] hover:shadow-[0_10px_30px_-6px_rgba(185,115,64,0.6),inset_0_1px_0_rgba(255,255,255,0.28)] transition-all"
+                  className="inline-flex items-center gap-2 rounded-full bg-[#b07d2b] text-[#fcf8ee] text-[13.5px] font-semibold px-5 h-11 shadow-[0_4px_18px_-6px_rgba(176,125,43,0.6)] hover:brightness-105 hover:-translate-y-[1px] transition-all"
                 >
                   <UploadIcon />
                   {t('nav.app.uploadBook', 'رفع كتاب')}
                 </Link>
               </div>
             </div>
+
+            {/* Browse-by-topic chip bar (real category filter) */}
+            {!emptyLibrary && (
+              <div className="mt-5">
+                <ReadingRoomTopicBar
+                  selectedCategories={selectedCategories}
+                  onToggleCategory={(v) => setSelectedCategories((prev) => toggleIn(prev, v))}
+                  onClearCategories={() => setSelectedCategories([])}
+                />
+              </div>
+            )}
           </section>
 
           {emptyLibrary ? (
             <div className="py-20 text-center">
-              <h2 className="font-reem-kufi font-semibold text-[clamp(22px,2.6vw,32px)] text-text mb-3">
+              <h2 className="rr-title text-[clamp(22px,2.6vw,32px)] mb-3">
                 {t('docs.hero.empty.headline', 'ابدأ مكتبتك.')}
               </h2>
-              <p className="text-[14px] text-text-2 mb-7 max-w-md mx-auto leading-[1.8]">
+              <p className="text-[14px] text-[#6e6354] mb-7 max-w-md mx-auto leading-[1.8]">
                 {t('docs.hero.empty.subtext', 'ارفع كتابك الأوّل لتبدأ القراءة مع علم.')}
               </p>
               <Link
                 href={localizedPath('/upload')}
-                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-accent-2 to-accent text-white text-[13.5px] font-medium px-5 h-11 shadow-[0_4px_20px_-4px_rgba(185,115,64,0.45)] transition-all"
+                className="inline-flex items-center gap-2 rounded-full bg-[#b07d2b] text-[#fcf8ee] text-[13.5px] font-semibold px-5 h-11 shadow-[0_4px_18px_-6px_rgba(176,125,43,0.6)] hover:brightness-105 transition-all"
               >
                 <UploadIcon />
                 {t('docs.hero.empty.cta', 'ارفع كتابك الأوّل')}
               </Link>
             </div>
           ) : (
-            <div className="pt-8 lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:gap-10 lg:items-start">
-              {/* ─── Desktop filter sidebar (#18) ─── */}
+            <div className="pt-6 lg:grid lg:grid-cols-[272px_minmax(0,1fr)] lg:gap-8 xl:grid-cols-[272px_minmax(0,1fr)_340px] lg:items-start">
+              {/* ─── Filter rail ─── */}
               {isDesktop && (
-                <aside className="hidden lg:block lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto pe-1">
-                  {filterSidebar}
+                <aside className="hidden lg:block lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto custom-scrollbar pe-1">
+                  <div className="rounded-[14px] border border-[#e7dbc1] bg-[#f4ecd8] p-5">
+                    {railContent}
+                  </div>
                 </aside>
               )}
 
               {/* ─── Main column ─── */}
               <div className="min-w-0">
-                {/* Mobile filters trigger (#19/#20) */}
-                {!isDesktop && (
+                {/* Mobile filter + assistant triggers */}
+                <div className="flex items-center gap-2 mb-4 xl:hidden">
+                  {!isDesktop && (
+                    <button
+                      type="button"
+                      onClick={() => setFiltersOpen(true)}
+                      className="lg:hidden inline-flex items-center gap-2 px-4 py-2 text-[12.5px] rounded-full border border-[#e2d5ba] bg-[#fcf8ee] text-[#2c2620] hover:border-[#b07d2b] transition-all"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M6 12h12M10 20h4" />
+                      </svg>
+                      {activeFilterCount > 0
+                        ? t('docs.filters.open', 'تصفية ({count})', { count: formatCount(activeFilterCount) })
+                        : t('docs.filters', 'المرشحات')}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setFiltersOpen(true)}
-                    className="lg:hidden inline-flex items-center gap-2 mb-4 px-4 py-2 text-[12.5px] rounded-full border border-border-strong bg-card text-text hover:border-accent transition-all"
+                    onClick={() => setAssistantOpen(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-[12.5px] rounded-full border border-[#e2d5ba] bg-[#fcf8ee] text-[#2c2620] hover:border-[#b07d2b] transition-all"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M6 12h12M10 20h4" />
-                    </svg>
-                    {activeFilterCount > 0
-                      ? t('docs.filters.open', 'تصفية ({count})', { count: formatCount(activeFilterCount) })
-                      : t('docs.filters', 'المرشحات')}
+                    <span className="text-[#b07d2b]" aria-hidden>✦</span>
+                    {t('docs.rr.assistant.open', 'اسأل المساعد')}
                   </button>
-                )}
+                </div>
 
-                {/* Search (#1/#48) */}
+                {/* Search */}
                 <form onSubmit={submitSearch} className="mb-5 max-w-2xl">
                   <div className="relative">
                     <svg
-                      className="absolute top-1/2 -translate-y-1/2 start-3 w-4 h-4 text-text-3 pointer-events-none"
+                      className="absolute top-1/2 -translate-y-1/2 start-3.5 w-4 h-4 text-[#9a8b70] pointer-events-none"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -693,7 +782,7 @@ export default function DocumentsPage() {
                   </div>
                 </form>
 
-                {/* Active chips (#3/#4) */}
+                {/* Active chips */}
                 {renderActiveChips()}
 
                 {/* Legend */}
@@ -702,125 +791,130 @@ export default function DocumentsPage() {
                 {/* AI refine */}
                 {!isLoading && !error && shownCount > 0 && effectiveSearch && renderRefineBar()}
 
-                {/* Toolbar: count + sort + view (#2/#11/#41) */}
+                {/* Toolbar: sort + count + view */}
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-                <div className="flex items-center gap-2">
-                  <label className="text-[11.5px] tracking-[0.12em] uppercase text-text-3">
-                    {t('docs.sort.label', 'الترتيب')}
-                  </label>
-                  <select
-                    value={sort}
-                    onChange={(e) => setSort(e.target.value as SortKey)}
-                    className="px-3 py-2 text-[12.5px] font-fraunces bg-card border border-border-strong rounded-[10px] focus:border-accent outline-none text-text cursor-pointer transition-all"
-                  >
-                    <option value="relevance">{t('docs.sort.relevance', 'الأكثر صلة')}</option>
-                    <option value="newest">{t('docs.sort.newest', 'الأحدث')}</option>
-                    <option value="alphabetical">{t('docs.sort.alphabetical', 'أبجدي')}</option>
-                    <option value="shortest">{t('docs.sort.shortest', 'الأقصر أولًا')}</option>
-                  </select>
-                </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11.5px] tracking-[0.12em] uppercase text-[#9a8b70]">
+                      {t('docs.sort.label', 'الترتيب')}
+                    </label>
+                    <select
+                      value={sort}
+                      onChange={(e) => setSort(e.target.value as SortKey)}
+                      className="px-3 py-2 text-[12.5px] bg-[#fcf8ee] border border-[#e2d5ba] rounded-[10px] focus:border-[#b07d2b] outline-none text-[#2c2620] cursor-pointer transition-all"
+                    >
+                      <option value="relevance">{t('docs.sort.relevance', 'الأكثر صلة')}</option>
+                      <option value="newest">{t('docs.sort.newest', 'الأحدث')}</option>
+                      <option value="alphabetical">{t('docs.sort.alphabetical', 'أبجدي')}</option>
+                      <option value="shortest">{t('docs.sort.shortest', 'الأقصر أولًا')}</option>
+                    </select>
+                  </div>
 
-                <div className="flex items-center gap-3">
-                  {!isLoading && !error && (
-                    <span className="text-[11.5px] tracking-wide text-text-3">
-                      {t('docs.loadMoreProgress', '{shown} من {total}', {
-                        shown: formatCount(accumulated.length),
-                        total: formatCount(totalCount),
-                      })}
-                    </span>
-                  )}
-                  <div className="flex items-center gap-1 p-1 bg-card border border-border rounded-[12px]">
-                    <button
-                      onClick={() => setViewMode('grid')}
-                      aria-pressed={viewMode === 'grid'}
-                      aria-label={t('docs.grid', 'عرض شبكي')}
-                      title={t('docs.grid', 'عرض شبكي')}
-                      className={`p-1.5 rounded-[8px] transition-all ${
-                        viewMode === 'grid'
-                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
-                          : 'text-text-3 hover:text-text'
-                      }`}
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h6v6H4zM14 6h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => setViewMode('list')}
-                      aria-pressed={viewMode === 'list'}
-                      aria-label={t('docs.list', 'عرض قائمة')}
-                      title={t('docs.list', 'عرض قائمة')}
-                      className={`p-1.5 rounded-[8px] transition-all ${
-                        viewMode === 'list'
-                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
-                          : 'text-text-3 hover:text-text'
-                      }`}
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => setViewMode('shelf')}
-                      aria-pressed={viewMode === 'shelf'}
-                      aria-label={t('docs.view.shelf', 'عرض الرف')}
-                      title={t('docs.view.shelf', 'عرض الرف')}
-                      className={`p-1.5 rounded-[8px] transition-all ${
-                        viewMode === 'shelf'
-                          ? 'bg-accent-soft text-accent-2 shadow-[inset_0_0_0_1px_rgba(185,115,64,0.25)]'
-                          : 'text-text-3 hover:text-text'
-                      }`}
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v16M9 4v16M14 5l3 15M19 4v16" />
-                      </svg>
-                    </button>
+                  <div className="flex items-center gap-3">
+                    {!isLoading && !error && (
+                      <span className="text-[11.5px] tracking-wide text-[#9a8b70]">
+                        {t('docs.loadMoreProgress', '{shown} من {total}', {
+                          shown: formatCount(accumulated.length),
+                          total: formatCount(totalCount),
+                        })}
+                      </span>
+                    )}
+                    <div className="flex items-center gap-1 p-1 bg-[#fcf8ee] border border-[#e2d5ba] rounded-[12px]">
+                      <button
+                        onClick={() => setViewMode('grid')}
+                        aria-pressed={viewMode === 'grid'}
+                        aria-label={t('docs.grid', 'عرض شبكي')}
+                        title={t('docs.grid', 'عرض شبكي')}
+                        className={`p-1.5 rounded-[8px] transition-all ${
+                          viewMode === 'grid'
+                            ? 'bg-[rgba(176,125,43,0.14)] text-[#8a6a23] shadow-[inset_0_0_0_1px_rgba(176,125,43,0.25)]'
+                            : 'text-[#9a8b70] hover:text-[#2c2620]'
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h6v6H4zM14 6h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => setViewMode('list')}
+                        aria-pressed={viewMode === 'list'}
+                        aria-label={t('docs.list', 'عرض قائمة')}
+                        title={t('docs.list', 'عرض قائمة')}
+                        className={`p-1.5 rounded-[8px] transition-all ${
+                          viewMode === 'list'
+                            ? 'bg-[rgba(176,125,43,0.14)] text-[#8a6a23] shadow-[inset_0_0_0_1px_rgba(176,125,43,0.25)]'
+                            : 'text-[#9a8b70] hover:text-[#2c2620]'
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => setViewMode('shelf')}
+                        aria-pressed={viewMode === 'shelf'}
+                        aria-label={t('docs.view.shelf', 'عرض الرف')}
+                        title={t('docs.view.shelf', 'عرض الرف')}
+                        className={`p-1.5 rounded-[8px] transition-all ${
+                          viewMode === 'shelf'
+                            ? 'bg-[rgba(176,125,43,0.14)] text-[#8a6a23] shadow-[inset_0_0_0_1px_rgba(176,125,43,0.25)]'
+                            : 'text-[#9a8b70] hover:text-[#2c2620]'
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v16M9 4v16M14 5l3 15M19 4v16" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 </div>
+
+                {/* Body */}
+                {error ? (
+                  <div className="rr-card !border-red-500/30 p-8 text-center">
+                    <p className="text-red-700 mb-4 text-[14px]">{error}</p>
+                    <button onClick={retry} className="rr-brand-btn text-[13px] px-4 py-2">
+                      {t('docs.tryAgain', 'إعادة المحاولة')}
+                    </button>
+                  </div>
+                ) : isLoading ? (
+                  <div
+                    className={
+                      viewMode === 'list'
+                        ? 'flex flex-col gap-3'
+                        : 'grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-4 gap-4'
+                    }
+                  >
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <BookCardSkeleton key={i} variant={viewMode === 'list' ? 'list' : 'grid'} />
+                    ))}
+                  </div>
+                ) : shownCount === 0 ? (
+                  renderEmptyResults()
+                ) : (
+                  <>
+                    {grouped ? (
+                      <>
+                        <ContinueShelf />
+                        {renderGroup(t('docs.group.processing', 'قيد المعالجة'), processingDocs)}
+                        {renderGroup(t('docs.rr.picks', 'مختارات المكتبة'), readyDocs, showAll)}
+                      </>
+                    ) : viewMode === 'shelf' ? (
+                      renderShelf(flatDocs)
+                    ) : (
+                      renderDocs(flatDocs)
+                    )}
+
+                    {renderLoadMore()}
+                  </>
+                )}
               </div>
 
-              {/* Body */}
-              {error ? (
-                <div className="bg-card border border-red-500/30 rounded-[22px] p-8 text-center">
-                  <p className="text-red-700 mb-4 text-[14px]">{error}</p>
-                  <button onClick={retry} className="btn-primary !text-[13px]">
-                    {t('docs.tryAgain', 'إعادة المحاولة')}
-                  </button>
-                </div>
-              ) : isLoading ? (
-                <div
-                  className={
-                    viewMode === 'list'
-                      ? 'flex flex-col gap-3'
-                      : 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4'
-                  }
-                >
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <BookCardSkeleton key={i} variant={viewMode === 'list' ? 'list' : 'grid'} />
-                  ))}
-                </div>
-              ) : shownCount === 0 ? (
-                renderEmptyResults()
-              ) : (
-                <>
-                  {grouped ? (
-                    <>
-                      <ContinueShelf />
-                      {renderGroup(t('docs.group.processing', 'قيد المعالجة'), processingDocs)}
-                      {renderGroup(t('docs.group.all', t('docs.zoneC.title', 'كامل مكتبتك')), readyDocs)}
-                    </>
-                  ) : viewMode === 'shelf' ? (
-                    renderShelf(flatDocs)
-                  ) : (
-                    renderDocs(flatDocs)
-                  )}
+              {/* ─── AI assistant rail (xl and up) ─── */}
+              <aside className="hidden xl:block xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)]">
+                <LibraryAssistantPanel onAsk={askLibrary} />
+              </aside>
 
-                  {renderLoadMore()}
-                </>
-              )}
-              </div>
-
-              {/* Mobile filter drawer (#19) */}
+              {/* Mobile filter drawer */}
               {!isDesktop && (
                 <ReaderPanel
                   isOpen={filtersOpen}
@@ -828,8 +922,22 @@ export default function DocumentsPage() {
                   title={t('docs.filters', 'المرشحات')}
                 >
                   {filterSidebar}
+                  {mapPromo}
                 </ReaderPanel>
               )}
+
+              {/* Assistant drawer (below xl) */}
+              <div className="contents xl:hidden">
+                <ReaderPanel
+                  isOpen={assistantOpen}
+                  onClose={() => setAssistantOpen(false)}
+                  title={t('docs.rr.assistant.title', 'المساعد الذكي')}
+                >
+                  <div className="h-[70vh]">
+                    <LibraryAssistantPanel onAsk={askLibrary} hideHeader />
+                  </div>
+                </ReaderPanel>
+              </div>
             </div>
           )}
         </div>

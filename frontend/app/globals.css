@@ -888,3 +888,142 @@ mark[data-hid] { cursor: context-menu; }
   background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23d4a853' stroke-width='0.5' opacity='0.18'%3E%3Cpath d='M30 0L60 30L30 60L0 30Z'/%3E%3Cpath d='M30 10L50 30L30 50L10 30Z'/%3E%3Ccircle cx='30' cy='30' r='8'/%3E%3Cpath d='M30 0V60M0 30H60'/%3E%3Cpath d='M0 0L60 60M60 0L0 60'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 60px 60px;
 }
+
+/* ─── Reading Room shell ───────────────────────────────────────────────── */
+/* The Library Discovery page, restyled to the claude.ai/design "Reading Room"
+   concept. Self-contained palette (ochre/gold on warm parchment) scoped via
+   CSS custom properties, following the same idiom as .auth-shell so it never
+   leaks into the rest of the app. Reem Kufi headlines + IBM Plex Sans Arabic
+   body, matching the source design. */
+.reading-room {
+  --rr-bg: #f1e7d3;          /* warm parchment canvas */
+  --rr-surface: #fcf8ee;     /* ivory cards */
+  --rr-surface-2: #f7efdc;   /* header / AI-panel surface */
+  --rr-rail: #f4ecd8;        /* filter rail */
+  --rr-brand: #b07d2b;       /* ochre/gold brand */
+  --rr-brand-ink: #fcf8ee;   /* text on brand */
+  --rr-ink: #2c2620;         /* primary ink */
+  --rr-ink-2: #6e6354;       /* secondary text */
+  --rr-ink-3: #9a8b70;       /* tertiary / metadata */
+  --rr-line: #e2d5ba;        /* primary border */
+  --rr-line-2: #e7dbc1;      /* lighter border */
+  --rr-green: #2e5347;       /* manuscript green */
+  --rr-green-2: #24433a;
+  --rr-crimson: #7a2e2a;     /* manuscript crimson */
+  --rr-gold-soft: #e9c77a;   /* gold highlight (on dark green) */
+  /* Re-point the shared accent vars so the few var(--accent) consumers
+     (selection, live-dot) match the Reading Room ochre. */
+  --accent: #b07d2b;
+  --accent-2: #c99a4e;
+
+  color: var(--rr-ink);
+  background-color: var(--rr-bg);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(176, 125, 43, 0.07), transparent 70%),
+    url("/images/landing/star-tile.svg");
+  background-size: auto, 160px 160px;
+  background-repeat: no-repeat, repeat;
+  background-blend-mode: normal, multiply;
+  font-family: var(--font-body-ar), var(--font-arabic), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html[lang="en"] .reading-room {
+  font-family: var(--font-inter), var(--font-manrope), system-ui, sans-serif;
+}
+
+.reading-room ::selection {
+  background: rgba(176, 125, 43, 0.18);
+  color: var(--rr-brand);
+}
+
+/* Arabic shaping — same treatment as the landing shell. */
+.reading-room [lang="ar"],
+.reading-room .font-reem-kufi,
+.reading-room .font-body-ar {
+  font-feature-settings: "calt", "liga", "kern";
+  letter-spacing: 0;
+}
+
+/* Reem Kufi section/headline helper. */
+.reading-room .rr-title {
+  font-family: var(--font-reem-kufi), var(--font-arabic), serif;
+  font-weight: 600;
+  color: var(--rr-ink);
+  line-height: 1.2;
+}
+
+/* Ivory content card. */
+.reading-room .rr-card {
+  background: var(--rr-surface);
+  border: 1px solid var(--rr-line-2);
+  border-radius: 13px;
+}
+
+/* Brand pill button (primary CTA / send). */
+.reading-room .rr-brand-btn {
+  background: var(--rr-brand);
+  color: var(--rr-brand-ink);
+  border-radius: 11px;
+  font-weight: 600;
+  transition: filter 0.18s ease, transform 0.18s ease;
+}
+.reading-room .rr-brand-btn:hover {
+  filter: brightness(1.06);
+}
+
+/* Topic + facet chips. */
+.reading-room .rr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  white-space: nowrap;
+  background: var(--rr-surface);
+  border: 1px solid var(--rr-line);
+  color: #4a4236;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+.reading-room .rr-chip:hover {
+  border-color: var(--rr-brand);
+  color: var(--rr-ink);
+}
+.reading-room .rr-chip[aria-pressed="true"] {
+  background: var(--rr-brand);
+  border-color: var(--rr-brand);
+  color: var(--rr-brand-ink);
+}
+/* The "All" chip reads as dark ink when active (per the source design). */
+.reading-room .rr-chip-all[aria-pressed="true"] {
+  background: var(--rr-ink);
+  border-color: var(--rr-ink);
+  color: var(--rr-bg);
+}
+
+.reading-room .hide-scrollbar {
+  scrollbar-width: none;
+}
+.reading-room .hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Reused shelves (e.g. ContinueShelf) render a `.section-eyebrow`; the landing
+   shell's rule is scoped to .landing-shell, so re-provide an Arabic-friendly
+   variant here (ochre, no letter-tracking). */
+.reading-room .section-eyebrow {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--rr-brand);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.reading-room .section-eyebrow::before {
+  content: "";
+  width: 1.4rem;
+  height: 1px;
+  background: var(--rr-brand);
+}
