@@ -1,13 +1,15 @@
 import os
 
 from rest_framework import serializers
-from .models import Document, Author, DocumentAlternateName, Category
+from .models import Document, Author, DocumentAlternateName, Category, Edition
 
 
 MAX_DOCUMENT_FILE_SIZE_MB = int(os.environ.get('MAX_DOCUMENT_FILE_SIZE_MB', '25'))
 MAX_DOCUMENT_FILE_SIZE_BYTES = MAX_DOCUMENT_FILE_SIZE_MB * 1024 * 1024
 MAX_COVER_FILE_SIZE_MB = int(os.environ.get('MAX_COVER_FILE_SIZE_MB', '10'))
 MAX_COVER_FILE_SIZE_BYTES = MAX_COVER_FILE_SIZE_MB * 1024 * 1024
+MAX_OCR_LAYOUT_FILE_SIZE_MB = int(os.environ.get('MAX_OCR_LAYOUT_FILE_SIZE_MB', '50'))
+MAX_OCR_LAYOUT_FILE_SIZE_BYTES = MAX_OCR_LAYOUT_FILE_SIZE_MB * 1024 * 1024
 ALLOWED_DOCUMENT_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt'}
 
 
@@ -76,6 +78,26 @@ class CategorySerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+class EditionSerializer(serializers.ModelSerializer):
+    """Serializer for the printed edition a document was digitized from."""
+
+    class Meta:
+        model = Edition
+        fields = [
+            'id',
+            'editor',
+            'publisher',
+            'publication_place',
+            'edition_statement',
+            'publication_year_hijri',
+            'publication_year_gregorian',
+            'volume_count',
+            'page_map',
+            'notes',
+        ]
+        read_only_fields = ['id']
+
+
 class DocumentListSerializer(serializers.ModelSerializer):
     """Serializer for Document model in list views (without full content)."""
     authors = AuthorListSerializer(many=True, read_only=True)
@@ -119,6 +141,7 @@ class DocumentListSerializer(serializers.ModelSerializer):
             'thumbnail_url',
             'description',
             'written_date',
+            'rights_status',
         ]
         read_only_fields = [
             'id',
@@ -131,6 +154,7 @@ class DocumentListSerializer(serializers.ModelSerializer):
             'categories',
             'thumbnail_url',
             'cover_photo_url',
+            'rights_status',
         ]
     
     def get_thumbnail_url(self, obj):
@@ -171,9 +195,10 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
         required=False
     )
     alternate_names = DocumentAlternateNameSerializer(many=True, read_only=True)
+    editions = EditionSerializer(many=True, read_only=True)
     thumbnail_url = serializers.SerializerMethodField()
     cover_photo_url = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Document
         fields = [
@@ -200,6 +225,11 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
             'description',
             'written_date',
             'alternate_names',
+            'has_layout',
+            'rights_status',
+            'provenance_source',
+            'rights_notes',
+            'editions',
         ]
         read_only_fields = [
             'id',
@@ -215,8 +245,10 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
             'alternate_names',
             'thumbnail_url',
             'cover_photo_url',
+            'has_layout',
+            'editions',
         ]
-    
+
     def get_thumbnail_url(self, obj):
         """Return thumbnail URL if available."""
         if obj.thumbnail:
@@ -276,6 +308,21 @@ class DocumentSerializer(serializers.ModelSerializer):
         default=Document.OCREngine.AUTO,
         help_text="OCR engine to use for this document (auto/none/tesseract/chandra)"
     )
+    edition_editor = serializers.CharField(
+        max_length=255, write_only=True, required=False, allow_blank=True,
+        help_text="Editor / muhaqqiq of the printed edition this file was digitized from")
+    edition_publisher = serializers.CharField(
+        max_length=255, write_only=True, required=False, allow_blank=True,
+        help_text="Publisher of the printed edition")
+    edition_year_hijri = serializers.CharField(
+        max_length=50, write_only=True, required=False, allow_blank=True,
+        help_text="Hijri publication year (flexible format)")
+    edition_year_gregorian = serializers.CharField(
+        max_length=50, write_only=True, required=False, allow_blank=True,
+        help_text="Gregorian publication year (flexible format)")
+    edition_volume_count = serializers.IntegerField(
+        write_only=True, required=False, min_value=1,
+        help_text="Number of volumes in the printed edition")
 
     class Meta:
         model = Document
@@ -305,6 +352,16 @@ class DocumentSerializer(serializers.ModelSerializer):
             'alternate_names',
             'ocr_engine',
             'ocr_engine_used',
+            'ocr_layout',
+            'has_layout',
+            'rights_status',
+            'provenance_source',
+            'rights_notes',
+            'edition_editor',
+            'edition_publisher',
+            'edition_year_hijri',
+            'edition_year_gregorian',
+            'edition_volume_count',
         ]
         read_only_fields = [
             'id',
@@ -318,8 +375,9 @@ class DocumentSerializer(serializers.ModelSerializer):
             'authors',
             'categories',
             'ocr_engine_used',
+            'has_layout',
         ]
-    
+
     def validate(self, attrs):
         """Validate that required fields are present."""
         if self.instance is None:  # Only validate on create
@@ -327,6 +385,14 @@ class DocumentSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'title': 'This field is required.'})
             if 'file' not in attrs or not attrs.get('file'):
                 raise serializers.ValidationError({'file': 'This field is required.'})
+        # An OCR layout JSON only makes sense paired with a PDF page image source.
+        ocr_layout = attrs.get('ocr_layout')
+        file_obj = attrs.get('file') or getattr(self.instance, 'file', None)
+        if ocr_layout and file_obj:
+            if os.path.splitext(file_obj.name)[1].lower() != '.pdf':
+                raise serializers.ValidationError(
+                    {'ocr_layout': 'An OCR layout JSON can only be attached to a PDF document.'}
+                )
         return attrs
 
     def validate_file(self, file_obj):
@@ -345,6 +411,18 @@ class DocumentSerializer(serializers.ModelSerializer):
         if file_obj.size > MAX_COVER_FILE_SIZE_BYTES:
             raise serializers.ValidationError(
                 f'Cover photo is too large. Maximum allowed size is {MAX_COVER_FILE_SIZE_MB} MB.'
+            )
+        return file_obj
+
+    def validate_ocr_layout(self, file_obj):
+        extension = os.path.splitext(file_obj.name)[1].lower()
+        if extension != '.json':
+            raise serializers.ValidationError(
+                f'Unsupported OCR layout extension "{extension}". A datalab/marker .json file is required.'
+            )
+        if file_obj.size > MAX_OCR_LAYOUT_FILE_SIZE_BYTES:
+            raise serializers.ValidationError(
+                f'OCR layout file is too large. Maximum allowed size is {MAX_OCR_LAYOUT_FILE_SIZE_MB} MB.'
             )
         return file_obj
 

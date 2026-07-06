@@ -46,6 +46,21 @@ const config: Config = {
         "accent-soft": "rgba(185,115,64,0.12)",
         border: "rgba(0,0,0,0.06)",
         "border-strong": "rgba(0,0,0,0.10)",
+        // "مكتبة عِلم" parchment design palette (additive, var-backed). Used by
+        // the landing components and the reskinned shared navbar. New names so
+        // they never collide with the app-wide tokens above.
+        paper: "var(--paper)",
+        "paper-card": "var(--paper-card)",
+        "paper-soft": "var(--paper-soft)",
+        "paper-line": "var(--paper-line)",
+        "ink-deep": "var(--ink-deep)",
+        "ink-warm": "var(--ink-warm)",
+        "ink-mute": "var(--ink-mute)",
+        gold: "var(--gold)",
+        "gold-soft": "var(--gold-soft)",
+        "gold-line": "var(--gold-line)",
+        "green-deep": "var(--green-deep)",
+        maroon: "var(--maroon)",
       },
       fontFamily: {
         serif: [
@@ -75,6 +90,13 @@ const config: Config = {
         "body-ar": [
           "var(--font-body-ar)",
           "Readex Pro",
+          "var(--font-arabic)",
+          "system-ui",
+          "sans-serif",
+        ],
+        readex: [
+          "var(--font-readex)",
+          "var(--font-body-ar)",
           "var(--font-arabic)",
           "system-ui",
           "sans-serif",

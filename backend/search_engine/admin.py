@@ -7,6 +7,7 @@ from .models import (
     ChatSession,
     Document,
     DocumentAlternateName,
+    Edition,
 )
 
 
@@ -15,6 +16,17 @@ class DocumentAlternateNameInline(admin.TabularInline):
     model = DocumentAlternateName
     extra = 1
     fields = ['name']
+
+
+class EditionInline(admin.StackedInline):
+    """Inline admin for the printed edition(s) a document was digitized from."""
+    model = Edition
+    extra = 0
+    fields = [
+        'editor', 'publisher', 'publication_place', 'edition_statement',
+        'publication_year_hijri', 'publication_year_gregorian', 'volume_count',
+        'page_map', 'notes',
+    ]
 
 
 class ChapterInline(admin.TabularInline):
@@ -69,18 +81,25 @@ class DocumentAlternateNameAdmin(admin.ModelAdmin):
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
     """Admin interface for Document model."""
-    list_display = ['id', 'title', 'uploaded_at', 'processed', 'language', 'get_authors_display']
-    list_filter = ['processed', 'language', 'uploaded_at', 'authors', 'categories']
-    search_fields = ['title', 'description']
+    list_display = ['id', 'title', 'uploaded_at', 'processed', 'language', 'rights_status',
+                    'get_authors_display']
+    list_filter = ['processed', 'rights_status', 'language', 'uploaded_at', 'authors',
+                   'categories']
+    search_fields = ['title', 'description', 'provenance_source']
     readonly_fields = ['uploaded_at']
     filter_horizontal = ['authors', 'categories']
-    inlines = [DocumentAlternateNameInline, ChapterInline]
+    inlines = [DocumentAlternateNameInline, ChapterInline, EditionInline]
+    actions = ['mark_rights_clear', 'mark_rights_gray', 'mark_rights_restricted',
+               'mark_rights_unreviewed']
     fieldsets = (
         ('Basic Information', {
             'fields': ('title', 'file', 'language', 'description', 'written_date')
         }),
         ('Content', {
             'fields': ('content', 'processed')
+        }),
+        ('Rights & Provenance', {
+            'fields': ('rights_status', 'provenance_source', 'rights_notes')
         }),
         ('Media', {
             'fields': ('cover_photo', 'thumbnail')
@@ -93,11 +112,40 @@ class DocumentAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
-    
+
     def get_authors_display(self, obj):
         """Display authors as comma-separated list."""
         return ', '.join([author.name for author in obj.authors.all()[:3]])
     get_authors_display.short_description = 'Authors'
+
+    def _mark_rights(self, request, queryset, status):
+        updated = queryset.update(rights_status=status)
+        self.message_user(request, f'{updated} document(s) marked as {status}.')
+
+    @admin.action(description='Mark rights: clear (نضيف)')
+    def mark_rights_clear(self, request, queryset):
+        self._mark_rights(request, queryset, Document.RightsStatus.CLEAR)
+
+    @admin.action(description='Mark rights: gray area (رمادي)')
+    def mark_rights_gray(self, request, queryset):
+        self._mark_rights(request, queryset, Document.RightsStatus.GRAY)
+
+    @admin.action(description='Mark rights: restricted (ممنوع)')
+    def mark_rights_restricted(self, request, queryset):
+        self._mark_rights(request, queryset, Document.RightsStatus.RESTRICTED)
+
+    @admin.action(description='Mark rights: unreviewed')
+    def mark_rights_unreviewed(self, request, queryset):
+        self._mark_rights(request, queryset, Document.RightsStatus.UNREVIEWED)
+
+
+@admin.register(Edition)
+class EditionAdmin(admin.ModelAdmin):
+    """Standalone admin for Edition (also editable inline on Document)."""
+    list_display = ['id', 'document', 'editor', 'publisher', 'publication_year_hijri',
+                    'volume_count']
+    search_fields = ['document__title', 'editor', 'publisher']
+    autocomplete_fields = ['document']
 
 
 @admin.register(Chapter)

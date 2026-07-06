@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, BadgeCheck, Clock, Globe, Sparkles } from "lucide-react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { useLocalizedPath } from "@/lib/i18n/navigation";
@@ -115,7 +115,7 @@ export default function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
         >
-          <span className="inline-flex items-center gap-2 text-[12px] tracking-[0.08em] text-accent bg-accent-soft border border-accent/20 px-3.5 py-1.5 rounded-full font-body-ar">
+          <span className="inline-flex items-center gap-2.5 text-[13px] font-semibold tracking-[0.01em] text-[#9a6b12] bg-gold-soft border border-gold-line px-4 py-2 rounded-full font-body-ar">
             <span className="live-dot" aria-hidden />
             {t("home.hero.badge", "Now indexing classical & modern works")}
           </span>
@@ -128,14 +128,14 @@ export default function HeroSection() {
             initial={{ opacity: 0, y: 16, filter: "blur(6px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             transition={{ duration: 0.55, ease: [0.2, 0.8, 0.2, 1] }}
-            className="relative z-[1] font-display-ar text-text tracking-tight text-center"
-            style={{ fontSize: "clamp(64px, 7vw, 104px)", lineHeight: 1 }}
+            className="relative z-[1] font-reem-kufi font-bold text-ink-deep tracking-tight text-center"
+            style={{ fontSize: "clamp(52px, 6.6vw, 92px)", lineHeight: 1.08 }}
           >
             <span className="block">
               {t("home.hero.titleLine1", "A library")}
             </span>
-            <span className="block">
-              <span className="text-accent">{t("home.hero.titleAccent", "that reads")}</span>
+            <span className="block text-gold">
+              <span>{t("home.hero.titleAccent", "that reads")}</span>
               <span> </span>
               <span>{t("home.hero.titleTrailing", "with you.")}</span>
             </span>
@@ -147,7 +147,7 @@ export default function HeroSection() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.1, ease: [0.2, 0.8, 0.2, 1] }}
-          className="mt-6 max-w-[56ch] mx-auto text-[18px] leading-[1.6] text-text-2 font-body-ar text-center"
+          className="mt-7 max-w-[58ch] mx-auto text-[19px] leading-[1.85] text-ink-warm font-body-ar text-center"
         >
           {t(
             "home.hero.subtitle",
@@ -160,13 +160,22 @@ export default function HeroSection() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
-          className="mt-8 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-body-ar text-[13.5px] text-text-muted"
+          className="mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-body-ar text-[14px] text-[#8a7d68]"
         >
-          <span>{t("home.hero.stats.heritage", "1,400 years of heritage")}</span>
+          <span className="inline-flex items-center gap-2">
+            <Clock className="w-[15px] h-[15px] text-gold" aria-hidden />
+            {t("home.hero.stats.heritage", "1,400 years of heritage")}
+          </span>
           <span className="hero-stat-divider" aria-hidden />
-          <span>{t("home.hero.stats.languages", "4 languages")}</span>
+          <span className="inline-flex items-center gap-2">
+            <Globe className="w-[15px] h-[15px] text-gold" aria-hidden />
+            {t("home.hero.stats.languages", "4 languages")}
+          </span>
           <span className="hero-stat-divider" aria-hidden />
-          <span>{t("home.hero.stats.citation", "Sourced, verifiable citations")}</span>
+          <span className="inline-flex items-center gap-2">
+            <BadgeCheck className="w-[15px] h-[15px] text-gold" aria-hidden />
+            {t("home.hero.stats.citation", "Sourced, verifiable citations")}
+          </span>
         </motion.div>
 
         {/* Search bar */}
@@ -178,22 +187,22 @@ export default function HeroSection() {
           className="hero-search-shell relative w-full mx-auto mt-10 max-w-3xl"
         >
           <div className="flex items-center gap-3 px-3 sm:px-4 min-h-[72px]">
-            <Sparkles className="w-5 h-5 text-accent shrink-0" aria-hidden />
+            <Sparkles className="w-[22px] h-[22px] text-gold shrink-0 ms-1.5" aria-hidden />
             <div className="relative flex-1 min-w-0">
               <input
                 ref={inputRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="w-full bg-transparent border-none outline-none text-[17px] text-text font-body-ar py-3.5 px-1"
+                className="w-full bg-transparent border-none outline-none text-[18px] text-ink-deep font-body-ar py-3.5 px-1"
                 aria-label={t("home.hero.searchAria", "Search the library")}
               />
               {query.length === 0 && (
                 <div
                   aria-hidden
-                  className="absolute inset-0 flex items-center px-1 pointer-events-none text-[17px] text-text-3 font-body-ar"
+                  className="absolute inset-0 flex items-center px-1 pointer-events-none text-[18px] text-ink-mute font-body-ar"
                 >
                   <span className="truncate">{typingText}</span>
-                  <span className="ms-0.5 inline-block text-accent animate-cursor-blink">▍</span>
+                  <span className="ms-0.5 inline-block text-gold animate-cursor-blink">▍</span>
                 </div>
               )}
             </div>
@@ -201,7 +210,7 @@ export default function HeroSection() {
               whileHover={{ y: -1 }}
               whileTap={{ scale: 0.96 }}
               type="submit"
-              className="shrink-0 inline-flex items-center gap-2 rounded-[18px] bg-accent text-white font-medium px-5 sm:px-6 h-[56px] text-[15px] shadow-[0_6px_18px_-6px_rgba(185,115,64,0.55),inset_0_1px_0_rgba(255,255,255,0.18)] hover:bg-[#a86432] transition-colors font-body-ar"
+              className="shrink-0 inline-flex items-center gap-2 rounded-[14px] bg-gold text-[#fbf6ea] font-semibold px-6 sm:px-7 h-[54px] text-[16px] shadow-[0_8px_20px_-8px_rgba(176,125,43,0.55),inset_0_1px_0_rgba(255,255,255,0.18)] hover:bg-[#9c6c24] transition-colors font-body-ar"
             >
               {t("home.hero.askButton", "Ask")}
               <ChipArrow className="w-4 h-4" aria-hidden />
@@ -216,7 +225,7 @@ export default function HeroSection() {
           transition={{ duration: 0.4, delay: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
           className="mt-5 flex flex-wrap items-center justify-center gap-2"
         >
-          <span className="text-[12.5px] text-text-3 me-1 font-body-ar">
+          <span className="text-[13px] text-ink-mute me-1 font-body-ar">
             {t("home.hero.tryLabel", "Try:")}
           </span>
           {trySuggestions.map((chip, idx) => (
@@ -230,7 +239,7 @@ export default function HeroSection() {
               className="hero-chip font-body-ar"
             >
               <span className="line-clamp-1">{chip.label}</span>
-              <ChipArrow className="w-3.5 h-3.5 text-accent shrink-0" aria-hidden />
+              <ChipArrow className="w-3.5 h-3.5 text-gold shrink-0" aria-hidden />
             </motion.button>
           ))}
         </motion.div>

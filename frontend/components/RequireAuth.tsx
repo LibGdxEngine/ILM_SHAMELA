@@ -9,23 +9,37 @@ import { useI18n } from '@/components/i18n/I18nProvider';
 
 interface RequireAuthProps {
   children: ReactNode;
+  /**
+   * When true, additionally require upload privileges. Authenticated users who
+   * cannot upload (per the backend `can_upload` flag) are redirected to the
+   * library instead of seeing an upload form that the API would reject.
+   */
+  requireUpload?: boolean;
 }
 
-export default function RequireAuth({ children }: RequireAuthProps) {
-  const { isAuthenticated, isLoading } = useAuth();
+export default function RequireAuth({ children, requireUpload = false }: RequireAuthProps) {
+  const { isAuthenticated, isLoading, user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const { t } = useI18n();
 
+  const lacksUpload = requireUpload && !user?.can_upload;
+
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    if (isLoading) return;
+    if (!isAuthenticated) {
       const locale = getLocaleFromPathname(pathname);
       const next = pathname
         ? encodeURIComponent(pathname)
         : encodeURIComponent(withLocale('/documents', locale));
       router.replace(`${withLocale('/auth/login', locale)}?next=${next}`);
+      return;
     }
-  }, [isAuthenticated, isLoading, pathname, router]);
+    if (lacksUpload) {
+      const locale = getLocaleFromPathname(pathname);
+      router.replace(withLocale('/documents', locale));
+    }
+  }, [isAuthenticated, isLoading, lacksUpload, pathname, router]);
 
   if (isLoading) {
     return (
@@ -38,7 +52,7 @@ export default function RequireAuth({ children }: RequireAuthProps) {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || lacksUpload) {
     return null;
   }
 

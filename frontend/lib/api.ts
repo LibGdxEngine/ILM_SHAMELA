@@ -1,3 +1,5 @@
+import { csrfHeaders } from './csrf';
+
 // Get API base URL - use relative URLs when possible to avoid CORS issues
 // In the browser, always use relative URLs to match the current origin
 // This prevents CORS issues when accessing via different hostnames (localhost vs 127.0.0.1)
@@ -71,6 +73,36 @@ export interface DocumentAlternateName {
   created_at: string;
 }
 
+/** Rights-audit classification of a document (نضيف / رمادي / ممنوع). */
+export type RightsStatus = 'unreviewed' | 'clear' | 'gray' | 'restricted';
+
+/** The printed edition a document was digitized from (موافقة المطبوع). */
+export interface Edition {
+  id: number;
+  /** Editor / muhaqqiq (المحقق). */
+  editor: string;
+  publisher: string;
+  publication_place: string;
+  edition_statement: string;
+  publication_year_hijri: string;
+  publication_year_gregorian: string;
+  volume_count: number | null;
+  /** Digital→printed page ranges; the mapping math lives server-side only. */
+  page_map: Array<{
+    volume: number;
+    from_page: number;
+    to_page: number;
+    printed_start: number;
+  }>;
+  notes: string;
+}
+
+/** Printed-edition reference for a digital page, derived server-side. */
+export interface PrintedRef {
+  volume: number;
+  printed_page: number;
+}
+
 export interface Document {
   id: number;
   title: string;
@@ -93,12 +125,23 @@ export interface Document {
   thumbnail?: string | null;
   thumbnail_url?: string | null;
   alternate_names?: DocumentAlternateName[];
-  score_lexical?: number;
-  score_semantic?: number;
+  /** True when the document has an OCR layout (PDF-overlay reader mode). */
+  has_layout?: boolean;
+  rights_status?: RightsStatus;
+  provenance_source?: string;
+  rights_notes?: string;
+  /** Present on the detail endpoint only. */
+  editions?: Edition[];
+  // One of lexical/semantic is `null` for the mode that wasn't computed
+  // (exact → score_semantic: null; semantic → score_lexical: null).
+  score_lexical?: number | null;
+  score_semantic?: number | null;
   score_final?: number;
+  /** Highlighted result fragment from search; `null` in pure-semantic mode. */
+  snippet?: string | null;
   explanations?: {
     matched_fields: string[];
-    weights: { lexical: number; semantic: number };
+    method: string;
   };
 }
 
@@ -150,6 +193,16 @@ export interface UploadDocumentParams {
   language?: string;
   cover_photo?: File;
   ocr_engine?: string;
+  /** Optional datalab/marker OCR JSON enabling the PDF-overlay reader (PDF only). */
+  ocr_layout?: File;
+  rights_status?: RightsStatus;
+  provenance_source?: string;
+  /** Printed-edition metadata (موافقة المطبوع) captured at upload. */
+  edition_editor?: string;
+  edition_publisher?: string;
+  edition_year_hijri?: string;
+  edition_year_gregorian?: string;
+  edition_volume_count?: number;
 }
 
 export interface OCREngine {
@@ -169,6 +222,7 @@ export interface DocumentsListParams {
   page?: number;
   authors?: string[];
   categories?: string[];
+  documents?: number[];
   language?: string;
   date_from?: string;
   date_to?: string;
@@ -180,11 +234,45 @@ export interface DocumentsListResponse {
   next: string | null;
   previous: string | null;
   results: Document[];
+  /**
+   * Set only by `getDocumentsSearch()` when a search mode degraded (e.g.
+   * `semantic` with embeddings unavailable → `"embedding_unavailable"`).
+   * Plain `getDocuments()` responses never populate this.
+   */
+  degraded_reason?: string;
+}
+
+/** Library-wide (corpus) search modes accepted by `getDocumentsSearch()`. */
+export type CorpusSearchMode = 'exact' | 'semantic' | 'hybrid';
+
+/** One positioned OCR block on a page (PDF-overlay reader mode). */
+export interface LayoutBlock {
+  id: string;
+  type: string;
+  /** [x0, y0, x1, y1] in the OCR pixel space of `PageLayout.width/height`. */
+  bbox: [number, number, number, number];
+  text: string;
+  /** Offsets into the page `content` (blocks joined by '\n'). */
+  char_start: number;
+  char_end: number;
+}
+
+/** Per-page OCR geometry for the transparent text overlay. */
+export interface PageLayout {
+  width: number;
+  height: number;
+  blocks: LayoutBlock[];
 }
 
 export interface DocumentPage {
   page_number: number;
   content: string;
+  /** Rendered PDF page image (PDF-overlay reader mode only). */
+  image_url?: string | null;
+  /** OCR geometry for the transparent overlay (PDF-overlay reader mode only). */
+  layout?: PageLayout | null;
+  /** Printed-edition (volume, page) for this digital page; null when unmapped. */
+  printed_ref?: PrintedRef | null;
 }
 
 export interface DocumentPagesResponse {
@@ -210,9 +298,38 @@ export interface DocumentSearchResponse {
   has_semantic?: boolean;
 }
 
+/** In-document search modes (mirror of the backend `VALID_SEARCH_MODES`). */
+export type InDocSearchMode = 'exact' | 'similar' | 'semantic' | 'mix';
+
+export interface SearchInDocumentOptions {
+  mode?: InDocSearchMode;
+  /** Vector-similarity threshold (0–1); applies to `semantic` and `mix`. */
+  threshold?: number;
+  signal?: AbortSignal;
+}
+
 export interface SearchSuggestionsResponse {
   query: string;
   suggestions: string[];
+}
+
+/** Structured filters produced by the natural-language search assistant.
+ *  Shape mirrors the `/documents` page's `DocumentFilterValues`. */
+export interface AssistFilters {
+  q: string;
+  mode: CorpusSearchMode;
+  authors: string[];
+  categories: string[];
+  languages: string[];
+  dateFrom: string | null;
+  dateTo: string | null;
+}
+
+export interface AssistSearchResponse {
+  filters: AssistFilters;
+  interpretation: string | null;
+  /** Present when the LLM was unavailable and we fell back to a plain search. */
+  degraded_reason?: string;
 }
 
 /**
@@ -324,6 +441,38 @@ export async function uploadDocument(
 
   if (params.ocr_engine) {
     formData.append('ocr_engine', params.ocr_engine);
+  }
+
+  if (params.ocr_layout) {
+    formData.append('ocr_layout', params.ocr_layout);
+  }
+
+  if (params.rights_status) {
+    formData.append('rights_status', params.rights_status);
+  }
+
+  if (params.provenance_source) {
+    formData.append('provenance_source', params.provenance_source);
+  }
+
+  if (params.edition_editor) {
+    formData.append('edition_editor', params.edition_editor);
+  }
+
+  if (params.edition_publisher) {
+    formData.append('edition_publisher', params.edition_publisher);
+  }
+
+  if (params.edition_year_hijri) {
+    formData.append('edition_year_hijri', params.edition_year_hijri);
+  }
+
+  if (params.edition_year_gregorian) {
+    formData.append('edition_year_gregorian', params.edition_year_gregorian);
+  }
+
+  if (params.edition_volume_count) {
+    formData.append('edition_volume_count', params.edition_volume_count.toString());
   }
 
   return new Promise((resolve, reject) => {
@@ -438,6 +587,9 @@ export async function getDocuments(params: DocumentsListParams = {}): Promise<Do
   if (params.categories && params.categories.length > 0) {
     url.searchParams.append('categories', params.categories.join(','));
   }
+  if (params.documents && params.documents.length > 0) {
+    url.searchParams.append('documents', params.documents.join(','));
+  }
   if (params.language) {
     url.searchParams.append('language', params.language);
   }
@@ -462,6 +614,78 @@ export async function getDocuments(params: DocumentsListParams = {}): Promise<Do
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || error.message || 'Failed to fetch documents');
+  }
+
+  return response.json();
+}
+
+export interface DocumentsSearchParams {
+  /** Free-text query (required — this endpoint is query-driven). */
+  q: string;
+  /** Search mode; omitted from the request when `'hybrid'` (the backend default). */
+  mode?: CorpusSearchMode;
+  /** Scope the search to specific document IDs. */
+  documents?: number[];
+  page?: number;
+  authors?: string[];
+  categories?: string[];
+  language?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
+/**
+ * Library-wide (corpus) search over documents via the Elasticsearch-backed
+ * `documents/search/` endpoint, supporting exact / semantic / hybrid modes and
+ * book-scoping. Distinct from the dead `searchDocuments()` helper; this is the
+ * function the navbar search flow uses whenever a query is active.
+ */
+export async function getDocumentsSearch(params: DocumentsSearchParams): Promise<DocumentsListResponse> {
+  const basePath = '/api/search_engine/documents/search/';
+  const url = API_BASE_URL
+    ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
+    : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+
+  url.searchParams.append('q', params.q);
+  // Omit `mode` entirely when it's the backend default to keep requests minimal.
+  if (params.mode && params.mode !== 'hybrid') {
+    url.searchParams.append('mode', params.mode);
+  }
+  if (params.documents && params.documents.length > 0) {
+    url.searchParams.append('documents', params.documents.join(','));
+  }
+  if (params.authors && params.authors.length > 0) {
+    url.searchParams.append('authors', params.authors.join(','));
+  }
+  if (params.categories && params.categories.length > 0) {
+    url.searchParams.append('categories', params.categories.join(','));
+  }
+  if (params.language) {
+    url.searchParams.append('language', params.language);
+  }
+  if (params.date_from) {
+    url.searchParams.append('date_from', params.date_from);
+  }
+  if (params.date_to) {
+    url.searchParams.append('date_to', params.date_to);
+  }
+  if (params.page) {
+    url.searchParams.append('page', params.page.toString());
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    // DocumentSearchView returns validation errors as `{error: '...'}`
+    // (e.g. "Invalid mode…"), so check `error` first to surface the real message.
+    throw new Error(error.error || error.detail || error.message || 'Search failed');
   }
 
   return response.json();
@@ -516,7 +740,7 @@ export async function getDocumentPages(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || error.message || 'Failed to fetch document pages');
+    throw new Error(error.detail || error.message || error.error || 'Failed to fetch document pages');
   }
 
   return response.json();
@@ -528,8 +752,9 @@ export async function getDocumentPages(
 export async function searchInDocument(
   id: number,
   query: string,
-  signal?: AbortSignal
+  opts: SearchInDocumentOptions = {}
 ): Promise<DocumentSearchResponse> {
+  const { mode = 'mix', threshold, signal } = opts;
   if (!query.trim()) {
     return {
       matches: [],
@@ -543,6 +768,11 @@ export async function searchInDocument(
     ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
     : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
   url.searchParams.append('q', query);
+  url.searchParams.append('mode', mode);
+  // Threshold only matters for the vector-bearing modes.
+  if (threshold != null && (mode === 'semantic' || mode === 'mix')) {
+    url.searchParams.append('threshold', String(threshold));
+  }
 
   const response = await fetch(url.toString(), {
     method: 'GET',
@@ -611,6 +841,37 @@ export async function getSearchSuggestions(query: string): Promise<SearchSuggest
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || error.message || 'Failed to fetch suggestions');
+  }
+
+  return response.json();
+}
+
+/**
+ * Convert a free-form natural-language query (Arabic/English) into structured
+ * library filters via the search-engine AI. Returns the parsed `filters` (in the
+ * page's `DocumentFilterValues` shape) plus a short human `interpretation`. When
+ * the LLM is unavailable the backend degrades to a plain hybrid search over the
+ * raw text and sets `degraded_reason`, so callers can always apply the result.
+ */
+export async function assistSearch(q: string, locale?: string): Promise<AssistSearchResponse> {
+  const basePath = '/api/search_engine/documents/search/assist/';
+  const url = API_BASE_URL
+    ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
+    : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...csrfHeaders(),
+    },
+    credentials: 'include',
+    body: JSON.stringify({ q, locale }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || error.message || 'AI search failed');
   }
 
   return response.json();

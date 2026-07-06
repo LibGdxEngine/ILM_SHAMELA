@@ -47,7 +47,7 @@ export default function FinalCTASection({
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
         <div
           className="w-[800px] h-[800px] rounded-full blur-3xl"
-          style={{ backgroundColor: "rgba(185,115,64,0.04)" }}
+          style={{ backgroundColor: "rgba(176,125,43,0.05)" }}
         />
       </div>
 
@@ -68,13 +68,13 @@ export default function FinalCTASection({
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
             href={startReadingHref}
-            className="inline-flex items-center justify-center h-14 px-8 rounded-[28px] bg-[var(--accent)] text-white text-[16px] font-medium font-body-ar shadow-[0_8px_20px_-8px_rgba(185,115,64,0.55)] transition-all hover:-translate-y-[1px] hover:bg-[#a86432]"
+            className="inline-flex items-center justify-center h-14 px-8 rounded-[15px] bg-[var(--accent)] text-[#fbf6ea] text-[16px] font-medium font-body-ar shadow-[0_8px_20px_-8px_rgba(176,125,43,0.55)] transition-all hover:-translate-y-[1px] hover:bg-[#9c6c24]"
           >
             {t("home.cta.start", "ابدأ القراءة — مجانًا")}
           </Link>
           <Link
             href={documentsHref}
-            className="inline-flex items-center justify-center h-14 px-8 rounded-[28px] bg-transparent text-[var(--warm-deep)] text-[16px] font-medium font-body-ar border-[1.5px] border-[var(--border-warm-soft)] transition-all hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            className="inline-flex items-center justify-center h-14 px-8 rounded-[15px] bg-transparent text-[var(--warm-deep)] text-[16px] font-medium font-body-ar border-[1.5px] border-[var(--border-warm-soft)] transition-all hover:border-[var(--accent)] hover:text-[var(--accent)]"
           >
             {t("home.cta.browse", "تصفّح المكتبة")}
           </Link>

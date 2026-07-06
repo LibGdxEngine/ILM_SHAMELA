@@ -1,11 +1,11 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import AppHeaderAvatarMenu from '@/components/AppHeaderAvatarMenu';
+import StarMark from '@/components/landing/StarMark';
 import LanguageSwitcher from '@/components/i18n/LanguageSwitcher';
 import { useAuth } from '@/lib/AuthContext';
 import { useI18n } from '@/components/i18n/I18nProvider';
@@ -34,8 +34,16 @@ export default function Navbar() {
 
   const bare = stripLocalePrefix(pathname ?? '/');
 
-  // The reader workspace ships its own purpose-built header — skip the global navbar there.
-  if (/^\/documents\/[^/]+/.test(bare)) {
+  // The redesigned shells (the landing LandingHeader on `/`, Reading Room /
+  // Catalog on /documents, the Atlas on /map, and the two-panel auth screen on
+  // /auth) and the reader workspace each ship their own in-page header that
+  // matches the mock, so the global navbar is skipped on those routes.
+  if (
+    /^\/$/.test(bare) ||
+    /^\/documents(\/|$)/.test(bare) ||
+    /^\/map(\/|$)/.test(bare) ||
+    /^\/auth(\/|$)/.test(bare)
+  ) {
     return null;
   }
 
@@ -73,14 +81,22 @@ export default function Navbar() {
     <header
       className={`sticky top-0 z-50 w-full backdrop-blur-xl transition-shadow duration-300 ${
         elevated
-          ? 'bg-bg/80 shadow-[0_1px_0_rgba(0,0,0,0.04),0_10px_30px_-20px_rgba(120,80,40,0.18)]'
-          : 'bg-bg/65'
-      } border-b border-border`}
+          ? 'bg-[rgba(247,239,220,0.82)] shadow-[0_1px_0_rgba(44,38,32,0.04),0_10px_30px_-20px_rgba(120,80,40,0.18)]'
+          : 'bg-[rgba(247,239,220,0.65)]'
+      } border-b border-paper-line`}
     >
-      <div className="mx-auto flex h-14 max-w-[1280px] items-center gap-4 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-16 max-w-[1280px] items-center gap-4 px-4 sm:px-6 lg:px-8">
         <div className="flex flex-1 items-center">
-          <Link href={homeHref} className="flex items-center shrink-0" aria-label="ILM Shamela">
-            <Image src="/logo.svg" alt="" width={40} height={40} priority className="h-10 w-10 object-contain" />
+          <Link href={homeHref} className="flex items-center gap-2.5 shrink-0" aria-label="ILM Shamela">
+            <StarMark size={30} className="text-gold" holeColor="#efe5ce" />
+            <span className="leading-none">
+              <span className="block font-reem-kufi font-semibold text-[17px] text-ink-deep">
+                {t('brand.name', 'مكتبة عِلم')}
+              </span>
+              <span className="hidden sm:block text-[8px] tracking-[0.22em] text-ink-mute mt-1">
+                ILM SHAMELA
+              </span>
+            </span>
           </Link>
         </div>
 
@@ -91,10 +107,10 @@ export default function Navbar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`relative text-[13.5px] tracking-wide transition-colors py-1.5 ${
+                className={`relative text-[14px] tracking-wide transition-colors py-1.5 ${
                   isActive
-                    ? 'text-text after:absolute after:inset-x-0 after:-bottom-[14px] after:h-[2px] after:bg-accent after:rounded-full'
-                    : 'text-text-2 hover:text-text'
+                    ? 'text-ink-deep after:absolute after:inset-x-0 after:-bottom-[14px] after:h-[2px] after:bg-gold after:rounded-full'
+                    : 'text-ink-warm hover:text-ink-deep'
                 }`}
               >
                 {item.label}
@@ -111,7 +127,7 @@ export default function Navbar() {
                 onClick={() => setPaletteOpen(true)}
                 aria-label={t('nav.app.search', 'بحث')}
                 title={t('nav.app.search', 'بحث')}
-                className="w-9 h-9 inline-flex items-center justify-center rounded-full text-text-2 hover:bg-black/[0.05] hover:text-text transition-colors"
+                className="w-9 h-9 inline-flex items-center justify-center rounded-full text-ink-warm hover:bg-black/[0.05] hover:text-ink-deep transition-colors"
               >
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
                   <circle cx="11" cy="11" r="7" />
@@ -123,7 +139,7 @@ export default function Navbar() {
                 type="button"
                 aria-label={t('nav.app.notifications', 'الإشعارات')}
                 title={t('nav.app.notifications', 'الإشعارات')}
-                className="w-9 h-9 inline-flex items-center justify-center rounded-full text-text-2 hover:bg-black/[0.05] hover:text-text transition-colors relative"
+                className="w-9 h-9 inline-flex items-center justify-center rounded-full text-ink-warm hover:bg-black/[0.05] hover:text-ink-deep transition-colors relative"
               >
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
                   <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
@@ -131,17 +147,19 @@ export default function Navbar() {
                 </svg>
               </button>
 
-              <Link
-                href={localizedPath('/upload')}
-                className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-b from-accent-2 to-accent text-white text-[12.5px] font-medium px-3.5 h-9 shadow-[0_4px_14px_-4px_rgba(185,115,64,0.45),inset_0_1px_0_rgba(255,255,255,0.22)] hover:-translate-y-[1px] transition-transform"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="17 8 12 3 7 8" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
-                {t('nav.app.uploadBook', 'رفع كتاب')}
-              </Link>
+              {user?.can_upload && (
+                <Link
+                  href={localizedPath('/upload')}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-gold text-[#fbf6ea] text-[12.5px] font-medium px-3.5 h-9 shadow-[0_6px_16px_-6px_rgba(176,125,43,0.5)] hover:bg-[#9c6c24] hover:-translate-y-[1px] transition-all"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  {t('nav.app.uploadBook', 'رفع كتاب')}
+                </Link>
+              )}
 
               <AppHeaderAvatarMenu displayName={displayName} avatarInitial={avatarInitial} />
             </>
@@ -151,14 +169,14 @@ export default function Navbar() {
 
               <Link
                 href={localizedPath('/auth/login')}
-                className="text-[12.5px] text-text-2 hover:text-text transition-colors px-3 h-9 inline-flex items-center"
+                className="text-[12.5px] text-ink-warm hover:text-ink-deep transition-colors px-3 h-9 inline-flex items-center"
               >
                 {t('nav.signIn', 'Sign in')}
               </Link>
 
               <Link
                 href={localizedPath('/auth/register')}
-                className="inline-flex items-center rounded-full bg-gradient-to-b from-accent-2 to-accent text-white text-[12.5px] font-medium px-3.5 h-9 shadow-[0_4px_14px_-4px_rgba(185,115,64,0.45),inset_0_1px_0_rgba(255,255,255,0.22)] hover:-translate-y-[1px] transition-transform"
+                className="inline-flex items-center rounded-full bg-gold text-[#fbf6ea] text-[12.5px] font-medium px-3.5 h-9 shadow-[0_6px_16px_-6px_rgba(176,125,43,0.5)] hover:bg-[#9c6c24] hover:-translate-y-[1px] transition-all"
               >
                 {t('nav.getStarted', 'Get started')}
               </Link>
@@ -175,23 +193,23 @@ export default function Navbar() {
           aria-modal="true"
         >
           <div
-            className="bg-card rounded-[18px] border border-border-strong p-6 max-w-md w-full mx-4 shadow-2xl font-arabic"
+            className="bg-paper-card rounded-[18px] border border-paper-line p-6 max-w-md w-full mx-4 shadow-2xl font-body-ar"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 mb-3">
-              <span className="text-accent" aria-hidden>✦</span>
-              <h2 className="font-fraunces text-[17px] text-text">
+              <span className="text-gold" aria-hidden>✦</span>
+              <h2 className="font-reem-kufi text-[17px] text-ink-deep">
                 {t('nav.app.search.title', 'البحث في كل شيء')}
               </h2>
             </div>
-            <p className="text-[13px] text-text-3 leading-[1.7]">
+            <p className="text-[13px] text-ink-warm leading-[1.7]">
               {t('nav.app.search.comingSoon', 'لوحة الأوامر قريبًا — ستتمكن من البحث في الكتب والملاحظات والإعدادات من مكان واحد.')}
             </p>
             <div className="mt-5 flex justify-end">
               <button
                 type="button"
                 onClick={() => setPaletteOpen(false)}
-                className="text-[12.5px] text-text-3 hover:text-text transition-colors px-3 py-1.5"
+                className="text-[12.5px] text-ink-mute hover:text-ink-deep transition-colors px-3 py-1.5"
               >
                 {t('nav.app.search.close', 'إغلاق')}
               </button>

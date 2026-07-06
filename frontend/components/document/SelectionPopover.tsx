@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import type { HighlightColor } from '@/lib/api/reader';
+import { computeSelectionPayload } from '@/lib/reader/selection';
 
 interface CreatePayload {
   page_number: number;
@@ -18,6 +19,8 @@ interface SelectionPopoverProps {
   onCreateHighlight: (payload: CreatePayload) => void;
   /** Optional: invoked with the selected text when "Ask AI" is clicked. */
   onAskAssistant?: (selectedText: string) => void;
+  /** Optional: invoked with the selected text when "Search" is clicked. */
+  onSearchSelection?: (selectedText: string) => void;
 }
 
 interface PopoverState {
@@ -36,106 +39,24 @@ const COLOR_CLASS: Record<HighlightColor, string> = {
   orange: 'bg-orange-300',
 };
 
-/**
- * Walk up from a node until an element with `data-page` is found. Returns
- * `null` when the selection sits outside the document content.
- */
-function findPageRoot(node: Node | null): HTMLElement | null {
-  let current: Node | null = node;
-  while (current) {
-    if (current instanceof HTMLElement && current.getAttribute('data-page')) {
-      return current;
-    }
-    current = current.parentNode;
-  }
-  return null;
-}
-
-/**
- * Compute the character offset of `target` within `root`'s text content.
- * Walks via TreeWalker so DOM splits (from highlight `<mark>` wraps) don't
- * throw the count off.
- */
-function offsetWithinRoot(root: HTMLElement, target: Node, targetOffset: number): number {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let offset = 0;
-  let current: Node | null = walker.nextNode();
-  while (current) {
-    if (current === target) {
-      return offset + targetOffset;
-    }
-    offset += (current.textContent ?? '').length;
-    current = walker.nextNode();
-  }
-  return offset;
-}
-
-/**
- * Determine which `<br />`-separated chunk the selection start falls into.
- * Returns the zero-based paragraph index used in `paragraph_id`.
- */
-function paragraphIndexFor(root: HTMLElement, target: Node): number {
-  const brs = Array.from(root.querySelectorAll('br'));
-  if (brs.length === 0) return 0;
-
-  // Walk text/br nodes in order; count `<br />` elements that appear strictly
-  // before the selection target.
-  const walker = document.createTreeWalker(
-    root,
-    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT
-  );
-  let paragraphIndex = 0;
-  let current: Node | null = walker.nextNode();
-  while (current) {
-    if (current === target) return paragraphIndex;
-    if (current.contains(target)) return paragraphIndex;
-    if (current.nodeName === 'BR') {
-      paragraphIndex += 1;
-    }
-    current = walker.nextNode();
-  }
-  return paragraphIndex;
-}
-
-export default function SelectionPopover({ enabled, onCreateHighlight, onAskAssistant }: SelectionPopoverProps) {
+export default function SelectionPopover({ enabled, onCreateHighlight, onAskAssistant, onSearchSelection }: SelectionPopoverProps) {
   const { t } = useI18n();
   const [state, setState] = useState<PopoverState | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
   const handleSelectionChange = useCallback(() => {
     if (!enabled) return;
+    const payload = computeSelectionPayload();
+    if (!payload) {
+      setState(null);
+      return;
+    }
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    if (!selection || selection.rangeCount === 0) {
       setState(null);
       return;
     }
     const range = selection.getRangeAt(0);
-    const pageRoot = findPageRoot(range.startContainer);
-    if (!pageRoot) {
-      setState(null);
-      return;
-    }
-    // Selection must be entirely within a single page wrapper.
-    if (!pageRoot.contains(range.endContainer)) {
-      setState(null);
-      return;
-    }
-    const pageNumber = parseInt(pageRoot.getAttribute('data-page') ?? '0', 10);
-    if (!pageNumber) {
-      setState(null);
-      return;
-    }
-    // The actual content lives inside an inner `<div>` rendered with
-    // dangerouslySetInnerHTML. Walk to that ancestor so offsets are stable.
-    const contentRoot = pageRoot.querySelector('div[style*="--reader-font-size"]') as HTMLElement | null;
-    const offsetRoot = contentRoot ?? pageRoot;
-    const charStart = offsetWithinRoot(offsetRoot, range.startContainer, range.startOffset);
-    const charEnd = offsetWithinRoot(offsetRoot, range.endContainer, range.endOffset);
-    if (charEnd <= charStart) {
-      setState(null);
-      return;
-    }
-    const paragraphIndex = paragraphIndexFor(offsetRoot, range.startContainer);
     const rect = range.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) {
       setState(null);
@@ -158,10 +79,10 @@ export default function SelectionPopover({ enabled, onCreateHighlight, onAskAssi
       top,
       left,
       payload: {
-        page_number: pageNumber,
-        paragraph_id: `p${pageNumber}-${paragraphIndex}`,
-        char_start: Math.min(charStart, charEnd),
-        char_end: Math.max(charStart, charEnd),
+        page_number: payload.page_number,
+        paragraph_id: payload.paragraph_id,
+        char_start: payload.char_start,
+        char_end: payload.char_end,
       },
     });
   }, [enabled]);
@@ -222,6 +143,26 @@ export default function SelectionPopover({ enabled, onCreateHighlight, onAskAssi
           className={`h-5 w-5 rounded-full border border-white/30 transition-transform hover:scale-110 ${COLOR_CLASS[color]}`}
         />
       ))}
+      {onSearchSelection && (
+        <button
+          type="button"
+          onClick={() => {
+            const text = window.getSelection()?.toString() ?? '';
+            if (text.trim()) onSearchSelection(text.trim());
+            window.getSelection()?.removeAllRanges();
+            setState(null);
+          }}
+          aria-label={t('reader.search.searchSelection', 'بحث')}
+          className="ms-1 inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11.5px] text-white transition-transform hover:scale-105"
+          style={{ background: '#2c2620' }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.5" y2="16.5" />
+          </svg>
+          {t('reader.search.searchSelection', 'بحث')}
+        </button>
+      )}
       {onAskAssistant && (
         <button
           type="button"

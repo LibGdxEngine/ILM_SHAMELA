@@ -28,6 +28,22 @@
   --ink-muted: rgba(31, 26, 20, 0.65);
   --border-warm-soft: rgba(58, 42, 30, 0.10);
   --accent-soft-bg: rgba(185, 115, 64, 0.08);
+
+  /* "مكتبة عِلم" parchment design palette — promoted from the Reading Room.
+     Additive (new names): consumed by the landing components and the reskinned
+     shared navbar via Tailwind tokens of the same name. */
+  --paper: #efe5ce;
+  --paper-card: #fcf8ee;
+  --paper-soft: #f7efdc;
+  --paper-line: #e2d5ba;
+  --ink-deep: #2c2620;
+  --ink-warm: #6e6354;
+  --ink-mute: #9a8b70;
+  --gold: #b07d2b;
+  --gold-soft: #f4e7cc;
+  --gold-line: #e3cfa3;
+  --green-deep: #2e5347;
+  --maroon: #7a2e2a;
 }
 
 body {
@@ -221,9 +237,12 @@ mark {
   }
 }
 
-/* Prose styling enhancements for document content */
+/* Prose styling enhancements for document content.
+   NOTE: no `background-color` here — the mark's color comes from either
+   `.highlight-<color>` (user highlights) or the search-match Tailwind class
+   (`bg-yellow-200/80`). A hardcoded background here has higher specificity
+   than `.highlight-<color>` and would force every highlight to render yellow. */
 .prose mark {
-  background-color: #fef08a;
   padding: 0.125rem 0.25rem;
   border-radius: 0.25rem;
   font-weight: 500;
@@ -231,7 +250,6 @@ mark {
 
 @media (prefers-color-scheme: dark) {
   .prose mark {
-    background-color: rgba(234, 179, 8, 0.3);
     color: #fef08a;
   }
 }
@@ -303,42 +321,40 @@ mark {
   letter-spacing: 0.01em;
 }
 
-/* Reader theme styles */
+/* Reader sheet theming.
+   The reading "sheet" in the redesigned reader is driven by --sheet-* variables
+   set per theme. Persisted theme values stay light/sepia/dark (no prefs
+   migration), while the UI labels them parchment / sepia / night
+   (see FontThemeControls). Palettes mirror the "ILM Shamela — Reader & Search"
+   design's T map. */
+[data-reader-theme="light"] {
+  --sheet-area: #e7dcc3;
+  --sheet-bg: #fbf7ec;
+  --sheet-ink: #2a2419;
+  --sheet-rule: #ebdfc6;
+  --sheet-orn: #c9a24a;
+  --reader-bg: #fbf7ec;
+  --reader-text: #2a2419;
+}
+
 [data-reader-theme="sepia"] {
-  --reader-bg: #f8f0e3;
-  --reader-text: #5c4b37;
-}
-
-[data-reader-theme="sepia"] .bg-white {
-  background-color: #f8f0e3 !important;
-}
-
-[data-reader-theme="sepia"] article {
-  background-color: #faf4e8 !important;
-  color: #5c4b37 !important;
+  --sheet-area: #e5d2ae;
+  --sheet-bg: #f2e3c7;
+  --sheet-ink: #41331c;
+  --sheet-rule: #e0cba1;
+  --sheet-orn: #b07d2b;
+  --reader-bg: #f2e3c7;
+  --reader-text: #41331c;
 }
 
 [data-reader-theme="dark"] {
-  --reader-bg: #1a1a2e;
-  --reader-text: #d4d4d8;
-}
-
-[data-reader-theme="dark"] .bg-white {
-  background-color: #1a1a2e !important;
-}
-
-[data-reader-theme="dark"] article {
-  background-color: #222240 !important;
-  color: #d4d4d8 !important;
-}
-
-[data-reader-theme="dark"] article header {
-  background-color: rgba(255, 255, 255, 0.05) !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-[data-reader-theme="dark"] article header span {
-  color: #9ca3af !important;
+  --sheet-area: #17120c;
+  --sheet-bg: #221a12;
+  --sheet-ink: #e7dbc2;
+  --sheet-rule: #3a2f20;
+  --sheet-orn: #d9a441;
+  --reader-bg: #17120c;
+  --reader-text: #e7dbc2;
 }
 
 /* User-created highlight colors. Each `<mark data-color="...">` gets a
@@ -391,6 +407,92 @@ mark[data-hid] { cursor: context-menu; }
 [data-search-hit="true"] {
   border-radius: 0.75rem;
   animation: search-pulse 1.5s ease-out;
+}
+
+/* ---------------------------------------------------------------------------
+   PDF-overlay reader (books uploaded with an OCR layout JSON).
+   Each page = the original PDF page image + an invisible, selectable text
+   layer positioned by OCR bounding boxes. Search matches / user highlights
+   render as translucent boxes over the printed words — the OCR text itself
+   stays transparent at all times. */
+.ilm-pdf-sheet {
+  max-width: 860px;
+}
+
+.ilm-pdf-page {
+  background: var(--sheet-bg, #fff);
+  border: 1px solid var(--sheet-rule, #e4dccb);
+  border-radius: 4px;
+  box-shadow: 0 8px 30px rgba(44, 38, 32, 0.1);
+  overflow: hidden;
+}
+
+.ilm-pdf-canvas {
+  position: relative;
+  width: 100%;
+}
+
+.ilm-pdf-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  pointer-events: none;
+}
+
+.ilm-pdf-image--missing {
+  background:
+    repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.03) 0 12px, transparent 12px 24px),
+    var(--sheet-bg, #f7f2e7);
+}
+
+/* Size container for the blocks' cqh font sizes. It must be an ANCESTOR of the
+   blocks: container-query units on an element resolve against the nearest
+   ancestor container (never the element itself) and fall back to the viewport
+   when none exists — which made overlay text ~viewport-sized. */
+.ilm-pdf-overlay {
+  position: absolute;
+  inset: 0;
+  container-type: size;
+}
+
+.ilm-pdf-block {
+  position: absolute;
+  overflow: hidden;
+  color: transparent;
+  caret-color: transparent;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: justify;
+  line-height: 1.25;
+  cursor: text;
+  font-family: serif;
+}
+
+/* Text stays invisible even inside highlight/search marks. The global `mark`
+   padding/font-weight would shift and inflate the invisible layer, breaking
+   overlay/print alignment. No `background` here — it would out-specificity the
+   .highlight-<color> classes. */
+.ilm-pdf-block mark {
+  color: transparent !important;
+  padding: 0;
+  font-weight: inherit;
+}
+
+/* Selection must be visible so users can see what they are selecting, but must
+   never reveal the OCR text. The `.ilm-pdf-overlay` ancestor keeps this rule
+   above the later shell-level `::selection` rules (e.g. `.reader-room`). */
+.ilm-pdf-overlay .ilm-pdf-block ::selection,
+.ilm-pdf-overlay .ilm-pdf-block::selection {
+  background: rgba(20, 184, 166, 0.35);
+  color: transparent;
+}
+
+/* The matched search run. */
+.ilm-pdf-search-mark {
+  background: rgba(250, 204, 21, 0.45);
+  border-radius: 2px;
 }
 
 /* Reader popover animation */
@@ -465,30 +567,49 @@ mark[data-hid] { cursor: context-menu; }
 /* Applied to the landing <main> wrapper and shared by the main app routes.
    Provides a warm parchment canvas with a subtle paper grain texture. */
 .landing-shell {
-  --accent: #b97340;
-  --accent-2: #d8a373;
-  @apply bg-bg text-text font-inter antialiased;
-  background-color: #faf6ef;
+  /* Promote the parchment palette onto the landing (scoped to this shell). */
+  --accent: #b07d2b;
+  --accent-2: #c99a4e;
+  /* Override the cream vars consumed by HowItWorks/CTA so they recolor here
+     without touching any other route that reads the :root defaults. */
+  --cream-base: #efe5ce;
+  --cream-card: #fcf8ee;
+  --cream-card-soft: #f7efdc;
+  --ink: #2c2620;
+  --ink-muted: #6e6354;
+  --warm-deep: #2e281f;
+  --border-warm-soft: #e2d5ba;
+  --accent-soft-bg: #f4e7cc;
+  /* Inlined from `@apply font-body-ar antialiased` — `@apply`-ing the
+     `font-body-ar` utility here is a circular dependency (this shell also
+     defines `.landing-shell .font-body-ar` rules below), which fails the
+     Turbopack build. */
+  font-family: var(--font-body-ar), var(--font-arabic), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--ink-deep);
+  background-color: #efe5ce;
   background-image:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(185, 115, 64, 0.06), transparent 70%),
-    radial-gradient(ellipse 60% 40% at 90% 30%, rgba(185, 115, 64, 0.03), transparent 60%),
-    url("/images/landing/star-tile.svg");
-  background-size: auto, auto, 160px 160px;
-  background-repeat: no-repeat, no-repeat, repeat;
-  background-blend-mode: normal, normal, multiply;
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(176, 125, 43, 0.07), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 90% 30%, rgba(176, 125, 43, 0.04), transparent 60%);
+  background-size: auto, auto;
+  background-repeat: no-repeat, no-repeat;
+  background-blend-mode: normal, normal;
 }
 
 /* Arabic typography shaping — preserve diacritics, enable contextual alternates
    and discretionary ligatures, never letter-track Arabic glyphs. */
 .landing-shell [lang="ar"],
 .landing-shell .font-display-ar,
+.landing-shell .font-reem-kufi,
 .landing-shell .font-body-ar,
 .landing-shell .font-amiri {
   font-feature-settings: "ss01", "calt", "liga", "kern";
   letter-spacing: 0;
 }
 .landing-shell .font-body-ar { line-height: 1.7; }
-.landing-shell .font-display-ar { line-height: 1.15; }
+.landing-shell .font-display-ar,
+.landing-shell .font-reem-kufi { line-height: 1.15; }
 
 .landing-shell::before {
   content: "";
@@ -502,7 +623,8 @@ mark[data-hid] { cursor: context-menu; }
 }
 
 .landing-shell ::selection {
-  @apply bg-accent-soft text-accent-2;
+  background: #f3dca4;
+  color: #2a2419;
 }
 
 /* Reader shell — same cream base as the landing, but with the star-tile
@@ -550,14 +672,23 @@ mark[data-hid] { cursor: context-menu; }
   }
 
   .landing-shell .btn-ghost {
-    @apply border border-border-strong text-text rounded-full px-5 py-2.5 text-[13.5px] bg-black/[0.03] transition-all duration-200 hover:bg-black/[0.06] hover:border-accent;
+    @apply rounded-full px-5 py-2.5 text-[13.5px] transition-all duration-200;
+    border: 1px solid var(--paper-line);
+    color: var(--ink-deep);
+    background: var(--paper-card);
+  }
+  .landing-shell .btn-ghost:hover {
+    border-color: var(--gold);
+    background: #ffffff;
   }
 
   .landing-shell .section-eyebrow {
-    @apply text-[11.5px] tracking-[0.16em] uppercase text-accent font-medium inline-flex items-center gap-2.5;
+    @apply text-[11.5px] tracking-[0.1em] font-semibold inline-flex items-center gap-2.5;
+    color: var(--gold);
   }
   .landing-shell .section-eyebrow::before {
-    @apply content-[''] w-6 h-[1px] bg-accent;
+    @apply content-[''] w-7 h-[1px];
+    background: #d9a441;
   }
 }
 
@@ -567,7 +698,7 @@ mark[data-hid] { cursor: context-menu; }
   inset: -1px;
   border-radius: 24px;
   padding: 1px;
-  background: linear-gradient(180deg, rgba(192, 133, 82, 0.25), transparent 50%);
+  background: linear-gradient(180deg, rgba(176, 125, 43, 0.22), transparent 50%);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -582,39 +713,38 @@ mark[data-hid] { cursor: context-menu; }
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(ellipse 70% 55% at 50% 50%, rgba(185, 115, 64, 0.10), transparent 70%);
+    radial-gradient(ellipse 70% 55% at 50% 50%, rgba(176, 125, 43, 0.12), transparent 70%);
   filter: blur(8px);
 }
 
 /* Live-indexing dot — soft pulse, slower than the deep-link variant so it reads
    as ambient status rather than an alert. */
 .landing-shell .live-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 0 0 rgba(185, 115, 64, 0.5);
-  animation: live-dot 2s ease-in-out infinite;
+  background: var(--green-deep);
+  box-shadow: 0 0 0 3px rgba(46, 83, 71, 0.18);
 }
 
 /* Hero AI search shell — 72px tall row with layered shadow for depth.
    Differs from .search-shell (used elsewhere) by its lighter card surface
    and the warm-orange-tinted drop shadow. */
 .landing-shell .hero-search-shell {
-  background: linear-gradient(180deg, #ffffff, #faf6ef);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 24px;
+  background: var(--paper-card);
+  border: 1px solid var(--paper-line);
+  border-radius: 20px;
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.04),
-    0 12px 32px rgba(120, 80, 40, 0.08);
+    0 1px 2px rgba(44, 38, 32, 0.04),
+    0 14px 40px rgba(44, 38, 32, 0.10);
   transition: box-shadow 0.25s ease, border-color 0.25s ease;
 }
 .landing-shell .hero-search-shell:focus-within {
-  border-color: rgba(185, 115, 64, 0.4);
+  border-color: var(--gold);
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.05),
-    0 18px 42px rgba(120, 80, 40, 0.12),
-    0 0 0 4px rgba(185, 115, 64, 0.10);
+    0 1px 2px rgba(44, 38, 32, 0.05),
+    0 18px 44px rgba(44, 38, 32, 0.13),
+    0 0 0 4px rgba(176, 125, 43, 0.12);
 }
 
 /* Hero prompt chip — clickable example query suggestion. Soft hover lift. */
@@ -622,27 +752,27 @@ mark[data-hid] { cursor: context-menu; }
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.45rem 0.95rem;
-  border-radius: 999px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.7);
-  color: #1f1a14;
-  font-size: 13px;
+  padding: 0.5rem 0.9rem;
+  border-radius: 11px;
+  border: 1px solid var(--paper-line);
+  background: var(--paper-card);
+  color: #4a4236;
+  font-size: 13.5px;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 .landing-shell .hero-chip:hover {
   transform: translateY(-1px);
-  border-color: rgba(185, 115, 64, 0.5);
+  border-color: var(--gold);
   background: #ffffff;
-  box-shadow: 0 6px 18px -10px rgba(120, 80, 40, 0.35);
+  box-shadow: 0 6px 18px -10px rgba(44, 38, 32, 0.35);
 }
 
 /* Hero stat divider — thin vertical hairline between stat-strip items. */
 .landing-shell .hero-stat-divider {
   display: inline-block;
   width: 1px;
-  height: 14px;
-  background: rgba(31, 26, 20, 0.18);
+  height: 16px;
+  background: #d8c8a6;
 }
 
 .landing-shell .hide-scrollbar::-webkit-scrollbar {
@@ -654,233 +784,316 @@ mark[data-hid] { cursor: context-menu; }
    its own CSS custom properties so the auth pages have a self-contained palette,
    and scopes its component rules so they don't leak. */
 .auth-shell {
-  --bg: #f5f4ed;
-  --bg-2: #faf9f5;
-  --card: #ffffff;
-  --card-2: #faf9f5;
-  --border: #e8e6dc;
-  --border-strong: #d1cfc5;
-  --text: #141413;
-  --text-2: #5e5d59;
-  --text-3: #87867f;
-  --accent: #c08552;
-  --accent-2: #d9a373;
-  --accent-soft: rgba(192, 133, 82, 0.12);
-  background: var(--bg);
+  /* Self-contained palette for the "ILM Shamela · Auth" screen — scoped so the
+     deep-green / gold / cream theme doesn't leak into the rest of the app. */
+  --auth-bg: #efe5ce;        /* outer shell */
+  --brand-1: #2e5347;        /* brand gradient (deep green) */
+  --brand-2: #234038;
+  --brand-3: #1c3530;
+  --brand-on: #eaefe9;       /* text on the brand panel */
+  --gold: #b07d2b;           /* primary action / accent */
+  --gold-soft: #e9c77a;      /* light gold (on brand) */
+  --gold-mid: #c9a24a;
+  --form-bg: #f4ecd8;        /* cream form panel */
+  --field-bg: #fcf8ee;
+  --field-border: #ddcda9;
+  --line: #decfb0;
+  --text: #2c2620;
+  --text-2: #5a5240;
+  --text-3: #7a6f59;
+  --text-4: #a99a80;
+
+  /* Theming hooks consumed by <ShellLanguagePills /> */
+  --accent: #b07d2b;
+  --shell-on-accent: #fbf6ea;
+  --shell-muted: #8a7d68;
+  --shell-line: #e2d5ba;
+
+  background: var(--auth-bg);
   color: var(--text);
-  font-family: var(--font-login-sans), system-ui, sans-serif;
+  font-family: var(--font-body-ar), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 .auth-shell ::selection {
-  background: var(--accent-soft);
-  color: var(--accent-2);
+  background: #f3dca4;
+  color: #2a2419;
 }
 
-.auth-left {
-  background:
-    radial-gradient(ellipse 80% 60% at 30% 20%, rgba(192, 133, 82, 0.10), transparent 60%),
-    radial-gradient(ellipse 70% 50% at 70% 90%, rgba(192, 133, 82, 0.06), transparent 60%),
-    linear-gradient(180deg, #faf9f5, #f5f4ed);
-  border-right: 1px solid var(--border);
+/* ─── Brand panel (green) ─── */
+.auth-brand {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(155deg, var(--brand-1) 0%, var(--brand-2) 55%, var(--brand-3) 100%);
+  color: var(--brand-on);
 }
-
-.auth-left-stars {
-  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23c08552' fill-opacity='0.04'%3E%3Cpath d='M30 0L37.5 22.5L60 30L37.5 37.5L30 60L22.5 37.5L0 30L22.5 22.5z'/%3E%3C/g%3E%3C/svg%3E");
+.auth-khatim {
+  position: absolute;
+  inset: 0;
+  opacity: 0.1;
+  pointer-events: none;
 }
-
-.auth-brand-letter {
-  font-family: var(--font-fraunces);
-  color: var(--accent-2);
+.auth-brand-glow {
+  position: absolute;
+  top: -120px;
+  inset-inline-start: -120px;
+  width: 380px;
+  height: 380px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(217, 164, 65, 0.22), transparent 70%);
+  pointer-events: none;
 }
-
 .auth-brand-name {
-  font-family: var(--font-fraunces);
+  font-family: var(--font-reem-kufi);
+  font-weight: 600;
+  color: #f4ecd8;
 }
-
-.auth-brand-italic {
-  font-style: italic;
-  color: var(--text-2);
-  font-feature-settings: 'ss01';
+.auth-brand-sub {
+  letter-spacing: 0.22em;
+  color: rgba(233, 199, 122, 0.85);
 }
-
-.auth-verse {
-  font-family: var(--font-amiri);
-  color: var(--text);
-  text-shadow: 0 2px 30px rgba(192, 133, 82, 0.12);
-}
-
-.auth-verse-translation {
-  font-family: var(--font-fraunces);
-  color: var(--text-2);
-  font-feature-settings: 'ss01';
-}
-
-.auth-verse-citation {
-  color: var(--text-3);
-}
-
-.auth-left-footer {
-  color: var(--text-3);
-}
-
 .auth-back-home {
-  color: var(--text-3);
+  color: rgba(234, 239, 233, 0.7);
+  transition: color 0.2s ease;
 }
 .auth-back-home:hover {
-  color: var(--text-2);
+  color: #f4ecd8;
 }
-
-.auth-eyebrow {
-  color: var(--accent);
-  font-weight: 500;
-}
-.auth-eyebrow-line {
-  width: 24px;
-  height: 1px;
-  background: var(--accent);
-}
-
 .auth-headline {
-  font-family: var(--font-fraunces);
-  font-weight: 300;
+  font-family: var(--font-reem-kufi);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #f4ecd8;
 }
-.auth-headline-em {
-  font-style: italic;
-  color: var(--accent-2);
-  font-feature-settings: 'ss01';
-  font-weight: 400;
+.auth-headline-accent {
+  color: var(--gold-soft);
+}
+.auth-brand-intro {
+  color: rgba(220, 228, 219, 0.85);
+}
+.auth-feature-icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: rgba(233, 199, 122, 0.16);
+  color: var(--gold-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.auth-feature-text {
+  color: #e8ede7;
+}
+.auth-proof-card {
+  position: relative;
+  background: rgba(244, 236, 216, 0.1);
+  border: 1px solid rgba(233, 199, 122, 0.26);
+  border-radius: 15px;
+  backdrop-filter: blur(3px);
+}
+.auth-proof-label {
+  color: var(--gold-soft);
+  font-weight: 600;
+}
+.auth-proof-cites {
+  color: rgba(220, 228, 219, 0.6);
+}
+.auth-proof-quote {
+  font-family: var(--font-amiri);
+  color: #efe7d2;
+}
+.auth-proof-citation {
+  background: rgba(233, 199, 122, 0.14);
+  color: var(--gold-soft);
+  border-radius: 8px;
 }
 
-.auth-subhead {
-  color: var(--text-2);
+/* ─── Form panel (cream) ─── */
+.auth-form-panel {
+  background: var(--form-bg);
 }
-
-.auth-divider-line {
-  background: var(--border);
+.auth-tabs {
+  background: #ede0c4;
+  border-radius: 13px;
 }
-.auth-divider-label {
+.auth-tab {
+  position: relative;
+  border-radius: 9px;
+  color: #8a7d68;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+.auth-tab.is-active {
+  color: var(--text);
+}
+.auth-tab-label {
+  position: relative;
+  z-index: 1;
+}
+.auth-tab-indicator {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 9px;
+  background: #fcf8ee;
+  box-shadow: 0 2px 8px rgba(44, 38, 32, 0.12);
+}
+.auth-form-heading {
+  font-family: var(--font-reem-kufi);
+  font-weight: 600;
+  color: var(--text);
+}
+.auth-form-subhead {
   color: var(--text-3);
 }
-
-.auth-error {
-  background: #fdecec;
-  border: 1px solid #f0b6b6;
-  color: #8a1f1f;
-}
-
 .auth-field-label {
-  color: var(--text-3);
+  color: var(--text-2);
+  font-weight: 600;
 }
-
 .auth-field-hint {
   color: var(--text-3);
 }
-
-.auth-link {
-  color: var(--accent-2);
-  transition: color 0.2s ease;
+.auth-field-icon {
+  color: #b0a487;
 }
-.auth-link-strong {
-  color: var(--accent-2);
-  font-weight: 500;
-  transition: color 0.2s ease;
-}
-
 .auth-input {
-  font-family: var(--font-fraunces);
-  background: #ffffff;
-  border: 1px solid var(--border);
+  width: 100%;
+  border: 1px solid var(--field-border);
+  background: var(--field-bg);
+  border-radius: 12px;
   color: var(--text);
+  font-family: var(--font-body-ar);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .auth-input::placeholder {
-  color: var(--text-3);
+  color: var(--text-4);
 }
 .auth-input:focus {
-  border-color: var(--accent);
-  background: rgba(192, 133, 82, 0.05);
-  box-shadow: 0 0 0 4px rgba(192, 133, 82, 0.12);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(176, 125, 43, 0.16);
 }
 .auth-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
-
 .auth-password-toggle {
-  color: var(--text-3);
+  color: #b0a487;
+  transition: color 0.2s ease;
 }
 .auth-password-toggle:hover {
   color: var(--text-2);
 }
-
-.auth-checkbox-box {
-  background: transparent;
-  border: 1px solid var(--border-strong);
+.auth-link {
+  color: var(--gold);
+  transition: opacity 0.2s ease;
 }
-.auth-checkbox-box.is-checked {
-  background: var(--accent);
-  border-color: var(--accent);
+.auth-link:hover {
+  opacity: 0.78;
 }
-.auth-checkbox-label {
-  color: var(--text-2);
+.auth-divider-line {
+  background: var(--line);
 }
-
+.auth-divider-label {
+  color: var(--text-4);
+}
 .auth-social-button {
-  background: #ffffff;
-  border: 1px solid var(--border-strong);
+  width: 100%;
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
   color: var(--text);
-  transition: background 0.2s ease, border-color 0.2s ease;
+  border-radius: 12px;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(44, 38, 32, 0.05);
+  transition: border-color 0.2s ease, background 0.2s ease;
 }
 .auth-social-button:hover:not(:disabled) {
-  background: #faf9f5;
-  border-color: var(--accent);
+  border-color: var(--gold);
 }
 .auth-social-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
-
-.auth-cta {
+.auth-checkbox-box {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  background: var(--gold);
+  border: 1.5px solid var(--gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.auth-checkbox-box.is-unchecked {
+  background: transparent;
+  border-color: var(--field-border);
+}
+.auth-checkbox-label {
   color: var(--text-2);
 }
-
-.auth-fineprint {
+.auth-strength-seg {
+  flex: 1;
+  height: 4px;
+  border-radius: 3px;
+  background: #e2d5ba;
+  transition: background 0.25s ease;
+}
+.auth-strength-seg.is-weak {
+  background: #c0532b;
+}
+.auth-strength-seg.is-fair {
+  background: var(--gold-mid);
+}
+.auth-strength-seg.is-good {
+  background: var(--brand-1);
+}
+.auth-strength-label {
   color: var(--text-3);
 }
-
-.auth-shell .btn-primary {
-  background: linear-gradient(180deg, var(--accent-2), var(--accent));
-  color: #1a0e05;
-  font-weight: 500;
-  border-radius: 14px;
-  padding: 14px 22px;
-  font-size: 14.5px;
-  letter-spacing: 0.005em;
+.auth-error {
+  background: #fbe9e4;
+  border: 1px solid #e8b9a8;
+  color: #8a2f1c;
+}
+.auth-primary-btn {
+  width: 100%;
+  background: var(--gold);
+  color: #fbf6ea;
+  border-radius: 12px;
+  font-weight: 600;
+  box-shadow: 0 10px 24px rgba(176, 125, 43, 0.28);
   transition: box-shadow 0.2s ease;
-  box-shadow:
-    0 4px 20px -4px rgba(192, 133, 82, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
-.auth-shell .btn-primary:hover:not(:disabled) {
-  box-shadow:
-    0 8px 28px -4px rgba(192, 133, 82, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+.auth-primary-btn:hover:not(:disabled) {
+  box-shadow: 0 12px 30px rgba(176, 125, 43, 0.4);
 }
-
-.auth-shell .ornament {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  color: var(--accent);
+.auth-primary-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
 }
-.auth-shell .ornament .line {
-  height: 1px;
-  width: 40px;
-  background: linear-gradient(90deg, transparent, var(--accent));
+.auth-cta {
+  color: var(--text-3);
 }
-.auth-shell .ornament .line.r {
-  background: linear-gradient(90deg, var(--accent), transparent);
+.auth-cta-action {
+  color: var(--gold);
+  font-weight: 600;
+}
+.auth-trust {
+  color: #9a8b70;
+}
+.auth-trust-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #c9ba9a;
+}
+.auth-trust-icon {
+  color: var(--brand-1);
 }
 
 /* Subtle parchment pattern — retained for Navigation backdrop */
@@ -1026,4 +1239,281 @@ html[lang="en"] .reading-room {
   width: 1.4rem;
   height: 1px;
   background: var(--rr-brand);
+}
+
+/* ─── Reader workspace shell ("ILM Shamela — Reader & Search") ─────────────
+   Full-height reading workspace that shares the Reading Room parchment/gold
+   palette. Unlike .reading-room (a scrolling page) this is a fixed-header app
+   shell whose center column scrolls, so it paints a flat parchment canvas with
+   no star-tile overlay. Reader sheet colors come from the --sheet-* theme vars
+   (see the [data-reader-theme] blocks above). */
+.reader-room {
+  --rr-bg: #efe5ce;          /* parchment canvas */
+  --rr-surface: #fcf8ee;     /* ivory cards / sheets */
+  --rr-surface-2: #f7efdc;   /* header / panel surface */
+  --rr-rail: #f4ecd8;        /* TOC rail */
+  --rr-rail-2: #f0e7d2;      /* search rail */
+  --rr-brand: #b07d2b;       /* ochre/gold brand */
+  --rr-brand-ink: #fbf6ea;   /* text on brand */
+  --rr-ink: #2c2620;         /* primary ink */
+  --rr-ink-2: #6e6354;       /* secondary text */
+  --rr-ink-3: #9a8b70;       /* tertiary / metadata */
+  --rr-ink-4: #b0a487;       /* faint metadata */
+  --rr-line: #e2d5ba;        /* primary border */
+  --rr-line-2: #e7dbc1;      /* lighter border */
+  --rr-green: #2e5347;       /* manuscript green (assistant) */
+  --rr-gold-soft: #e9c77a;   /* gold highlight */
+  --accent: #b07d2b;
+  --accent-2: #c99a4e;
+
+  color: var(--rr-ink);
+  background-color: var(--rr-bg);
+  font-family: var(--font-body-ar), var(--font-arabic), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html[lang="en"] .reader-room {
+  font-family: var(--font-inter), var(--font-manrope), system-ui, sans-serif;
+}
+
+.reader-room ::selection {
+  background: #f3dca4;
+  color: #2a2419;
+}
+
+.reader-room [lang="ar"],
+.reader-room .font-reem-kufi,
+.reader-room .font-body-ar {
+  font-feature-settings: "calt", "liga", "kern";
+  letter-spacing: 0;
+}
+
+/* Reem Kufi headline helper (book title, sheet title, panel headings). */
+.reader-room .rr-title {
+  font-family: var(--font-reem-kufi), var(--font-arabic), serif;
+  font-weight: 600;
+  color: var(--rr-ink);
+  line-height: 1.2;
+}
+
+/* Highlight inside advanced-search result snippets (backend <mark>). Scoped to
+   .ilm-result so it never overrides the sheet's user-highlight colors. */
+.reader-room .ilm-result mark {
+  background: #f3dca4;
+  color: #2a2419;
+  padding: 0 1px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+[data-reader-theme="dark"] .ilm-result mark {
+  background: rgba(217, 164, 65, 0.34);
+  color: #f8ebcf;
+}
+
+/* Reskin layer: the reader reuses components (TOC, chapter tree, bookmarks /
+   notes / stats panels, assistant, selection popover) authored with the app's
+   cream/terracotta semantic Tailwind tokens (hard-coded hex). Remap those
+   utilities to the parchment/gold palette inside the reader shell so the reused
+   chrome matches the design. */
+.reader-room .text-text { color: var(--rr-ink); }
+.reader-room .text-text-2 { color: var(--rr-ink-2); }
+.reader-room .text-text-3 { color: var(--rr-ink-3); }
+.reader-room .text-accent { color: var(--rr-brand); }
+.reader-room .text-accent-2 { color: var(--accent-2); }
+.reader-room .bg-bg { background-color: var(--rr-bg); }
+.reader-room .bg-bg-2 { background-color: var(--rr-surface); }
+.reader-room .bg-card { background-color: var(--rr-surface); }
+.reader-room .bg-card-2 { background-color: var(--rr-rail); }
+.reader-room .bg-accent { background-color: var(--rr-brand); }
+.reader-room .bg-accent-soft { background-color: rgba(176, 125, 43, 0.12); }
+.reader-room .border-border { border-color: var(--rr-line-2); }
+.reader-room .border-border-strong { border-color: var(--rr-line); }
+.reader-room .border-accent { border-color: var(--rr-brand); }
+.reader-room .hover\:border-accent:hover { border-color: var(--rr-brand); }
+.reader-room .hover\:text-accent:hover { color: var(--rr-brand); }
+.reader-room .hover\:text-accent-2:hover { color: var(--accent-2); }
+.reader-room .hover\:text-text:hover { color: var(--rr-ink); }
+.reader-room .hover\:text-text-2:hover { color: var(--rr-ink-2); }
+.reader-room .hover\:bg-accent:hover { background-color: var(--rr-brand); }
+.reader-room .hover\:bg-accent-soft:hover { background-color: rgba(176, 125, 43, 0.12); }
+
+/* ─── Atlas shell (screen 02 · "The Atlas") ────────────────────────────── */
+/* Geographic discovery: a natural-language search header, mode tabs, the
+   restyled world map, and a right rail (AI summary + region list + author
+   cards). Indigo/blue accent on a warm sand canvas. Readex Pro UI font. */
+.atlas {
+  --at-bg: #efe7d4;           /* sand canvas */
+  --at-header: #f4ecda;       /* header / rail surface */
+  --at-surface: #fbf6ea;      /* cards / chrome */
+  --at-brand: #2c4c82;        /* indigo brand */
+  --at-brand-2: #21396a;      /* gradient end */
+  --at-brand-ink: #f4ecda;    /* text on brand */
+  --at-ink: #262219;          /* primary ink */
+  --at-ink-2: #6e6354;        /* secondary */
+  --at-ink-3: #857a64;        /* metadata */
+  --at-ink-4: #a99a80;        /* faint counts */
+  --at-line: #decfae;         /* primary border */
+  --at-line-2: #e3d6bb;       /* hairline */
+  --at-gold: #e9c77a;         /* gold highlight (on indigo) */
+  --at-map-1: #f0e8d6;        /* map bg radial start */
+  --at-map-2: #e6dcc4;        /* map bg radial end */
+  --accent: #2c4c82;
+  --accent-2: #4a6aa0;
+
+  color: var(--at-ink);
+  background-color: var(--at-bg);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -8%, rgba(44, 76, 130, 0.06), transparent 70%);
+  font-family: var(--font-readex), var(--font-body-ar), var(--font-arabic), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+html[lang="en"] .atlas {
+  font-family: var(--font-readex), var(--font-inter), system-ui, sans-serif;
+}
+.atlas ::selection {
+  background: rgba(44, 76, 130, 0.16);
+  color: var(--at-brand);
+}
+.atlas [lang="ar"],
+.atlas .font-reem-kufi,
+.atlas .font-readex {
+  font-feature-settings: "calt", "liga", "kern";
+  letter-spacing: 0;
+}
+.atlas .atlas-title {
+  font-family: var(--font-reem-kufi), var(--font-arabic), serif;
+  font-weight: 600;
+  color: var(--at-ink);
+  line-height: 1.25;
+}
+/* Mode tab (الرفوف / الأطلس / بحث متقدّم). */
+.atlas .atlas-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 15px;
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--at-ink-3);
+  white-space: nowrap;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.atlas .atlas-tab:hover {
+  color: var(--at-ink);
+}
+.atlas .atlas-tab[aria-current="true"],
+.atlas .atlas-tab.is-active {
+  background: var(--at-brand);
+  color: var(--at-brand-ink);
+  font-weight: 600;
+}
+/* AI "understood your question" summary card. */
+.atlas .atlas-summary {
+  position: relative;
+  border-radius: 15px;
+  overflow: hidden;
+  background: linear-gradient(150deg, var(--at-brand), var(--at-brand-2));
+  color: #eaeff8;
+}
+/* Region list row. */
+.atlas .atlas-region {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  color: #3a342b;
+  width: 100%;
+  text-align: start;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+.atlas .atlas-region:hover {
+  background: rgba(44, 76, 130, 0.07);
+}
+.atlas .atlas-region[aria-pressed="true"] {
+  background: var(--at-brand);
+  color: var(--at-brand-ink);
+}
+.atlas .atlas-region[aria-pressed="true"] .atlas-region-count {
+  color: rgba(244, 236, 218, 0.85);
+}
+/* Author / work result card. */
+.atlas .atlas-author {
+  display: flex;
+  gap: 12px;
+  background: var(--at-surface);
+  border: 1px solid #e7dbc1;
+  border-radius: 13px;
+  padding: 13px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.atlas .atlas-author:hover {
+  border-color: var(--at-brand);
+  box-shadow: 0 8px 22px -14px rgba(44, 76, 130, 0.5);
+}
+.atlas .atlas-author-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  background: var(--at-brand);
+  color: #eaeff8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-reem-kufi), serif;
+  font-size: 17px;
+  flex-shrink: 0;
+}
+.atlas .atlas-work-chip {
+  font-size: 11px;
+  background: var(--at-bg);
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: var(--at-ink-2);
+}
+/* Floating map chrome (title card / legend). */
+.atlas .atlas-chrome {
+  background: rgba(251, 246, 234, 0.92);
+  backdrop-filter: blur(2px);
+  border: 1px solid var(--at-line-2);
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(38, 34, 25, 0.10);
+}
+.atlas .hide-scrollbar { scrollbar-width: none; }
+.atlas .hide-scrollbar::-webkit-scrollbar { display: none; }
+
+/* ─── Generic shell contract ───────────────────────────────────────────── */
+/* Aliases so shared chrome (ShellHeader, ShellLanguagePills) themes itself
+   from whichever shell wraps it, without knowing the shell's private tokens. */
+.reading-room {
+  --shell-line: var(--rr-line);
+  --shell-muted: var(--rr-ink-3);
+  --shell-on-accent: var(--rr-brand-ink);
+  --shell-surface: var(--rr-surface-2);
+  --shell-ink: var(--rr-ink);
+}
+.catalog {
+  --shell-line: var(--cat-line);
+  --shell-muted: var(--cat-ink-3);
+  --shell-on-accent: var(--cat-brand-ink);
+  --shell-surface: var(--cat-surface);
+  --shell-ink: var(--cat-ink);
+}
+.atlas {
+  --shell-line: var(--at-line);
+  --shell-muted: var(--at-ink-3);
+  --shell-on-accent: var(--at-brand-ink);
+  --shell-surface: var(--at-header);
+  --shell-ink: var(--at-ink);
+}
+.landing-shell {
+  --shell-line: var(--paper-line);
+  --shell-muted: var(--ink-mute);
+  --shell-on-accent: var(--cream-card);
+  --shell-surface: var(--paper-card);
+  --shell-ink: var(--ink-deep);
 }

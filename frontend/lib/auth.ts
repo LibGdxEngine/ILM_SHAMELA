@@ -12,6 +12,9 @@ export interface User {
   avatar?: string | null;
   is_staff?: boolean;
   is_superuser?: boolean;
+  // True when the user may upload documents to the library (staff/superuser or a
+  // member of the editor/admin groups). Mirrors the backend upload permission.
+  can_upload?: boolean;
 }
 
 export interface LoginRequest {
@@ -206,9 +209,14 @@ export async function logout(): Promise<void> {
       credentials: 'include',
     });
 
-    if (!response.ok) {
+    if (!response.ok && response.status !== 401) {
+      // dj-rest-auth's JWT LogoutView returns 401 ("Refresh token was not
+      // included in cookie data") when the refresh cookie is absent or expired,
+      // yet it STILL sends Set-Cookie headers that clear the auth cookies on the
+      // same response — so the user is logged out either way. Don't treat that
+      // expected case as an error; only surface genuinely unexpected statuses.
       const error = await response.json().catch(() => ({}));
-      console.error('Logout error:', error);
+      console.warn('Logout returned an unexpected status:', response.status, error);
     }
   } catch (error) {
     console.error('Logout request failed:', error);

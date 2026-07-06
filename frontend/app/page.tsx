@@ -7,10 +7,12 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/lib/AuthContext";
 import { useLocalizedPath } from "@/lib/i18n/navigation";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import LandingHeader from "@/components/landing/LandingHeader";
 import HeroSection from "@/components/landing/HeroSection";
 import WhyIlmSection from "@/components/landing/WhyIlmSection";
 import HowItWorksSection from "@/components/landing/HowItWorksSection";
 import FinalCTASection from "@/components/landing/FinalCTASection";
+import StarMark from "@/components/landing/StarMark";
 
 const FadeIn = ({
   children,
@@ -35,41 +37,39 @@ const FadeIn = ({
   </motion.div>
 );
 
+// Jewel-tone spine gradients in the mock's visual (RTL, right→left) order:
+// Lisān al-ʿArab, al-Mathnawī, al-Mughnī, al-Muqaddima, Ṣaḥīḥ al-Bukhārī, Tafsīr.
 const SHELF_BOOK_VISUALS = [
-  { bg: "from-[#2a1a10] to-[#4a2818]", color: "text-[#e8d4b4]" },
-  { bg: "from-[#1a2a2e] to-[#2c4145]", color: "text-[#d4e0e2]" },
-  { bg: "from-[#2e1a26] to-[#4a2c3e]", color: "text-[#e6d2dc]" },
-  { bg: "from-[#1a2818] to-[#2a4424]", color: "text-[#d4e2cc]" },
-  { bg: "from-[#2e2418] to-[#4a3a24]", color: "text-[#ecdcb8]" },
-  { bg: "from-[#1f1a2c] to-[#2e2848]", color: "text-[#d8d4e6]" },
+  { bg: "from-[#41295E] to-[#2c1a42]", color: "text-[#f4ecd8]" },
+  { bg: "from-[#5A3E1E] to-[#3f2b14]", color: "text-[#f4ecd8]" },
+  { bg: "from-[#1E5236] to-[#143a26]", color: "text-[#f4ecd8]" },
+  { bg: "from-[#5C2150] to-[#41163a]", color: "text-[#f4ecd8]" },
+  { bg: "from-[#13443D] to-[#0c302b]", color: "text-[#f4ecd8]" },
+  { bg: "from-[#5A2A1E] to-[#3f1d14]", color: "text-[#f4ecd8]" },
 ];
 
 export default function Home() {
   const localizedPath = useLocalizedPath();
   const { t } = useI18n();
   const { isAuthenticated, user } = useAuth();
-  const canUpload = Boolean(user?.is_staff || user?.is_superuser);
+  // Mirrors the backend upload permission (staff/superuser or editor/admin group).
+  const canUpload = Boolean(user?.can_upload);
   const shelfRef = useRef<HTMLDivElement>(null);
 
   const shelfBooks = useMemo(
     () =>
-      SHELF_BOOK_VISUALS.map((visual, i) => ({
-        ...visual,
-        meta: t(`home.shelf.book.${i + 1}.meta`, ''),
-        title: t(`home.shelf.book.${i + 1}.title`, ''),
-      })),
-    [t]
-  );
-
-  const categories = useMemo(
-    () => [
-      { cat: t('home.shelf.category.tafsir', 'Tafsīr'), count: 412 },
-      { cat: t('home.shelf.category.hadith', 'Hadīth'), count: 638 },
-      { cat: t('home.shelf.category.fiqh', 'Fiqh'), count: 521 },
-      { cat: t('home.shelf.category.tarikh', 'Tārīkh'), count: 287 },
-      { cat: t('home.shelf.category.adab', 'Adab'), count: 196 },
-      { cat: t('home.shelf.category.falsafa', 'Falsafa'), count: 134 },
-    ],
+      SHELF_BOOK_VISUALS.map((visual, i) => {
+        // i18n keys run tafsīr(1)…lisān(6); the mock renders lisān first (RTL rightmost).
+        const n = 6 - i;
+        const meta = t(`home.shelf.book.${n}.meta`, "");
+        const [category, year] = meta.split("·").map((part) => part.trim());
+        return {
+          ...visual,
+          category: category || meta,
+          year: year || "",
+          title: t(`home.shelf.book.${n}.title`, ""),
+        };
+      }),
     [t]
   );
 
@@ -85,19 +85,20 @@ export default function Home() {
 
   return (
     <main className="landing-shell min-h-screen">
+      <LandingHeader />
       <HeroSection />
 
-      {/* Trust Bar */}
+      {/* Centres of learning — the mock's "حواضر العِلم" row */}
       <section className="pb-20 px-6">
-        <div className="max-w-6xl mx-auto pt-10 border-t border-border">
-          <p className="text-center text-[11.5px] tracking-[0.18em] uppercase mb-6 text-text-3">{t('home.trust.label', 'Trusted by scholars at')}</p>
-          <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-4 opacity-60 text-text-2">
-            <span className="font-fraunces text-lg italic">{t('home.trust.alAzhar', 'Al-Azhar')}</span>
-            <span className="font-fraunces text-lg">{t('home.trust.hartford', 'Hartford Seminary')}</span>
-            <span className="font-fraunces text-lg italic">{t('home.trust.zaytuna', 'Zaytuna')}</span>
-            <span className="font-fraunces text-lg">{t('home.trust.soas', 'SOAS · London')}</span>
-            <span className="font-fraunces text-lg italic">{t('home.trust.qarawiyyin', 'Qarawiyyin')}</span>
-            <span className="font-fraunces text-lg">{t('home.trust.oxfordCis', 'Oxford CIS')}</span>
+        <div className="max-w-6xl mx-auto pt-10 border-t border-paper-line flex flex-col items-center gap-4">
+          <p className="text-center text-[11.5px] tracking-[0.18em] font-semibold text-ink-mute">{t('home.trust.label', 'Centres of learning')}</p>
+          <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3 opacity-70">
+            <span className="font-reem-kufi text-[20px] text-[#7a6f59]">{t('home.trust.alAzhar', 'Al-Azhar')}</span>
+            <span className="font-reem-kufi text-[20px] text-[#7a6f59]">{t('home.trust.qarawiyyin', 'Al-Qarawiyyin')}</span>
+            <span className="font-reem-kufi text-[20px] text-[#7a6f59]">{t('home.trust.zaytuna', 'Al-Zaytuna')}</span>
+            <span className="font-reem-kufi text-[20px] text-[#7a6f59]">{t('home.trust.hartford', 'Al-Nizamiyya')}</span>
+            <span className="font-reem-kufi text-[20px] text-[#7a6f59]">{t('home.trust.soas', 'Dar al-Hikma')}</span>
+            <span className="font-reem-kufi text-[20px] text-[#7a6f59]">{t('home.trust.oxfordCis', 'Al-Qayrawan')}</span>
           </div>
         </div>
       </section>
@@ -110,53 +111,42 @@ export default function Home() {
             <FadeIn className="flex flex-wrap items-end justify-between gap-8 mb-14">
             <div className="max-w-2xl">
               <span className="section-eyebrow">{t('home.shelf.eyebrow', 'The Shelf')}</span>
-              <h2 className="font-display-ar font-light text-[clamp(32px,4.5vw,56px)] leading-[1.05] tracking-tight mt-5">
+              <h2 className="font-reem-kufi font-semibold text-[clamp(30px,4.2vw,46px)] leading-[1.22] tracking-tight mt-5 text-ink-deep">
                 {t('home.shelf.titleLead', 'Walk the ')}
-                <span dangerouslySetInnerHTML={{ __html: t('home.shelf.titleEm', '<em class="italic text-accent-2">shelves</em>, drift through eras.') }} />
+                <span dangerouslySetInnerHTML={{ __html: t('home.shelf.titleEm', '<em class="text-[var(--gold)] not-italic">shelves</em>, drift through eras.') }} />
               </h2>
-              <p className="mt-5 text-[16px] leading-relaxed text-text-2">
+              <p className="mt-5 text-[16px] leading-relaxed text-ink-warm">
                 {t('home.shelf.body', 'From the formative period to the present, organized the way a librarian would. Click any spine to peer inside.')}
               </p>
             </div>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => scrollShelf("left")} className="btn-ghost !p-3" aria-label={t('home.shelf.scrollLeft', 'Scroll shelf left')}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6" /></svg>
+            <div className="flex gap-2.5">
+              <button type="button" onClick={() => scrollShelf("left")} className="w-11 h-11 rounded-full flex items-center justify-center bg-paper-card border border-paper-line text-ink-warm hover:border-gold transition-colors" aria-label={t('home.shelf.scrollLeft', 'Scroll shelf left')}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m15 18-6-6 6-6" /></svg>
               </button>
-              <button type="button" onClick={() => scrollShelf("right")} className="btn-ghost !p-3" aria-label={t('home.shelf.scrollRight', 'Scroll shelf right')}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
+              <button type="button" onClick={() => scrollShelf("right")} className="w-11 h-11 rounded-full flex items-center justify-center bg-ink-deep text-[#f1e7d3] hover:opacity-90 transition-opacity" aria-label={t('home.shelf.scrollRight', 'Scroll shelf right')}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m9 18 6-6-6-6" /></svg>
               </button>
             </div>
           </FadeIn>
 
           <FadeIn delay={0.1}>
-            <div ref={shelfRef} className="flex gap-4 pb-2 overflow-x-auto hide-scrollbar">
+            <div ref={shelfRef} className="flex gap-5 pb-2 overflow-x-auto hide-scrollbar">
               {shelfBooks.map((book, i) => (
                 <Link
                   key={`shelf-book-${i}`}
                   href={documentsHref}
-                  className={`flex-shrink-0 w-[175px] h-[260px] rounded-l-md rounded-r-xl p-5 flex flex-col justify-between border border-black/40 shadow-[inset_8px_0_0_rgba(0,0,0,0.25),inset_11px_0_0_rgba(255,255,255,0.04),0_12px_30px_-8px_rgba(0,0,0,0.5)] cursor-pointer transition-transform duration-500 ease-out hover:-translate-y-2 hover:-rotate-3 bg-gradient-to-br ${book.bg} ${book.color}`}
+                  className={`group relative flex-shrink-0 w-[172px] aspect-[5/7] rounded-[9px] p-4 flex flex-col justify-between overflow-hidden shadow-[0_14px_30px_-8px_rgba(44,38,32,0.42)] cursor-pointer transition-transform duration-500 ease-out hover:-translate-y-2 bg-gradient-to-b ${book.bg} ${book.color}`}
                 >
-                  <div className="text-[10.5px] tracking-widest uppercase opacity-70">{book.meta}</div>
+                  <span className="pointer-events-none absolute inset-[7px] rounded-[5px] border border-white/20" aria-hidden />
+                  <div className="relative flex items-center justify-between text-[10.5px] tracking-wide opacity-70">
+                    <span>{book.category}</span>
+                    <span>{book.year}</span>
+                  </div>
                   <div
-                    className="font-amiri text-[26px] leading-tight font-bold text-right"
+                    className="relative text-center font-reem-kufi font-semibold text-[21px] leading-[1.3]"
                     dangerouslySetInnerHTML={{ __html: book.title }}
                   />
-                </Link>
-              ))}
-            </div>
-
-            {/* Categories */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-12">
-              {categories.map(({ cat, count }) => (
-                <Link
-                  key={cat}
-                  href={documentsHref}
-                  className="bg-gradient-to-b from-card-2 to-card border border-border rounded-xl p-4 text-center hover:border-accent transition-colors"
-                >
-                  <div className="font-fraunces text-[17px]">{cat}</div>
-                  <div className="text-[12px] text-text-3 mt-1 tracking-wide">
-                    {t('home.shelf.worksCount', '{count} works', { count })}
-                  </div>
+                  <span aria-hidden />
                 </Link>
               ))}
             </div>
@@ -172,52 +162,52 @@ export default function Home() {
       />
 
       {/* FOOTER */}
-      <footer className="pt-24 pb-12 px-6 border-t border-border">
+      <footer className="bg-[#e7dbc1] border-t border-[#dbcdaf] pt-16 pb-8 px-6">
         <div className="max-w-6xl mx-auto">
-          <div className="grid md:grid-cols-12 gap-10 mb-16">
+          <div className="grid md:grid-cols-12 gap-10 mb-12">
             <div className="md:col-span-5">
-              <div className="flex items-center gap-2 mb-5">
-                <span className="font-fraunces text-[28px] text-accent-2">ع</span>
-                <span className="font-fraunces text-[22px]">ILM <em className="italic text-text-2">Shamela</em></span>
+              <div className="flex items-center gap-2.5 mb-4">
+                <span className="font-reem-kufi font-semibold text-[24px] text-ink-deep">ILM <em className="not-italic text-gold">Shamela</em></span>
+                <StarMark size={26} className="text-gold" holeColor="#e7dbc1" />
               </div>
-              <p className="text-[14.5px] leading-relaxed max-w-sm mb-6 text-text-2">
+              <p className="text-[14px] leading-[1.95] max-w-[330px] text-ink-warm">
                 {t('home.footer.tagline', "A private digital library and document search engine for the world's classical scholarship — built with care, run with respect.")}
               </p>
             </div>
             <div className="md:col-span-2">
-              <p className="text-[11px] tracking-[0.18em] uppercase text-text-3 mb-4">{t('home.footer.browse', 'Browse')}</p>
-              <ul className="space-y-2 text-[14px]">
-                <li><Link href={documentsHref} className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.documents', 'Library')}</Link></li>
+              <p className="text-[12px] tracking-[0.12em] font-semibold text-[#a2926f] mb-4">{t('home.footer.browse', 'Browse')}</p>
+              <ul className="space-y-2.5 text-[14px] text-[#5a5240]">
+                <li><Link href={documentsHref} className="hover:text-gold transition-colors">{t('nav.documents', 'Library')}</Link></li>
                 {canUpload && (
-                  <li><Link href={localizedPath("/upload")} className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.upload', 'Upload')}</Link></li>
+                  <li><Link href={localizedPath("/upload")} className="hover:text-gold transition-colors">{t('nav.upload', 'Upload')}</Link></li>
                 )}
               </ul>
             </div>
             <div className="md:col-span-2">
-              <p className="text-[11px] tracking-[0.18em] uppercase text-text-3 mb-4">{t('home.footer.account', 'Account')}</p>
-              <ul className="space-y-2 text-[14px]">
+              <p className="text-[12px] tracking-[0.12em] font-semibold text-[#a2926f] mb-4">{t('home.footer.account', 'Account')}</p>
+              <ul className="space-y-2.5 text-[14px] text-[#5a5240]">
                 {isAuthenticated ? (
-                  <li><Link href={localizedPath("/profile")} className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.profile', 'Profile')}</Link></li>
+                  <li><Link href={localizedPath("/profile")} className="hover:text-gold transition-colors">{t('nav.profile', 'Profile')}</Link></li>
                 ) : (
                   <>
-                    <li><Link href={localizedPath("/auth/login")} className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.signIn', 'Sign in')}</Link></li>
-                    <li><Link href={registerHref} className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.getStarted', 'Get started')}</Link></li>
+                    <li><Link href={localizedPath("/auth/login")} className="hover:text-gold transition-colors">{t('nav.signIn', 'Sign in')}</Link></li>
+                    <li><Link href={registerHref} className="hover:text-gold transition-colors">{t('nav.getStarted', 'Get started')}</Link></li>
                   </>
                 )}
               </ul>
             </div>
             <div className="md:col-span-3">
-              <p className="text-[11px] tracking-[0.18em] uppercase text-text-3 mb-4">{t('home.footer.explore', 'Explore')}</p>
-              <ul className="space-y-2 text-[14px]">
-                <li><Link href="#why" className="text-text-2 hover:text-accent-2 transition-colors">{t('home.nav.why', 'Why ILM')}</Link></li>
-                <li><Link href="#how" className="text-text-2 hover:text-accent-2 transition-colors">{t('home.nav.how', 'How it works')}</Link></li>
-                <li><Link href="#cta" className="text-text-2 hover:text-accent-2 transition-colors">{t('nav.getStarted', 'Get started')}</Link></li>
+              <p className="text-[12px] tracking-[0.12em] font-semibold text-[#a2926f] mb-4">{t('home.footer.explore', 'Explore')}</p>
+              <ul className="space-y-2.5 text-[14px] text-[#5a5240]">
+                <li><Link href="#why" className="hover:text-gold transition-colors">{t('home.nav.why', 'Why ILM')}</Link></li>
+                <li><Link href="#how" className="hover:text-gold transition-colors">{t('home.nav.how', 'How it works')}</Link></li>
+                <li><Link href="#cta" className="hover:text-gold transition-colors">{t('nav.getStarted', 'Get started')}</Link></li>
               </ul>
             </div>
           </div>
-          <div className="pt-8 border-t border-border flex flex-wrap justify-between items-center gap-4">
-            <p className="text-[12.5px] text-text-3">{t('home.footer.copyright', '© 2026 ILM Shamela · Made with patience for serious readers everywhere.')}</p>
-            <p className="font-amiri text-[15px] text-text-3">{t('home.footer.verse', '﴿ وَفَوْقَ كُلِّ ذِي عِلْمٍ عَلِيمٌ ﴾')}</p>
+          <div className="pt-6 border-t border-[#d2c3a4] flex flex-wrap justify-between items-center gap-4">
+            <p className="font-amiri text-[17px] text-[#8a7d68]">{t('home.footer.verse', '﴿ وَفَوْقَ كُلِّ ذِي عِلْمٍ عَلِيمٌ ﴾')}</p>
+            <p className="text-[13px] text-ink-mute">{t('home.footer.copyright', '© 2026 ILM Shamela · Made with patience for serious readers everywhere.')}</p>
           </div>
         </div>
       </footer>

@@ -3,19 +3,20 @@
 import { ReactNode, useMemo, useState } from 'react';
 
 import { useI18n } from '@/components/i18n/I18nProvider';
-import { Document, normalizeMediaUrl } from '@/lib/api';
+import { Document, PrintedRef, normalizeMediaUrl } from '@/lib/api';
 
 import { useReaderShell } from './ReaderShell';
 
-export type TocTabKey = 'chapters' | 'bookmarks' | 'notes' | 'stats';
+export type TocTabKey = 'chapters' | 'notes' | 'stats';
 
 interface ReaderTOCColumnProps {
   document: Document;
   currentPage: number;
   totalPages: number;
+  /** Printed-edition reference of the currently visible page, when mapped. */
+  printedRef?: PrintedRef | null;
   /** Tab slot content. Pass null to skip rendering for a given tab. */
   chaptersContent: ReactNode;
-  bookmarksContent: ReactNode;
   notesContent: ReactNode;
   statsContent: ReactNode;
   /** Optional controlled tab. Uncontrolled defaults to "chapters". */
@@ -24,7 +25,6 @@ interface ReaderTOCColumnProps {
 
 const TABS: { key: TocTabKey; labelKey: string; fallback: string }[] = [
   { key: 'chapters', labelKey: 'reader.toc.tabs.chapters', fallback: 'Chapters' },
-  { key: 'bookmarks', labelKey: 'reader.toc.tabs.bookmarks', fallback: 'Bookmarks' },
   { key: 'notes', labelKey: 'reader.toc.tabs.notes', fallback: 'Notes' },
   { key: 'stats', labelKey: 'reader.toc.tabs.stats', fallback: 'Stats' },
 ];
@@ -38,8 +38,8 @@ export default function ReaderTOCColumn({
   document,
   currentPage,
   totalPages,
+  printedRef = null,
   chaptersContent,
-  bookmarksContent,
   notesContent,
   statsContent,
   initialTab = 'chapters',
@@ -75,7 +75,6 @@ export default function ReaderTOCColumn({
 
   const tabContent: Record<TocTabKey, ReactNode> = {
     chapters: chaptersContent,
-    bookmarks: bookmarksContent,
     notes: notesContent,
     stats: statsContent,
   };
@@ -126,6 +125,14 @@ export default function ReaderTOCColumn({
             total: totalPages,
           })}
         </p>
+        {printedRef && (
+          <p className="mt-0.5 text-center text-[11.5px] font-medium text-text-2">
+            {t('reader.editionPageLabel', 'ج{volume} ص{page}', {
+              volume: printedRef.volume,
+              page: printedRef.printed_page,
+            })}
+          </p>
+        )}
       </div>
 
       {/* Tab strip */}

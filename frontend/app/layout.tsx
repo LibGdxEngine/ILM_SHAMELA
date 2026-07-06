@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import {
+  Amiri,
   Aref_Ruqaa,
   Fraunces,
   IBM_Plex_Sans_Arabic,
   Inter,
   Manrope,
   Noto_Kufi_Arabic,
+  Readex_Pro,
   Reem_Kufi,
   Source_Serif_4,
 } from "next/font/google";
@@ -42,10 +44,19 @@ const fraunces = Fraunces({
   variable: "--font-fraunces",
 });
 
-const amiri = Noto_Kufi_Arabic({
-  subsets: ["arabic"],
+// Real Amiri (Naskh serif) — used for the scholarly answer body in the Catalog.
+const amiri = Amiri({
+  subsets: ["arabic", "latin"],
   weight: ["400", "700"],
   variable: "--font-amiri",
+});
+
+// Readex Pro — primary UI font for the Atlas screen.
+const readexPro = Readex_Pro({
+  subsets: ["arabic"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-readex",
+  display: "swap",
 });
 
 // Hero/landing typography pairing — Aref Ruqaa for the display headline,
@@ -100,7 +111,7 @@ export default async function RootLayout({
   const locale = await resolveLocale();
   return (
     <html lang={locale} dir={localeToDirection(locale)} suppressHydrationWarning>
-      <body className={`${manrope.variable} ${notoKufiArabic.variable} ${sourceSerif.variable} ${fraunces.variable} ${amiri.variable} ${arefRuqaa.variable} ${ibmPlexArabic.variable} ${inter.variable} ${reemKufi.variable}`}>
+      <body className={`${manrope.variable} ${notoKufiArabic.variable} ${sourceSerif.variable} ${fraunces.variable} ${amiri.variable} ${readexPro.variable} ${arefRuqaa.variable} ${ibmPlexArabic.variable} ${inter.variable} ${reemKufi.variable}`}>
         <AuthProvider>
           <QueryProvider>
             <I18nProvider>

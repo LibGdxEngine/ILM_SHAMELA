@@ -122,7 +122,7 @@ export default function FacetTypeahead({
 
       <div className="relative">
         <svg
-          className="absolute top-1/2 -translate-y-1/2 start-2.5 w-3.5 h-3.5 text-text-3 pointer-events-none z-10"
+          className="absolute top-1/2 -translate-y-1/2 start-2.5 w-3.5 h-3.5 text-[#9a8b70] pointer-events-none z-10"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -166,16 +166,16 @@ export default function FacetTypeahead({
           <ul
             id={listboxId}
             role="listbox"
-            className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-[10px] border border-border-strong bg-card shadow-[0_12px_30px_-12px_rgba(0,0,0,0.45)] py-1"
+            className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-[10px] border border-[#e2d5ba] bg-[#fcf8ee] shadow-[0_18px_42px_-12px_rgba(44,38,32,0.28)] py-1"
           >
             {isFetching && suggestions.length === 0 && (
-              <li className="px-3 py-2 text-[12px] text-text-3" aria-live="polite">
+              <li className="px-3 py-2 text-[12px] text-[#9a8b70]" aria-live="polite">
                 {labels.loading}
               </li>
             )}
 
             {showEmpty && (
-              <li className="px-3 py-2 text-[12px] text-text-3">{labels.empty}</li>
+              <li className="px-3 py-2 text-[12px] text-[#9a8b70]">{labels.empty}</li>
             )}
 
             {suggestions.map((item, i) => (
@@ -190,7 +190,7 @@ export default function FacetTypeahead({
                   onMouseEnter={() => setActiveIndex(i)}
                   onClick={() => select(item.name)}
                   className={`w-full text-start px-3 py-2 text-[12.5px] transition-colors ${
-                    i === activeIndex ? 'bg-accent-soft text-accent-2' : 'text-text-2 hover:bg-accent-soft/40'
+                    i === activeIndex ? 'bg-[rgba(176,125,43,0.12)] text-[#8a6a23]' : 'text-[#6e6354] hover:bg-[#f4ecd8]'
                   }`}
                 >
                   <span dir="auto">{item.name}</span>
@@ -199,7 +199,7 @@ export default function FacetTypeahead({
             ))}
 
             {hasMore && suggestions.length > 0 && (
-              <li className="px-3 pt-1.5 pb-1 text-[11px] text-text-3 border-t border-border">
+              <li className="px-3 pt-1.5 pb-1 text-[11px] text-[#9a8b70] border-t border-[#e7dbc1]">
                 {labels.more}
               </li>
             )}

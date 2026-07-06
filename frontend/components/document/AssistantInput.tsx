@@ -19,16 +19,15 @@ export interface AssistantInputHandle {
 
 interface AssistantInputProps {
   isStreaming: boolean;
-  currentPage: number;
   onSend: (content: string) => void;
 }
 
 /**
- * Autogrowing textarea + send button. Cmd/Ctrl+Enter to send. Shows a small
- * badge indicating the current page is the reading context.
+ * Autogrowing textarea + send button. Cmd/Ctrl+Enter to send. The reading
+ * context (page / pins) is surfaced by AssistantContextBar, mounted above this.
  */
 const AssistantInput = forwardRef<AssistantInputHandle, AssistantInputProps>(
-  function AssistantInput({ isStreaming, currentPage, onSend }, ref) {
+  function AssistantInput({ isStreaming, onSend }, ref) {
     const { t } = useI18n();
     const [value, setValue] = useState('');
     const taRef = useRef<HTMLTextAreaElement>(null);
@@ -65,11 +64,7 @@ const AssistantInput = forwardRef<AssistantInputHandle, AssistantInputProps>(
 
     return (
       <div className="border-t border-border bg-bg-2/40 px-3 py-3">
-        <div className="mb-2 flex items-center justify-between text-[11px]">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-2 py-0.5 text-accent">
-            <span aria-hidden>✦</span>
-            {t('assistant.input.contextBadge', 'Context: page {page}', { page: currentPage })}
-          </span>
+        <div className="mb-2 flex items-center justify-end text-[11px]">
           <span className="text-text-3">
             {t('assistant.input.sendHint', '⌘+Enter to send')}
           </span>

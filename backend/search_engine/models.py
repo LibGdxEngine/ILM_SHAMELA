@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -61,6 +62,12 @@ class Document(models.Model):
         TESSERACT = 'tesseract', 'Tesseract'
         CHANDRA = 'chandra', 'Chandra'
         DOCLING = 'docling', 'Docling'
+
+    class RightsStatus(models.TextChoices):
+        UNREVIEWED = 'unreviewed', 'Unreviewed'
+        CLEAR = 'clear', 'Clear'
+        GRAY = 'gray', 'Gray area'
+        RESTRICTED = 'restricted', 'Restricted'
 
     title = models.CharField(max_length=500)
     file = models.FileField(upload_to='documents/')
@@ -125,6 +132,17 @@ class Document(models.Model):
         default='',
         help_text="OCR engine actually executed during processing (audit trail)",
     )
+    ocr_layout = models.FileField(
+        upload_to='documents/ocr/',
+        blank=True,
+        null=True,
+        help_text="Optional datalab/marker OCR JSON with per-block bounding boxes; when present the "
+                  "reader renders the original PDF page image with a transparent text overlay",
+    )
+    has_layout = models.BooleanField(
+        default=False,
+        help_text="True when this document was ingested with an OCR layout JSON (PDF-overlay reader mode)",
+    )
     word_count = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -137,6 +155,27 @@ class Document(models.Model):
         help_text="Cached count of distinct DocumentChunk.page_number; "
                   "computed lazily by the assistant's metadata tool",
     )
+    rights_status = models.CharField(
+        max_length=20,
+        choices=RightsStatus.choices,
+        default=RightsStatus.UNREVIEWED,
+        db_index=True,
+        help_text="Rights-audit classification: the base heritage text is public domain, but "
+                  "modern critical apparatus (tahqiq, footnotes, introductions) may carry "
+                  "editor/publisher rights",
+    )
+    provenance_source = models.CharField(
+        max_length=500,
+        blank=True,
+        default='',
+        help_text="Where the digital text came from (e.g. 'scan of Dar X 1407H edition', "
+                  "'Shamela import')",
+    )
+    rights_notes = models.TextField(
+        blank=True,
+        default='',
+        help_text="Free-form notes supporting the rights classification",
+    )
 
     class Meta:
         db_table = 'search_engine_documents'
@@ -146,6 +185,11 @@ class Document(models.Model):
 
     def __str__(self):
         return self.title
+
+    @property
+    def primary_edition(self):
+        """The printed edition this document was digitized from (first by id)."""
+        return self.editions.order_by('id').first()
 
 
 class DocumentChunk(models.Model):
@@ -161,6 +205,18 @@ class DocumentChunk(models.Model):
         help_text="Layout-aware payload from the extractor (e.g. {markdown, tables}); null when "
                   "the extractor returned only plain text",
     )
+    layout = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Per-page OCR geometry {width, height, blocks:[{id, type, bbox, text, "
+                  "char_start, char_end}]} used to position the transparent text overlay",
+    )
+    page_image = models.ImageField(
+        upload_to='documents/pages/',
+        blank=True,
+        null=True,
+        help_text="Rendered image of this PDF page shown beneath the transparent text overlay",
+    )
     embedding = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -172,6 +228,109 @@ class DocumentChunk(models.Model):
 
     def __str__(self):
         return f"{self.document.title} — chunk {self.chunk_index} (page {self.page_number})"
+
+
+class Edition(models.Model):
+    """The printed edition a document was digitized from (موافقة المطبوع).
+
+    ``page_map`` maps digital page numbers to printed (volume, page) references so the
+    reader and AI citations can cite the physical edition. It is a list of volume ranges,
+    reprocess-safe (unlike DocumentChunk rows, which are rebuilt on every reprocess).
+    """
+
+    document = models.ForeignKey(
+        Document, on_delete=models.CASCADE, related_name='editions')
+    editor = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text="Editor / muhaqqiq (المحقق) of this printed edition")
+    publisher = models.CharField(
+        max_length=255, blank=True, default='', help_text="Publishing house (دار النشر)")
+    publication_place = models.CharField(
+        max_length=255, blank=True, default='', help_text="Place of publication")
+    edition_statement = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="Edition statement, e.g. 'الطبعة الثانية'")
+    publication_year_hijri = models.CharField(
+        max_length=50, blank=True, default='',
+        help_text="Hijri publication year (flexible format, e.g. '1407' or '1407–1410هـ')")
+    publication_year_gregorian = models.CharField(
+        max_length=50, blank=True, default='',
+        help_text="Gregorian publication year (flexible format)")
+    volume_count = models.PositiveIntegerField(null=True, blank=True)
+    page_map = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Digital→printed page ranges, e.g. '
+                  '[{"volume": 2, "from_page": 120, "to_page": 250, "printed_start": 1}]. '
+                  'Page numbers are the DIGITAL page numbers of this document; reprocessing a '
+                  'non-layout document with a different OCR engine can renumber pages and '
+                  'silently invalidate this map (PDF-overlay documents are safe).',
+    )
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'search_engine_editions'
+        verbose_name = 'Edition'
+        verbose_name_plural = 'Editions'
+        ordering = ['document', 'id']
+
+    def __str__(self):
+        parts = [self.document.title]
+        if self.publisher:
+            parts.append(self.publisher)
+        if self.publication_year_hijri:
+            parts.append(f"{self.publication_year_hijri}هـ")
+        return ' — '.join(parts)
+
+    def clean(self):
+        if not isinstance(self.page_map, list):
+            raise ValidationError({'page_map': 'page_map must be a list of range objects.'})
+        ranges = []
+        for i, entry in enumerate(self.page_map):
+            if not isinstance(entry, dict):
+                raise ValidationError({'page_map': f'Entry {i} must be an object.'})
+            values = {}
+            for key in ('volume', 'from_page', 'to_page', 'printed_start'):
+                value = entry.get(key)
+                # bool is an int subclass; reject it explicitly
+                if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                    raise ValidationError(
+                        {'page_map': f'Entry {i}: "{key}" must be an integer >= 1.'})
+                values[key] = value
+            if values['to_page'] < values['from_page']:
+                raise ValidationError(
+                    {'page_map': f'Entry {i}: "to_page" must be >= "from_page".'})
+            ranges.append(values)
+        ranges.sort(key=lambda r: r['from_page'])
+        for prev, curr in zip(ranges, ranges[1:]):
+            if curr['from_page'] <= prev['to_page']:
+                raise ValidationError(
+                    {'page_map': 'Page ranges must not overlap '
+                                 f"({prev['from_page']}–{prev['to_page']} and "
+                                 f"{curr['from_page']}–{curr['to_page']})."})
+
+    def printed_ref(self, page_number):
+        """Return {'volume': v, 'printed_page': p} for a digital page, or None if unmapped."""
+        if not page_number or not isinstance(self.page_map, list):
+            return None
+        for entry in self.page_map:
+            if not isinstance(entry, dict):
+                continue
+            from_page = entry.get('from_page')
+            to_page = entry.get('to_page')
+            printed_start = entry.get('printed_start')
+            volume = entry.get('volume')
+            if not all(isinstance(v, int) and not isinstance(v, bool)
+                       for v in (from_page, to_page, printed_start, volume)):
+                continue
+            if from_page <= page_number <= to_page:
+                return {
+                    'volume': volume,
+                    'printed_page': printed_start + (page_number - from_page),
+                }
+        return None
 
 
 class DocumentAlternateName(models.Model):
@@ -216,6 +375,47 @@ class ReaderPreference(models.Model):
 
     def __str__(self):
         return f"ReaderPreference(user={self.user_id})"
+
+
+class DocumentFilterPreference(models.Model):
+    """Per-user auto-saved 'last used' /documents filter state, restored on next visit."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='document_filter_preference',
+    )
+    filters = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'search_engine_document_filter_preference'
+        verbose_name = 'Document Filter Preference'
+        verbose_name_plural = 'Document Filter Preferences'
+
+    def __str__(self):
+        return f"DocumentFilterPreference(user={self.user_id})"
+
+
+class SavedFilterPreset(models.Model):
+    """Named, user-saved /documents filter preset for fast recall."""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='saved_filter_presets',
+    )
+    name = models.CharField(max_length=100)
+    filters = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'search_engine_saved_filter_preset'
+        verbose_name = 'Saved Filter Preset'
+        verbose_name_plural = 'Saved Filter Presets'
+        ordering = ['-created_at']
+        unique_together = [['user', 'name']]
+
+    def __str__(self):
+        return f"SavedFilterPreset(user={self.user_id}, name={self.name!r})"
 
 
 class Bookmark(models.Model):
@@ -316,6 +516,48 @@ class Highlight(models.Model):
         )
 
 
+class TextCorrection(models.Model):
+    """Per-user error report anchored to a character range within a paragraph."""
+    STATUSES = [
+        ('open', 'Open'),
+        ('reviewed', 'Reviewed'),
+        ('resolved', 'Resolved'),
+    ]
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='text_corrections',
+    )
+    document = models.ForeignKey(
+        Document, on_delete=models.CASCADE, related_name='text_corrections'
+    )
+    page_number = models.PositiveIntegerField()
+    paragraph_id = models.CharField(max_length=64, blank=True, default='')
+    char_start = models.PositiveIntegerField()
+    char_end = models.PositiveIntegerField()
+    selected_text = models.TextField()
+    description = models.TextField()
+    suggested_correction = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=10, choices=STATUSES, default='open')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'search_engine_text_corrections'
+        verbose_name = 'Text Correction'
+        verbose_name_plural = 'Text Corrections'
+        indexes = [
+            models.Index(fields=['user', 'document']),
+            models.Index(fields=['document', 'page_number']),
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return (
+            f"TextCorrection(user={self.user_id}, doc={self.document_id}, "
+            f"page={self.page_number}, status={self.status})"
+        )
+
+
 class Chapter(models.Model):
     """A chapter/section entry in a document's table of contents.
 
@@ -351,6 +593,8 @@ class Chapter(models.Model):
 
 class ChatSession(models.Model):
     """A single conversation between a user and the AI assistant about a document."""
+    CONTEXT_SCOPE_CHOICES = [('auto', 'auto'), ('page', 'page'), ('book', 'book')]
+
     document = models.ForeignKey(
         Document, on_delete=models.CASCADE, related_name='chat_sessions'
     )
@@ -359,6 +603,13 @@ class ChatSession(models.Model):
         on_delete=models.CASCADE,
         related_name='chat_sessions',
     )
+    title = models.CharField(max_length=200, blank=True, default='')
+    context_scope = models.CharField(
+        max_length=8, choices=CONTEXT_SCOPE_CHOICES, default='auto'
+    )
+    pinned_context = models.JSONField(
+        default=list, blank=True
+    )  # [{page:int, text:str, label:str}]
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -385,7 +636,9 @@ class ChatMessage(models.Model):
     citations = models.JSONField(
         default=list,
         blank=True,
-        help_text="Assistant citations: [{page: int, quote: str}, ...]",
+        help_text="Assistant citations: [{page: int, quote: str, volume?: int, "
+                  "printed_page?: int}, ...]; volume/printed_page are derived from the "
+                  "document's Edition page_map when mapped",
     )
     context_page = models.PositiveIntegerField(
         null=True, blank=True,
@@ -402,6 +655,67 @@ class ChatMessage(models.Model):
 
     def __str__(self):
         return f"ChatMessage({self.role}, session={self.session_id})"
+
+
+class LibraryChatSession(models.Model):
+    """A conversation between a user and the library-wide AI assistant.
+
+    Unlike ChatSession this is *document-less* (the library agent researches the
+    whole catalogue). The `thread_id` is the CopilotKit/AG-UI thread id minted on
+    the frontend; it joins the durable transcript here to the ephemeral thread the
+    deep-agent sidecar keeps in its in-RAM checkpointer.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='library_chat_sessions',
+    )
+    thread_id = models.CharField(max_length=64, db_index=True)
+    title = models.CharField(max_length=200, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'search_engine_library_chat_sessions'
+        verbose_name = 'Library Chat Session'
+        verbose_name_plural = 'Library Chat Sessions'
+        ordering = ['-updated_at']
+        # One durable row per (user, thread_id) so create is idempotent.
+        unique_together = ('user', 'thread_id')
+        indexes = [models.Index(fields=['user', '-updated_at'])]
+
+    def __str__(self):
+        return f"LibraryChatSession(user={self.user_id}, thread={self.thread_id})"
+
+
+class LibraryChatMessage(models.Model):
+    """One user-or-assistant message within a LibraryChatSession.
+
+    `client_id` is the AG-UI message id supplied by the frontend. It makes the
+    store endpoint idempotent (unique per session) and lets replayed history
+    dedupe against the sidecar's checkpointer by id.
+    """
+    ROLE_CHOICES = [('user', 'user'), ('assistant', 'assistant')]
+
+    session = models.ForeignKey(
+        LibraryChatSession, on_delete=models.CASCADE, related_name='messages'
+    )
+    client_id = models.CharField(max_length=64)
+    role = models.CharField(max_length=12, choices=ROLE_CHOICES)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'search_engine_library_chat_messages'
+        verbose_name = 'Library Chat Message'
+        verbose_name_plural = 'Library Chat Messages'
+        ordering = ['session', 'created_at']
+        # Idempotent append: a re-posted turn (StrictMode / retry) is a no-op.
+        unique_together = ('session', 'client_id')
+        indexes = [models.Index(fields=['session', 'created_at'])]
+
+    def __str__(self):
+        return f"LibraryChatMessage({self.role}, session={self.session_id})"
 
 
 class ReadingProgress(models.Model):

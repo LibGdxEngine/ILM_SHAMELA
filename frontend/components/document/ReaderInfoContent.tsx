@@ -29,6 +29,7 @@ export default function ReaderInfoContent({ document, currentPage }: ReaderInfoC
   );
 
   const authors = document.authors?.map((author) => author.name).join('، ');
+  const edition = document.editions?.[0];
 
   return (
     <div className="space-y-5">
@@ -95,6 +96,80 @@ export default function ReaderInfoContent({ document, currentPage }: ReaderInfoC
           </div>
         </div>
       </section>
+
+      {edition && (
+        <section>
+          <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-3">
+            {t('sidebar.edition', 'Edition')}
+          </h3>
+          <div className="grid grid-cols-2 gap-2">
+            {edition.editor && (
+              <div className="rounded-lg border border-border bg-card-2 p-2.5">
+                <span className="block text-[10px] uppercase text-text-3">
+                  {t('sidebar.editionEditor', 'Editor (muhaqqiq)')}
+                </span>
+                <span className="text-[12.5px] font-semibold text-text">
+                  <bdi>{edition.editor}</bdi>
+                </span>
+              </div>
+            )}
+            {edition.publisher && (
+              <div className="rounded-lg border border-border bg-card-2 p-2.5">
+                <span className="block text-[10px] uppercase text-text-3">
+                  {t('sidebar.editionPublisher', 'Publisher')}
+                </span>
+                <span className="text-[12.5px] font-semibold text-text">
+                  <bdi>{edition.publisher}</bdi>
+                </span>
+              </div>
+            )}
+            {(edition.publication_year_hijri || edition.publication_year_gregorian) && (
+              <div className="rounded-lg border border-border bg-card-2 p-2.5">
+                <span className="block text-[10px] uppercase text-text-3">
+                  {t('sidebar.editionYear', 'Published')}
+                </span>
+                <span className="text-[12.5px] font-semibold text-text">
+                  <bdi>
+                    {[
+                      edition.publication_year_hijri &&
+                        t('sidebar.editionYearHijri', '{year}هـ', {
+                          year: edition.publication_year_hijri,
+                        }),
+                      edition.publication_year_gregorian &&
+                        t('sidebar.editionYearGregorian', '{year}م', {
+                          year: edition.publication_year_gregorian,
+                        }),
+                    ]
+                      .filter(Boolean)
+                      .join(' / ')}
+                  </bdi>
+                </span>
+              </div>
+            )}
+            {edition.volume_count != null && (
+              <div className="rounded-lg border border-border bg-card-2 p-2.5">
+                <span className="block text-[10px] uppercase text-text-3">
+                  {t('sidebar.editionVolumes', 'Volumes')}
+                </span>
+                <span className="text-[12.5px] font-semibold text-text">
+                  {edition.volume_count}
+                </span>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {document.provenance_source && (
+        <section>
+          <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-3">
+            {t('sidebar.provenance', 'Source')}
+          </h3>
+          <p className="text-[13px] text-text-2">
+            <bdi>{document.provenance_source}</bdi>
+          </p>
+        </section>
+      )}
 
       <ReadingStatsPanel stats={stats} onReset={resetStats} />
     </div>

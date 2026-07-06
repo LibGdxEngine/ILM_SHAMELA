@@ -110,6 +110,15 @@ function CitationChip({
   onClick: () => void;
 }) {
   const { t } = useI18n();
+  // Prefer the printed-edition reference (موافقة المطبوع) when the backend
+  // mapped this page; clicking still jumps to the digital page.
+  const label =
+    citation.printed_page != null && citation.volume != null
+      ? t('reader.editionPageLabel', 'ج{volume} ص{page}', {
+          volume: citation.volume,
+          page: citation.printed_page,
+        })
+      : t('assistant.citation.page', 'Page {page}', { page: citation.page });
   return (
     <button
       type="button"
@@ -118,7 +127,7 @@ function CitationChip({
       className="inline-flex items-center gap-1 rounded-lg bg-accent-soft px-2 py-0.5 text-[11px] text-accent transition-colors hover:bg-accent/15"
     >
       <span aria-hidden>↗</span>
-      {t('assistant.citation.page', 'Page {page}', { page: citation.page })}
+      {label}
     </button>
   );
 }

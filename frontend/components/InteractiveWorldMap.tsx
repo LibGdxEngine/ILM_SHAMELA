@@ -8,11 +8,20 @@ import {
     ZoomableGroup,
 } from 'react-simple-maps';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useI18n } from '@/components/i18n/I18nProvider';
+import { regionDisplayName } from '@/lib/atlasRegions';
+import { toLocaleDigits } from '@/lib/utils';
 import type { CountryInfo } from '@/app/map/page';
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 
-/* ─── Tooltip state ─── */
+/* ─── Atlas palette ─── */
+const FILL_SELECTED = '#2c4c82';
+const FILL_ACTIVE = '#aec2e8';
+const FILL_INACTIVE = '#d9ceb0';
+const FILL_ACTIVE_HOVER = '#2c4c82';
+const FILL_INACTIVE_HOVER = '#cfc0a2';
+const STROKE = '#efe7d4';
 
 interface TooltipState {
     x: number;
@@ -27,9 +36,10 @@ interface InteractiveWorldMapProps {
     countryMap: Record<string, CountryInfo>;
 }
 
-/* ─── Component ─── */
-
 export default function InteractiveWorldMap({ selectedCountry, onCountrySelect, countryMap }: InteractiveWorldMapProps) {
+    const { t, locale } = useI18n();
+    const num = (n: number) => toLocaleDigits(n, locale);
+
     const [tooltip, setTooltip] = useState<TooltipState | null>(null);
     const [position, setPosition] = useState<{ coordinates: [number, number]; zoom: number }>({
         coordinates: [20, 20],
@@ -37,15 +47,13 @@ export default function InteractiveWorldMap({ selectedCountry, onCountrySelect, 
     });
     const mapContainerRef = useRef<HTMLDivElement>(null);
 
-    /* countries that have books */
     const activeCountries = useMemo(() => new Set(Object.keys(countryMap)), [countryMap]);
+    const regionsCount = activeCountries.size;
 
     const handleCountryClick = useCallback(
         (geo: { properties: { name: string } }) => {
             const name = geo.properties.name;
-            if (activeCountries.has(name)) {
-                onCountrySelect(name);
-            }
+            if (activeCountries.has(name)) onCountrySelect(name);
         },
         [activeCountries, onCountrySelect],
     );
@@ -59,30 +67,27 @@ export default function InteractiveWorldMap({ selectedCountry, onCountrySelect, 
                 setTooltip({
                     x: evt.clientX - (rect?.left ?? 0),
                     y: evt.clientY - (rect?.top ?? 0),
-                    name: countryData.countryName,
+                    name: regionDisplayName(countryData.countryName, locale),
                     bookCount: countryData.documentCount,
                 });
             }
         },
-        [countryMap],
+        [countryMap, locale],
     );
 
-    const handleCountryMouseLeave = useCallback(() => {
-        setTooltip(null);
-    }, []);
+    const handleCountryMouseLeave = useCallback(() => setTooltip(null), []);
 
     return (
-        <div className="relative w-full h-full" ref={mapContainerRef}>
-            {/* ── Map ── */}
-            <div
-                className={`transition-all duration-500 ease-out h-full ${
-                    selectedCountry ? 'w-full lg:w-[calc(100%-420px)]' : 'w-full'
-                }`}
-            >
+        <div
+            className="relative h-full w-full overflow-hidden"
+            ref={mapContainerRef}
+            style={{ background: 'radial-gradient(120% 120% at 30% 20%, var(--at-map-1), var(--at-map-2))' }}
+        >
+            <div className="h-full w-full">
                 <ComposableMap
                     projection="geoMercator"
                     projectionConfig={{ scale: 140 }}
-                    className="w-full h-full"
+                    className="h-full w-full"
                     style={{ background: 'transparent' }}
                 >
                     <ZoomableGroup
@@ -98,7 +103,6 @@ export default function InteractiveWorldMap({ selectedCountry, onCountrySelect, 
                                     const name: string = geo.properties.name;
                                     const isActive = activeCountries.has(name);
                                     const isSelected = name === selectedCountry;
-
                                     return (
                                         <Geography
                                             key={geo.rsmKey}
@@ -109,25 +113,21 @@ export default function InteractiveWorldMap({ selectedCountry, onCountrySelect, 
                                             className={isActive ? 'cursor-pointer outline-none' : 'outline-none'}
                                             style={{
                                                 default: {
-                                                    fill: isSelected
-                                                        ? '#b97340'
-                                                        : isActive
-                                                            ? '#d8a373'
-                                                            : '#e8e6dc',
-                                                    stroke: '#faf6ef',
-                                                    strokeWidth: 0.5,
+                                                    fill: isSelected ? FILL_SELECTED : isActive ? FILL_ACTIVE : FILL_INACTIVE,
+                                                    stroke: STROKE,
+                                                    strokeWidth: 0.6,
                                                     transition: 'fill 0.25s ease',
                                                 },
                                                 hover: {
-                                                    fill: isActive ? '#b97340' : '#e0ded4',
-                                                    stroke: '#faf6ef',
-                                                    strokeWidth: isActive ? 1 : 0.5,
+                                                    fill: isActive ? FILL_ACTIVE_HOVER : FILL_INACTIVE_HOVER,
+                                                    stroke: STROKE,
+                                                    strokeWidth: isActive ? 1 : 0.6,
                                                     transition: 'fill 0.15s ease',
                                                 },
                                                 pressed: {
-                                                    fill: isActive ? '#9a5e30' : '#e8e6dc',
-                                                    stroke: '#faf6ef',
-                                                    strokeWidth: 0.5,
+                                                    fill: isActive ? '#21396a' : FILL_INACTIVE,
+                                                    stroke: STROKE,
+                                                    strokeWidth: 0.6,
                                                 },
                                             }}
                                         />
@@ -139,7 +139,7 @@ export default function InteractiveWorldMap({ selectedCountry, onCountrySelect, 
                 </ComposableMap>
             </div>
 
-            {/* ── Tooltip ── */}
+            {/* Tooltip */}
             <AnimatePresence>
                 {tooltip && (
                     <motion.div
@@ -148,48 +148,62 @@ export default function InteractiveWorldMap({ selectedCountry, onCountrySelect, 
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 4 }}
                         transition={{ duration: 0.15 }}
-                        className="pointer-events-none absolute z-30 px-3.5 py-2 rounded-xl bg-card border border-border-strong shadow-[0_8px_24px_-6px_rgba(0,0,0,0.12)] backdrop-blur-md"
+                        className="atlas-chrome pointer-events-none absolute z-30 px-3.5 py-2"
                         style={{ left: tooltip.x + 12, top: tooltip.y - 10 }}
                     >
-                        <p className="text-[13px] font-medium text-text">{tooltip.name}</p>
-                        <p className="text-[11px] text-text-3 mt-0.5">
-                            {tooltip.bookCount} {tooltip.bookCount === 1 ? 'work' : 'works'}
+                        <p className="text-[13px] font-semibold" style={{ color: 'var(--at-ink)' }} dir="auto">{tooltip.name}</p>
+                        <p className="mt-0.5 text-[11px]" style={{ color: 'var(--at-ink-3)' }}>
+                            {t('map.atlas.worksCount', '{count} عمل', { count: num(tooltip.bookCount) })}
                         </p>
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            {/* ── Zoom Controls ── */}
-            <div className="absolute bottom-6 left-6 flex flex-col gap-1.5 z-20">
+            {/* Title chrome card */}
+            <div className="atlas-chrome absolute z-20 px-[15px] py-[11px]" style={{ top: 18, insetInlineStart: 18 }}>
+                <div className="atlas-title text-[14px]">{t('map.atlas.mapTitle', 'الخريطة التفاعلية')}</div>
+                <div className="mt-0.5 text-[11.5px]" style={{ color: 'var(--at-ink-3)' }}>
+                    {t('map.atlas.mapSubtitle', 'المؤلفون حسب الموطن · {count} إقليمًا', { count: num(regionsCount) })}
+                </div>
+            </div>
+
+            {/* Compass rose */}
+            <svg
+                width="56"
+                height="56"
+                viewBox="0 0 56 56"
+                className="absolute z-20"
+                style={{ top: 18, insetInlineEnd: 18 }}
+                aria-hidden
+            >
+                <circle cx="28" cy="30" r="22" fill="var(--at-surface)" stroke="var(--at-line)" />
+                <path d="M28 14 L32 30 L28 46 L24 30 Z" fill="#2c4c82" />
+                <path d="M12 30 L28 34 L44 30 L28 26 Z" fill="#cdbf9f" />
+                <text x="28" y="9" fontSize="11" fontWeight="700" fill="#2c4c82" textAnchor="middle">ش</text>
+            </svg>
+
+            {/* Zoom controls */}
+            <div className="absolute z-20 flex flex-col overflow-hidden rounded-[10px] border" style={{ bottom: 18, insetInlineEnd: 18, borderColor: 'var(--at-line-2)' }}>
                 <button
                     type="button"
-                    onClick={() =>
-                        setPosition((p) => ({ ...p, zoom: Math.min(p.zoom * 1.4, 6) }))
-                    }
-                    className="w-9 h-9 rounded-xl bg-card/90 border border-border-strong backdrop-blur-md flex items-center justify-center text-text-2 hover:text-text hover:border-accent transition-all duration-200 shadow-sm"
-                    aria-label="Zoom in"
-                >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M12 5v14M5 12h14" />
-                    </svg>
-                </button>
+                    onClick={() => setPosition((p) => ({ ...p, zoom: Math.min(p.zoom * 1.4, 6) }))}
+                    className="flex h-[34px] w-[34px] items-center justify-center text-[18px] transition-colors hover:bg-black/[0.03]"
+                    style={{ background: 'var(--at-surface)', color: 'var(--at-brand)' }}
+                    aria-label={t('map.zoomIn', 'تكبير')}
+                >+</button>
                 <button
                     type="button"
-                    onClick={() =>
-                        setPosition((p) => ({ ...p, zoom: Math.max(p.zoom / 1.4, 1) }))
-                    }
-                    className="w-9 h-9 rounded-xl bg-card/90 border border-border-strong backdrop-blur-md flex items-center justify-center text-text-2 hover:text-text hover:border-accent transition-all duration-200 shadow-sm"
-                    aria-label="Zoom out"
-                >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M5 12h14" />
-                    </svg>
-                </button>
+                    onClick={() => setPosition((p) => ({ ...p, zoom: Math.max(p.zoom / 1.4, 1) }))}
+                    className="flex h-[34px] w-[34px] items-center justify-center border-t text-[18px] transition-colors hover:bg-black/[0.03]"
+                    style={{ background: 'var(--at-surface)', color: 'var(--at-brand)', borderColor: 'var(--at-line-2)' }}
+                    aria-label={t('map.zoomOut', 'تصغير')}
+                >−</button>
                 <button
                     type="button"
                     onClick={() => setPosition({ coordinates: [20, 20], zoom: 1.5 })}
-                    className="w-9 h-9 rounded-xl bg-card/90 border border-border-strong backdrop-blur-md flex items-center justify-center text-text-2 hover:text-text hover:border-accent transition-all duration-200 shadow-sm"
-                    aria-label="Reset view"
+                    className="flex h-[34px] w-[34px] items-center justify-center border-t transition-colors hover:bg-black/[0.03]"
+                    style={{ background: 'var(--at-surface)', color: 'var(--at-brand)', borderColor: 'var(--at-line-2)' }}
+                    aria-label={t('map.reset', 'إعادة الضبط')}
                 >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
@@ -198,21 +212,20 @@ export default function InteractiveWorldMap({ selectedCountry, onCountrySelect, 
                 </button>
             </div>
 
-            {/* ── Legend ── */}
-            <div className="absolute bottom-6 right-6 z-20 bg-card/90 border border-border-strong backdrop-blur-md rounded-2xl px-4 py-3 shadow-[0_4px_20px_-8px_rgba(0,0,0,0.1)]">
-                <p className="text-[10.5px] tracking-[0.14em] uppercase text-text-3 mb-2">Legend</p>
-                <div className="flex items-center gap-2.5 text-[12px]">
-                    <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#d8a373' }} />
-                    <span className="text-text-2">Has works</span>
-                </div>
-                <div className="flex items-center gap-2.5 text-[12px] mt-1.5">
-                    <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#b97340' }} />
-                    <span className="text-text-2">Selected</span>
-                </div>
-                <div className="flex items-center gap-2.5 text-[12px] mt-1.5">
-                    <span className="inline-block w-3 h-3 rounded-sm border border-border-strong" style={{ background: '#e8e6dc' }} />
-                    <span className="text-text-2">No data</span>
-                </div>
+            {/* Legend */}
+            <div className="atlas-chrome absolute z-20 flex items-center gap-3.5 px-[13px] py-[9px] text-[11.5px]" style={{ bottom: 18, insetInlineStart: 18, color: 'var(--at-ink-2)' }}>
+                <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: FILL_SELECTED }} />
+                    {t('map.atlas.legendSelected', 'المختار')}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: FILL_ACTIVE }} />
+                    {t('map.atlas.legendActive', 'له أعمال')}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-2 w-2 rounded-full border" style={{ background: FILL_INACTIVE, borderColor: 'var(--at-line)' }} />
+                    {t('map.atlas.legendNone', 'لا بيانات')}
+                </span>
             </div>
         </div>
     );

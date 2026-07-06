@@ -35,24 +35,15 @@ type FeatureCard = {
 export default function WhyIlmSection() {
   const { t } = useI18n();
 
-  // RTL reading order = rightmost-first in DOM. Citations leads to support the headline thesis.
+  // RTL reading order = rightmost-first in DOM. Mock order: privacy → multilingual → manuscript → citations.
   const cards: FeatureCard[] = [
     {
-      key: "citations",
-      Icon: Quote,
-      title: t("home.feature.citations.title", "Citation-first answers"),
+      key: "privacy",
+      Icon: Lock,
+      title: t("home.feature.privacy.title", "Privacy by design"),
       desc: t(
-        "home.feature.citations.desc",
-        "Every reply links to the exact line in the exact edition, with a direct link back to the source. If a claim isn't in the corpus, ILM tells you so plainly."
-      ),
-    },
-    {
-      key: "manuscript",
-      Icon: BookOpen,
-      title: t("home.feature.manuscript.title", "Manuscript-grade rendering"),
-      desc: t(
-        "home.feature.manuscript.desc",
-        "Beautiful typography with proper kashida justification, marginalia support, and footnote linking — pages that echo the original without losing search."
+        "home.feature.privacy.desc",
+        "Your queries, notes, and uploads stay end-to-end encrypted. No training on your reading, ever — the library you build is yours alone."
       ),
     },
     {
@@ -65,12 +56,21 @@ export default function WhyIlmSection() {
       ),
     },
     {
-      key: "privacy",
-      Icon: Lock,
-      title: t("home.feature.privacy.title", "Privacy by design"),
+      key: "manuscript",
+      Icon: BookOpen,
+      title: t("home.feature.manuscript.title", "Manuscript-grade rendering"),
       desc: t(
-        "home.feature.privacy.desc",
-        "Your queries, notes, and uploads stay end-to-end encrypted. No training on your reading, ever — the library you build is yours alone."
+        "home.feature.manuscript.desc",
+        "Beautiful typography with proper kashida justification, marginalia support, and footnote linking — pages that echo the original without losing search."
+      ),
+    },
+    {
+      key: "citations",
+      Icon: Quote,
+      title: t("home.feature.citations.title", "Citation-first answers"),
+      desc: t(
+        "home.feature.citations.desc",
+        "Every reply links to the exact line in the exact edition, with a direct link back to the source. If a claim isn't in the corpus, ILM tells you so plainly."
       ),
     },
   ];
@@ -81,10 +81,10 @@ export default function WhyIlmSection() {
         {/* Eyebrow + headline */}
         <FadeUp className="text-center">
           <span className="section-eyebrow">{t("home.why.eyebrow", "Why ILM")}</span>
-          <h2 className="font-display-ar font-light text-[clamp(32px,4.5vw,56px)] leading-[1.1] tracking-tight mt-5 mx-auto max-w-[14ch] text-center">
+          <h2 className="font-reem-kufi font-semibold text-[clamp(30px,4.4vw,50px)] leading-[1.3] tracking-tight mt-6 mx-auto max-w-[18ch] text-center text-ink-deep">
             <span className="block">
               {t("home.why.title.linePre", "A library built for ")}
-              <span className="italic text-accent">
+              <span className="text-maroon">
                 {t("home.why.title.lineEm", "thinkers")}
               </span>
               {t("home.why.title.linePost", ",")}
@@ -95,7 +95,7 @@ export default function WhyIlmSection() {
 
         {/* Description */}
         <FadeUp delay={0.1}>
-          <p className="text-[17px] leading-[1.7] text-text-2 mt-6 mx-auto max-w-[60ch] text-center">
+          <p className="text-[17px] leading-[2] text-ink-warm mt-7 mx-auto max-w-[62ch] text-center">
             {t(
               "home.why.body",
               "Most search engines flatten knowledge into ten blue links. ILM treats each text as it deserves — with provenance, edition, and context preserved. Your reading is private, your sources are verifiable, and your assistant never invents what isn't there."
@@ -105,8 +105,8 @@ export default function WhyIlmSection() {
 
         {/* Proof block */}
         <FadeUp delay={0.2}>
-          <div className="mt-16 mx-auto max-w-3xl bg-card border border-border rounded-[14px] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.08)] overflow-hidden">
-            <blockquote className="px-8 py-6 text-center font-amiri italic text-[17px] text-text-2 border-b border-border m-0">
+          <div className="mt-16 mx-auto max-w-3xl bg-paper-card border border-paper-line rounded-[20px] shadow-[0_12px_38px_rgba(44,38,32,0.08)] overflow-hidden">
+            <blockquote className="px-8 py-5 text-center font-amiri text-[19px] text-[#3a342b] bg-paper-soft border-b border-paper-line m-0">
               {t(
                 "home.why.proof.question",
                 "«Question: what is the ruling on earnest-money sales in the Hanbali school?»"
@@ -136,7 +136,7 @@ export default function WhyIlmSection() {
                 "home.why.proof.row3.response",
                 "«Ibn Qudāma in al-Mughnī, vol. 4 p. 312 said: \"…\"»"
               )}
-              responseClassName="font-amiri text-[15.5px] text-text"
+              responseClassName="font-amiri text-[17px] text-ink-deep"
             />
           </div>
         </FadeUp>
@@ -154,18 +154,18 @@ export default function WhyIlmSection() {
               <Link
                 href={`#why-${card.key}`}
                 aria-label={`اقرأ المزيد عن ${card.title}`}
-                className="group block bg-card border border-[rgba(31,26,20,0.06)] rounded-[14px] p-8 h-full transition-all duration-200 hover:-translate-y-[2px] hover:shadow-[0_8px_30px_-12px_rgba(0,0,0,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 relative"
+                className="group block bg-paper-card border border-paper-line rounded-[18px] p-7 h-full transition-all duration-200 hover:-translate-y-[2px] hover:shadow-[0_8px_30px_-12px_rgba(44,38,32,0.14)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 relative"
               >
-                <div className="w-14 h-14 rounded-xl flex items-center justify-center mb-6 bg-accent-soft text-accent">
-                  <card.Icon size={36} strokeWidth={1.5} />
+                <div className="w-[50px] h-[50px] rounded-[14px] flex items-center justify-center mb-5 bg-gold-soft text-gold">
+                  <card.Icon size={24} strokeWidth={1.9} />
                 </div>
-                <h3 className="font-fraunces font-semibold text-[20px] leading-tight mb-3 text-accent">
+                <h3 className="font-reem-kufi font-semibold text-[19px] leading-tight mb-3 text-maroon">
                   {card.title}
                 </h3>
-                <p className="text-[15px] leading-[1.7] text-text-2">{card.desc}</p>
+                <p className="text-[13.5px] leading-[1.95] text-ink-warm">{card.desc}</p>
                 <ArrowLeft
                   size={18}
-                  className="absolute bottom-6 left-6 text-accent opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                  className="absolute bottom-6 left-6 text-gold opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                   aria-hidden
                 />
               </Link>
@@ -189,39 +189,35 @@ function ProofRow({ tone, label, response, responseClassName }: ProofRowProps) {
   const Icon = isAccent ? Check : X;
 
   return (
-    <div className="relative border-b border-border last:border-b-0">
-      {isAccent && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true, margin: "-10%" }}
-          transition={{ duration: 0.3, delay: 0.5 }}
-          aria-hidden
-          className="absolute inset-0 bg-[rgba(192,133,82,0.04)] pointer-events-none"
-        />
-      )}
-      <div className="relative flex items-center gap-4 px-8 py-5">
-        <span
-          className={
-            isAccent
-              ? "text-accent font-semibold text-[14px] shrink-0 w-[120px]"
-              : "text-text-3 font-medium text-[13px] shrink-0 w-[120px]"
-          }
-        >
-          {label}
-        </span>
-        <span
-          className={`flex-1 min-w-0 ${responseClassName ?? "text-[15px] text-text-2"}`}
-        >
-          {response}
-        </span>
+    <div
+      className={`flex items-center gap-4 px-7 py-5 border-b border-paper-line last:border-b-0 ${
+        isAccent ? "bg-[#f6fbf5]" : ""
+      }`}
+    >
+      <span
+        className={`w-[26px] h-[26px] rounded-lg flex items-center justify-center shrink-0 ${
+          isAccent ? "bg-[#dcebdd]" : "bg-[#f3e3e1]"
+        }`}
+      >
         <Icon
-          size={18}
-          strokeWidth={2}
-          className={isAccent ? "text-accent shrink-0" : "text-text-3 shrink-0"}
+          size={14}
+          strokeWidth={isAccent ? 3 : 2.6}
+          className={isAccent ? "text-[#2e5347]" : "text-[#9e3b2e]"}
           aria-hidden
         />
-      </div>
+      </span>
+      <span className={`flex-1 min-w-0 ${responseClassName ?? "text-[15px] text-ink-warm"}`}>
+        {response}
+      </span>
+      <span
+        className={
+          isAccent
+            ? "text-[#2e5347] font-bold font-reem-kufi text-[14px] shrink-0 w-[110px] text-end"
+            : "text-ink-mute font-medium text-[13px] shrink-0 w-[110px] text-end"
+        }
+      >
+        {label}
+      </span>
     </div>
   );
 }

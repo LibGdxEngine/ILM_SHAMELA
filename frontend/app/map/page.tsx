@@ -1,60 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import InteractiveWorldMap from '@/components/InteractiveWorldMap';
-import MapSidePanel from '@/components/MapSidePanel';
-import { getCountryDocumentStats, CountryDocumentStat } from '@/lib/api';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 
-/** Country-name → flag emoji (extend as needed). */
-const COUNTRY_FLAGS: Record<string, string> = {
-    Egypt: '🇪🇬',
-    Iraq: '🇮🇶',
-    'Saudi Arabia': '🇸🇦',
-    Syria: '🇸🇾',
-    Morocco: '🇲🇦',
-    Tunisia: '🇹🇳',
-    Iran: '🇮🇷',
-    Spain: '🇪🇸',
-    Turkey: '🇹🇷',
-    India: '🇮🇳',
-    Libya: '🇱🇾',
-    'United States of America': '🇺🇸',
-    Algeria: '🇩🇿',
-    Jordan: '🇯🇴',
-    Lebanon: '🇱🇧',
-    Palestine: '🇵🇸',
-    Yemen: '🇾🇪',
-    Oman: '🇴🇲',
-    Kuwait: '🇰🇼',
-    'United Arab Emirates': '🇦🇪',
-    Qatar: '🇶🇦',
-    Bahrain: '🇧🇭',
-    Sudan: '🇸🇩',
-    Pakistan: '🇵🇰',
-    Afghanistan: '🇦🇫',
-    Indonesia: '🇮🇩',
-    Malaysia: '🇲🇾',
-    Somalia: '🇸🇴',
-    Mauritania: '🇲🇷',
-    Uzbekistan: '🇺🇿',
-    Tajikistan: '🇹🇯',
-    Bangladesh: '🇧🇩',
-    Nigeria: '🇳🇬',
-    Senegal: '🇸🇳',
-    Mali: '🇲🇱',
-    China: '🇨🇳',
-    Japan: '🇯🇵',
-    Germany: '🇩🇪',
-    France: '🇫🇷',
-    'United Kingdom': '🇬🇧',
-    Italy: '🇮🇹',
-    Russia: '🇷🇺',
-    Canada: '🇨🇦',
-    Australia: '🇦🇺',
-    Brazil: '🇧🇷',
-    Mexico: '🇲🇽',
-    'South Africa': '🇿🇦',
-};
+import InteractiveWorldMap from '@/components/InteractiveWorldMap';
+import AtlasRail from '@/components/AtlasRail';
+import ShellHeader from '@/components/ShellHeader';
+import NavSearchPopover, { SelectedBook } from '@/components/search/NavSearchPopover';
+import { getCountryDocumentStats, CountryDocumentStat } from '@/lib/api';
+import type { CorpusSearchMode } from '@/lib/api';
+import { buildDocumentsSearchParams } from '@/lib/documentsSearchParams';
+import { useAuth } from '@/lib/AuthContext';
+import { useI18n } from '@/components/i18n/I18nProvider';
+import { useLocalizedPath } from '@/lib/i18n/navigation';
+import { regionSearchTerms } from '@/lib/atlasRegions';
 
 export interface CountryInfo {
     countryName: string;
@@ -63,9 +22,21 @@ export interface CountryInfo {
 }
 
 export default function MapPage() {
+    const { t } = useI18n();
+    const router = useRouter();
+    const localizedPath = useLocalizedPath();
+    const { isAuthenticated } = useAuth();
+
     const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
     const [countryMap, setCountryMap] = useState<Record<string, CountryInfo>>({});
-    const [isLoading, setIsLoading] = useState(true);
+    const [, setIsLoading] = useState(true);
+    const [queryValue, setQueryValue] = useState('');
+    const [searchMode, setSearchMode] = useState<CorpusSearchMode>('hybrid');
+    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+    const [selectedAuthors, setSelectedAuthors] = useState<string[]>([]);
+    const [selectedBooks, setSelectedBooks] = useState<SelectedBook[]>([]);
+    const [popoverOpen, setPopoverOpen] = useState(false);
+    const searchTriggerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         getCountryDocumentStats()
@@ -74,7 +45,7 @@ export default function MapPage() {
                 for (const s of stats) {
                     map[s.country] = {
                         countryName: s.country,
-                        flag: COUNTRY_FLAGS[s.country] ?? '🏳️',
+                        flag: '',
                         documentCount: s.document_count,
                     };
                 }
@@ -84,35 +55,180 @@ export default function MapPage() {
             .finally(() => setIsLoading(false));
     }, []);
 
+    const regions = useMemo(() => Object.values(countryMap), [countryMap]);
+
+    // Navigate to the catalog with the current query + popup filters applied,
+    // serialized identically to every other surface that links into /documents.
+    const goToDocuments = () => {
+        const params = buildDocumentsSearchParams({
+            q: queryValue,
+            mode: searchMode,
+            documents: selectedBooks.map((b) => b.id),
+            authors: selectedAuthors,
+            categories: selectedCategories,
+        });
+        router.push(localizedPath(`/documents?${params.toString()}`));
+    };
+
+    // "Smart search": when no popup filter is engaged, match a typed region
+    // (Arabic historical or English name) and select it on the map; otherwise fall
+    // back to the library catalog. When any popup filter *is* engaged, skip the
+    // region match entirely and jump straight to the filtered catalog.
+    const onSearch = () => {
+        const q = queryValue.trim();
+        if (!q) return;
+
+        const hasPopupFilter =
+            searchMode !== 'hybrid' ||
+            selectedCategories.length > 0 ||
+            selectedAuthors.length > 0 ||
+            selectedBooks.length > 0;
+        if (hasPopupFilter) {
+            goToDocuments();
+            return;
+        }
+
+        const lower = q.toLowerCase();
+        const match =
+            regions.find((c) =>
+                regionSearchTerms(c.countryName).some(
+                    (n) => n === q || n.toLowerCase() === lower,
+                ),
+            ) ??
+            regions.find(
+                (c) =>
+                    regionSearchTerms(c.countryName).some((n) => n.includes(q)) ||
+                    c.countryName.toLowerCase().includes(lower),
+            );
+        if (match) {
+            setSelectedCountry(match.countryName);
+            return;
+        }
+        goToDocuments();
+    };
+
+    const searchEl = (
+        <div className="relative w-full" ref={searchTriggerRef}>
+            <form
+                className="flex w-full items-center gap-[11px] rounded-[12px] border-[1.5px] px-4 py-[11px]"
+                style={{
+                    background: 'var(--at-surface)',
+                    borderColor: 'var(--at-brand)',
+                    boxShadow: '0 4px 16px rgba(44,76,130,.10)',
+                }}
+                onSubmit={(e) => {
+                    e.preventDefault();
+                    onSearch();
+                }}
+            >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="#2c4c82" aria-hidden>
+                    <path d="M12 2 L13.7 9 L21 11 L13.7 13 L12 22 L10.3 13 L3 11 L10.3 9 Z" />
+                </svg>
+                <input
+                    type="text"
+                    value={queryValue}
+                    onChange={(e) => setQueryValue(e.target.value)}
+                    onFocus={() => setPopoverOpen(true)}
+                    placeholder={t('map.atlas.searchPlaceholder', 'أرني علماء الأندلس في القرن الخامس الهجري')}
+                    className="min-w-0 flex-1 bg-transparent text-[14.5px] outline-none"
+                    style={{ color: '#3a342b' }}
+                    aria-label={t('map.atlas.searchLabel', 'بحث ذكي في الأطلس')}
+                />
+                <span
+                    className="rounded-[6px] px-[9px] py-[3px] text-[11px] font-semibold"
+                    style={{ background: '#e7ecf6', color: '#2c4c82' }}
+                >
+                    {t('map.atlas.smartSearch', 'بحث ذكي')}
+                </span>
+            </form>
+
+            <NavSearchPopover
+                open={popoverOpen}
+                onOpenChange={setPopoverOpen}
+                anchorRef={searchTriggerRef}
+                showQueryField={false}
+                queryValue={queryValue}
+                onQueryChange={setQueryValue}
+                onSubmit={onSearch}
+                mode={searchMode}
+                onModeChange={setSearchMode}
+                selectedCategories={selectedCategories}
+                onToggleCategory={(name) =>
+                    setSelectedCategories((prev) =>
+                        prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name],
+                    )
+                }
+                selectedAuthors={selectedAuthors}
+                onToggleAuthor={(name) =>
+                    setSelectedAuthors((prev) =>
+                        prev.includes(name) ? prev.filter((a) => a !== name) : [...prev, name],
+                    )
+                }
+                selectedBooks={selectedBooks}
+                onToggleBook={(book) =>
+                    setSelectedBooks((prev) =>
+                        prev.some((b) => b.id === book.id)
+                            ? prev.filter((b) => b.id !== book.id)
+                            : [...prev, book],
+                    )
+                }
+                isAuthenticated={isAuthenticated}
+            />
+        </div>
+    );
+
     return (
-        <main className="landing-shell flex flex-col relative" style={{ height: 'calc(100dvh - 56px)' }}>
-            {/* Page header */}
-            <div className="px-4 md:px-6 pt-4 md:pt-8 pb-3 md:pb-4 max-w-[1280px] mx-auto w-full shrink-0">
-                <span className="section-eyebrow text-[11px] md:text-[12px]">Explore by Origin</span>
-                <h1 className="font-fraunces text-[clamp(24px,4vw,44px)] font-light leading-[1.1] tracking-tight mt-1 md:mt-3">
-                    Manuscripts across the{' '}
-                    <em className="italic text-accent-2">world</em>
-                </h1>
-                <p className="mt-2 md:mt-3 text-[14px] md:text-[15px] leading-relaxed text-text-2 max-w-xl hidden sm:block">
-                    Click on any highlighted country to explore works by authors from that region.
-                    Zoom and pan to navigate the map.
-                </p>
+        <main className="atlas min-h-screen">
+            <ShellHeader search={searchEl} languages={['ar', 'en', 'fa']} />
+
+            {/* Mode tabs */}
+            <div
+                className="flex items-center gap-1.5 px-6 py-[11px]"
+                style={{ borderBottom: '1px solid var(--at-line-2)' }}
+                dir="rtl"
+            >
+                <button type="button" className="atlas-tab" onClick={() => router.push(localizedPath('/documents'))}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                        <rect x="3" y="4" width="6" height="16" rx="1" />
+                        <rect x="10" y="4" width="5" height="16" rx="1" />
+                        <rect x="16" y="4" width="5" height="16" rx="1" />
+                    </svg>
+                    {t('map.atlas.tabShelves', 'الرفوف')}
+                </button>
+                <span className="atlas-tab is-active" aria-current="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                        <path d="M12 21 C12 21 5 14.5 5 9.2 a7 7 0 0 1 14 0 c0 5.3 -7 11.8 -7 11.8 Z" />
+                        <circle cx="12" cy="9.2" r="2.4" />
+                    </svg>
+                    {t('map.atlas.tabAtlas', 'الأطلس')}
+                </span>
+                <button type="button" className="atlas-tab" onClick={() => router.push(localizedPath('/documents'))}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                        <circle cx="11" cy="11" r="7" />
+                        <line x1="21" y1="21" x2="16.5" y2="16.5" />
+                    </svg>
+                    {t('map.atlas.tabAdvanced', 'بحث متقدّم')}
+                </button>
             </div>
 
-            {/* Map fills remaining space */}
-            <div className="flex-1 min-h-0 px-4 md:px-6 pb-4 md:pb-6 max-w-[1280px] mx-auto w-full relative min-h-[85dvh]">
-                <div className="relative w-full h-full bg-gradient-to-b from-card-2/60 to-card/40 rounded-xl md:rounded-2xl border border-border overflow-hidden shadow-[0_4px_24px_-8px_rgba(0,0,0,0.06)]">
-                    <InteractiveWorldMap
+            {/* Body: rail (right in RTL) + map */}
+            <div className="flex flex-col-reverse lg:flex-row" dir="rtl">
+                <div style={{ borderInlineStart: '1px solid var(--at-line-2)', background: 'var(--at-header)' }}>
+                    <AtlasRail
                         selectedCountry={selectedCountry}
-                        onCountrySelect={setSelectedCountry}
                         countryMap={countryMap}
+                        onSelectRegion={(c) => setSelectedCountry((prev) => (prev === c ? null : c))}
                     />
+                </div>
 
-                    <MapSidePanel
-                        selectedCountry={selectedCountry}
-                        onClose={() => setSelectedCountry(null)}
-                        countryMap={countryMap}
-                    />
+                <div className="relative min-w-0 flex-1">
+                    <div className="h-[520px] w-full sm:h-[620px] lg:h-[780px]">
+                        <InteractiveWorldMap
+                            selectedCountry={selectedCountry}
+                            onCountrySelect={setSelectedCountry}
+                            countryMap={countryMap}
+                        />
+                    </div>
                 </div>
             </div>
         </main>

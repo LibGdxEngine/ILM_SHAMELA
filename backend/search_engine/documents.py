@@ -1,8 +1,19 @@
 from django_elasticsearch_dsl import Document, fields
 from django_elasticsearch_dsl.registries import registry
+from elasticsearch_dsl import analyzer
 from elasticsearch_dsl import field as es_field
 from .models import Document as DocumentModel
 from .semantic import VECTOR_DIMENSIONS
+
+# Tashkeel-insensitive matching without stemming: `arabic_normalization` strips
+# harakat + tatweel and folds آ/أ/إ→ا, ى→ي, ة→ه, so an unvocalized query phrase
+# matches vocalized text while staying an otherwise literal match (unlike the
+# built-in `arabic` analyzer, which also stems).
+arabic_exact = analyzer(
+    'arabic_exact',
+    tokenizer='standard',
+    filter=['lowercase', 'arabic_normalization'],
+)
 
 
 @registry.register_document
@@ -20,6 +31,7 @@ class DocumentIndex(Document):
         analyzer='standard',
         fields={
             'arabic': fields.TextField(analyzer='arabic'),
+            'exact': fields.TextField(analyzer=arabic_exact),
         }
     )
     language = fields.KeywordField()

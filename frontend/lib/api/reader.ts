@@ -190,6 +190,10 @@ export type ChatRole = 'user' | 'assistant';
 export type ApiChatCitation = {
   page: number;
   quote: string;
+  /** Printed-edition reference (موافقة المطبوع), derived server-side from the
+   * document's Edition page_map; absent when the page is unmapped. */
+  volume?: number;
+  printed_page?: number;
 };
 
 export type ApiChatMessage = {
@@ -201,12 +205,18 @@ export type ApiChatMessage = {
   created_at: string;
 };
 
+export type ChatContextScope = 'auto' | 'page' | 'book';
+export type ChatPin = { page: number; text: string; label: string };
+
 export type ApiChatSession = {
   id: number;
   document: number;
   created_at: string;
   updated_at: string;
   message_count: number;
+  title: string;
+  context_scope: ChatContextScope;
+  pinned_context: ChatPin[];
 };
 
 function chatBase(documentId: number): string {
@@ -234,6 +244,30 @@ export async function createChatSession(documentId: number): Promise<ApiChatSess
   return response.json();
 }
 
+export async function updateChatSession(
+  documentId: number,
+  sessionId: number,
+  patch: Partial<Pick<ApiChatSession, 'title' | 'context_scope' | 'pinned_context'>>,
+): Promise<ApiChatSession> {
+  const response = await fetch(buildUrl(`${chatBase(documentId)}/sessions/${sessionId}/`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    credentials: 'include',
+    body: JSON.stringify(patch),
+  });
+  await ensureOk(response, 'Failed to update chat session');
+  return response.json();
+}
+
+export async function deleteChatSession(documentId: number, sessionId: number): Promise<void> {
+  const response = await fetch(buildUrl(`${chatBase(documentId)}/sessions/${sessionId}/`), {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+    credentials: 'include',
+  });
+  await ensureOk(response, 'Failed to delete chat session');
+}
+
 export async function listChatMessages(
   documentId: number,
   sessionId: number,
@@ -247,6 +281,37 @@ export async function listChatMessages(
     },
   );
   await ensureOk(response, 'Failed to fetch chat messages');
+  return response.json();
+}
+
+export type StoreChatMessagePayload = {
+  role: ChatRole;
+  content: string;
+  citations?: ApiChatCitation[];
+  context_page?: number | null;
+};
+
+/**
+ * Store an already-produced chat message (no LLM call). The CopilotKit reader
+ * assistant streams its reply through the deep-agent sidecar, so Django never
+ * sees the turn; the client posts each completed message here to keep the
+ * durable per-user transcript in sync. Returns the persisted message.
+ */
+export async function storeChatMessage(
+  documentId: number,
+  sessionId: number,
+  payload: StoreChatMessagePayload,
+): Promise<ApiChatMessage> {
+  const response = await fetch(
+    buildUrl(`${chatBase(documentId)}/sessions/${sessionId}/messages/store/`),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    },
+  );
+  await ensureOk(response, 'Failed to store chat message');
   return response.json();
 }
 
@@ -489,6 +554,50 @@ export async function deleteHighlight(id: number): Promise<void> {
     credentials: 'include',
   });
   await ensureOk(response, 'Failed to delete highlight');
+}
+
+// --- Text corrections (error reports) --------------------------------------
+
+export type CorrectionStatus = 'open' | 'reviewed' | 'resolved';
+
+export type ApiTextCorrection = {
+  id: number;
+  document: number;
+  page_number: number;
+  paragraph_id: string;
+  char_start: number;
+  char_end: number;
+  selected_text: string;
+  description: string;
+  suggested_correction: string;
+  status: CorrectionStatus;
+  created_at: string;
+};
+
+// The server sets `user`, `id`, `status`, and timestamps; the client never
+// sends them.
+export type CreateCorrectionPayload = {
+  document: number;
+  page_number: number;
+  paragraph_id?: string;
+  char_start: number;
+  char_end: number;
+  selected_text: string;
+  description: string;
+  suggested_correction?: string;
+};
+
+export async function createCorrection(
+  payload: CreateCorrectionPayload
+): Promise<ApiTextCorrection> {
+  const response = await fetch(buildUrl(`${READER_BASE}/corrections/`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  });
+  await ensureOk(response, 'Failed to submit correction');
+  return response.json();
 }
 
 // --- Reader preferences ----------------------------------------------------

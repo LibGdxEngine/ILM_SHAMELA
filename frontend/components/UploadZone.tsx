@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { uploadDocument, UploadResponse, getAuthors, Author, UploadDocumentParams, getCategories, Category, getOCREngines, OCREngine } from '@/lib/api';
+import { uploadDocument, UploadResponse, getAuthors, Author, UploadDocumentParams, getCategories, Category, getOCREngines, OCREngine, RightsStatus } from '@/lib/api';
 import { useI18n } from '@/components/i18n/I18nProvider';
 
 interface UploadZoneProps {
@@ -36,8 +36,10 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [uploadMessage, setUploadMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [ocrLayout, setOcrLayout] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverPhotoInputRef = useRef<HTMLInputElement>(null);
+  const ocrLayoutInputRef = useRef<HTMLInputElement>(null);
 
   // Form state
   const [title, setTitle] = useState('');
@@ -54,6 +56,14 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
   const [coverPhotoPreview, setCoverPhotoPreview] = useState<string | null>(null);
   const [ocrEngine, setOcrEngine] = useState('auto');
   const [ocrEngines, setOcrEngines] = useState<OCREngine[]>([]);
+  // Printed-edition metadata (موافقة المطبوع) + rights audit fields
+  const [editionEditor, setEditionEditor] = useState('');
+  const [editionPublisher, setEditionPublisher] = useState('');
+  const [editionYearHijri, setEditionYearHijri] = useState('');
+  const [editionYearGregorian, setEditionYearGregorian] = useState('');
+  const [editionVolumeCount, setEditionVolumeCount] = useState('');
+  const [rightsStatus, setRightsStatus] = useState<RightsStatus>('unreviewed');
+  const [provenanceSource, setProvenanceSource] = useState('');
 
   // Authors search state
   const [availableAuthors, setAvailableAuthors] = useState<Author[]>([]);
@@ -187,8 +197,33 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
 
     setSelectedFile(file);
     setTitle(file.name.replace(/\.[^/.]+$/, '')); // Remove extension for default title
-    setErrors(prev => ({ ...prev, file: '' }));
+    // OCR layout JSON only pairs with PDFs — drop it if the new file isn't one.
+    if (fileExtension !== '.pdf') {
+      setOcrLayout(null);
+      if (ocrLayoutInputRef.current) {
+        ocrLayoutInputRef.current.value = '';
+      }
+    }
+    setErrors(prev => ({ ...prev, file: '', ocr_layout: '' }));
   };
+
+  const handleOcrLayoutSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      if (!file.name.toLowerCase().endsWith('.json')) {
+        setErrors(prev => ({
+          ...prev,
+          ocr_layout: t('upload.invalidOcrLayout', 'يرجى اختيار ملف JSON صالح.'),
+        }));
+        return;
+      }
+      setOcrLayout(file);
+      setErrors(prev => ({ ...prev, ocr_layout: '' }));
+    }
+  };
+
+  const isPdfSelected = Boolean(selectedFile?.name.toLowerCase().endsWith('.pdf'));
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -360,6 +395,17 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
         language: language || undefined,
         cover_photo: coverPhoto || undefined,
         ocr_engine: ocrEngine || undefined,
+        ocr_layout: ocrLayout || undefined,
+        rights_status: rightsStatus !== 'unreviewed' ? rightsStatus : undefined,
+        provenance_source: provenanceSource.trim() || undefined,
+        edition_editor: editionEditor.trim() || undefined,
+        edition_publisher: editionPublisher.trim() || undefined,
+        edition_year_hijri: editionYearHijri.trim() || undefined,
+        edition_year_gregorian: editionYearGregorian.trim() || undefined,
+        edition_volume_count:
+          parseInt(editionVolumeCount, 10) > 0
+            ? parseInt(editionVolumeCount, 10)
+            : undefined,
       };
 
       const response: UploadResponse = await uploadDocument(uploadParams, (progress) => {
@@ -396,6 +442,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
 
   const resetForm = () => {
     setSelectedFile(null);
+    setOcrLayout(null);
     setTitle('');
     setSelectedAuthors([]);
     setAuthorInput('');
@@ -409,6 +456,13 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     setCoverPhoto(null);
     setCoverPhotoPreview(null);
     setOcrEngine('auto');
+    setEditionEditor('');
+    setEditionPublisher('');
+    setEditionYearHijri('');
+    setEditionYearGregorian('');
+    setEditionVolumeCount('');
+    setRightsStatus('unreviewed');
+    setProvenanceSource('');
     setUploadStatus('idle');
     setUploadMessage('');
     setUploadProgress(0);
@@ -418,6 +472,9 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     }
     if (coverPhotoInputRef.current) {
       coverPhotoInputRef.current.value = '';
+    }
+    if (ocrLayoutInputRef.current) {
+      ocrLayoutInputRef.current.value = '';
     }
   };
 
@@ -522,6 +579,75 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
         </div>
         {errors.file && (
           <p className={FIELD_ERROR_CLASS}>{errors.file}</p>
+        )}
+
+        {/* Optional OCR layout JSON (PDF-overlay reader mode) */}
+        {isPdfSelected && (
+          <div className="mt-6 pt-6 border-t border-border">
+            <label className={LABEL_CLASS}>
+              {t('upload.ocrLayout', 'ملف تخطيط OCR (اختياري)')}
+            </label>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                type="button"
+                onClick={() => ocrLayoutInputRef.current?.click()}
+                disabled={isUploading}
+                className={CHIP_BUTTON_BASE}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  className={isRtl ? 'ml-2' : 'mr-2'}
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                {ocrLayout
+                  ? t('upload.changeOcrLayout', 'تغيير ملف JSON')
+                  : t('upload.chooseOcrLayout', 'اختر ملف JSON')}
+              </button>
+              {ocrLayout && (
+                <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[12.5px] bg-accent-soft border border-accent/30 text-accent-2 max-w-full">
+                  <span className="truncate max-w-[260px]" dir="ltr">{ocrLayout.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOcrLayout(null);
+                      if (ocrLayoutInputRef.current) {
+                        ocrLayoutInputRef.current.value = '';
+                      }
+                    }}
+                    className={`${isRtl ? 'mr-2' : 'ml-2'} text-accent-2 hover:text-text transition-colors`}
+                    disabled={isUploading}
+                    aria-label={t('upload.remove', 'Remove')}
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+              <input
+                ref={ocrLayoutInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handleOcrLayoutSelect}
+                className="hidden"
+                disabled={isUploading}
+              />
+            </div>
+            {errors.ocr_layout && (
+              <p className={FIELD_ERROR_CLASS}>{errors.ocr_layout}</p>
+            )}
+            <p className={FIELD_HINT_CLASS}>
+              {t(
+                'upload.ocrLayoutHint',
+                'ملف JSON من datalab/marker يحتوي على النص وإحداثياته؛ عند توفيره يُعرض الكتاب بصفحات PDF الأصلية مع طبقة نص شفافة.'
+              )}
+            </p>
+          </div>
         )}
       </section>
 
@@ -861,6 +987,133 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
                 <option value="ja">{t('upload.languageName.ja', '日本語')}</option>
                 <option value="tr">{t('upload.languageName.tr', 'Türkçe')}</option>
               </select>
+            </div>
+
+            {/* Printed edition (موافقة المطبوع) */}
+            <div className="space-y-4">
+              <div>
+                <span className={LABEL_CLASS}>
+                  {t('upload.editionSection', 'الطبعة المطبوعة (موافقة المطبوع)')}
+                </span>
+                <p className={FIELD_HINT_CLASS}>
+                  {t('upload.editionSectionHint', 'بيانات الطبعة الورقية التي رُقمن منها هذا الملف — تجعل الاستشهاد الأكاديمي ممكنًا.')}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="edition_editor" className={LABEL_CLASS}>
+                    {t('upload.editionEditor', 'المحقق')}
+                  </label>
+                  <input
+                    type="text"
+                    id="edition_editor"
+                    value={editionEditor}
+                    onChange={(e) => setEditionEditor(e.target.value)}
+                    className={`${INPUT_BASE} ${INPUT_BORDER}`}
+                    disabled={isUploading}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edition_publisher" className={LABEL_CLASS}>
+                    {t('upload.editionPublisher', 'دار النشر')}
+                  </label>
+                  <input
+                    type="text"
+                    id="edition_publisher"
+                    value={editionPublisher}
+                    onChange={(e) => setEditionPublisher(e.target.value)}
+                    className={`${INPUT_BASE} ${INPUT_BORDER}`}
+                    disabled={isUploading}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edition_year_hijri" className={LABEL_CLASS}>
+                    {t('upload.editionYearHijri', 'سنة الطبع (هجري)')}
+                  </label>
+                  <input
+                    type="text"
+                    id="edition_year_hijri"
+                    value={editionYearHijri}
+                    onChange={(e) => setEditionYearHijri(e.target.value)}
+                    className={`${INPUT_BASE} ${INPUT_BORDER}`}
+                    placeholder={t('upload.editionYearHijriPlaceholder', '1407')}
+                    disabled={isUploading}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edition_year_gregorian" className={LABEL_CLASS}>
+                    {t('upload.editionYearGregorian', 'سنة الطبع (ميلادي)')}
+                  </label>
+                  <input
+                    type="text"
+                    id="edition_year_gregorian"
+                    value={editionYearGregorian}
+                    onChange={(e) => setEditionYearGregorian(e.target.value)}
+                    className={`${INPUT_BASE} ${INPUT_BORDER}`}
+                    placeholder={t('upload.editionYearGregorianPlaceholder', '1987')}
+                    disabled={isUploading}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edition_volume_count" className={LABEL_CLASS}>
+                    {t('upload.editionVolumeCount', 'عدد المجلدات')}
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    id="edition_volume_count"
+                    value={editionVolumeCount}
+                    onChange={(e) => setEditionVolumeCount(e.target.value)}
+                    className={`${INPUT_BASE} ${INPUT_BORDER}`}
+                    disabled={isUploading}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Rights & provenance */}
+            <div>
+              <label htmlFor="rights_status" className={LABEL_CLASS}>
+                {t('upload.rightsStatus', 'وضع الحقوق')}
+              </label>
+              <select
+                id="rights_status"
+                value={rightsStatus}
+                onChange={(e) => setRightsStatus(e.target.value as RightsStatus)}
+                className={`${INPUT_BASE} ${INPUT_BORDER} cursor-pointer`}
+                disabled={isUploading}
+              >
+                <option value="unreviewed">
+                  {t('upload.rightsStatusOption.unreviewed', 'لم يُراجع بعد')}
+                </option>
+                <option value="clear">
+                  {t('upload.rightsStatusOption.clear', 'نضيف (ملكية عامة)')}
+                </option>
+                <option value="gray">
+                  {t('upload.rightsStatusOption.gray', 'منطقة رمادية')}
+                </option>
+                <option value="restricted">
+                  {t('upload.rightsStatusOption.restricted', 'محمي بحقوق')}
+                </option>
+              </select>
+              <p className={FIELD_HINT_CLASS}>
+                {t('upload.rightsStatusHint', 'النص التراثي ملكية عامة، لكن التحقيق والحواشي الحديثة قد تكون عليها حقوق للمحقق والدار.')}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="provenance_source" className={LABEL_CLASS}>
+                {t('upload.provenanceSource', 'مصدر النسخة الرقمية')}
+              </label>
+              <input
+                type="text"
+                id="provenance_source"
+                value={provenanceSource}
+                onChange={(e) => setProvenanceSource(e.target.value)}
+                className={`${INPUT_BASE} ${INPUT_BORDER}`}
+                placeholder={t('upload.provenanceSourcePlaceholder', 'مسح ضوئي لطبعة دار … / استيراد من …')}
+                disabled={isUploading}
+              />
             </div>
 
             {/* OCR Engine */}

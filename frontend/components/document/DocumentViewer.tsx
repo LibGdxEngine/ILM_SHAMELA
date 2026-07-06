@@ -7,6 +7,7 @@ import DocumentPageSkeleton from './DocumentPageSkeleton';
 import ErrorDisplay from '@/components/ErrorDisplay';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
+import { toLocaleDigits } from '@/lib/utils';
 
 interface DocumentViewerProps {
   pages: DocumentPageType[];
@@ -24,6 +25,43 @@ interface DocumentViewerProps {
   highlightedPage?: number | null;
   tashkeelEnabled?: boolean;
   highlights?: ApiHighlight[];
+  /** Chapter title shown at the top of the parchment sheet (Reem Kufi). */
+  sheetTitle?: string | null;
+  /** Small eyebrow above the sheet title (e.g. the chapter's section). */
+  sheetEyebrow?: string | null;
+  /** Book title shown in the sheet footer. */
+  bookTitle?: string;
+  /** Click a word in the text → search it (design "click-to-search"). */
+  onWordSearch?: (word: string) => void;
+  /** Hide the volume part of printed-edition page labels (single-volume works). */
+  singleVolume?: boolean;
+}
+
+const WORD_CHAR = /[\p{L}\p{M}ـ]/u;
+
+/** Resolve the whole word under a screen point (for click-to-search). */
+function wordAtPoint(x: number, y: number): string | null {
+  const doc = window.document as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => globalThis.Range | null;
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+  };
+  let node: Node | null = null;
+  let offset = 0;
+  if (doc.caretRangeFromPoint) {
+    const r = doc.caretRangeFromPoint(x, y);
+    if (r) { node = r.startContainer; offset = r.startOffset; }
+  } else if (doc.caretPositionFromPoint) {
+    const p = doc.caretPositionFromPoint(x, y);
+    if (p) { node = p.offsetNode; offset = p.offset; }
+  }
+  if (!node || node.nodeType !== Node.TEXT_NODE) return null;
+  const text = node.textContent || '';
+  let start = Math.min(offset, text.length);
+  let end = start;
+  while (start > 0 && WORD_CHAR.test(text[start - 1])) start -= 1;
+  while (end < text.length && WORD_CHAR.test(text[end])) end += 1;
+  const word = text.slice(start, end).trim();
+  return word.length >= 2 ? word : null;
 }
 
 export default function DocumentViewer({
@@ -41,10 +79,29 @@ export default function DocumentViewer({
   totalPages,
   highlightedPage,
   tashkeelEnabled = true,
-  highlights = []
+  highlights = [],
+  sheetTitle,
+  sheetEyebrow,
+  bookTitle,
+  onWordSearch,
+  singleVolume = false,
 }: DocumentViewerProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const localizedPath = useLocalizedPath();
+
+  // Click a word (no active selection) → search it.
+  const handleSheetClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!onWordSearch) return;
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) return; // real selection → SelectionPopover handles it
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('a, button, input, textarea, mark[data-hid]')) return;
+      const word = wordAtPoint(e.clientX, e.clientY);
+      if (word) onWordSearch(word);
+    },
+    [onWordSearch],
+  );
 
   const observer = useRef<IntersectionObserver | null>(null);
   const lastPageRef = useRef<HTMLDivElement | null>(null);
@@ -361,19 +418,55 @@ export default function DocumentViewer({
   const textDirection = language === 'ar' ? 'rtl' : 'ltr';
 
   return (
-    <div 
-      className="mx-auto max-w-5xl px-4 py-8 xl:max-w-6xl"
+    <div
+      className="px-4 py-8 sm:px-6"
       dir={textDirection}
+      style={{ background: 'var(--sheet-area)', minHeight: '100%' }}
     >
+      <div
+        className="ilm-sheet relative mx-auto"
+        style={{
+          maxWidth: 720,
+          background: 'var(--sheet-bg)',
+          border: '1px solid var(--sheet-rule)',
+          borderRadius: 4,
+          boxShadow: '0 8px 30px rgba(44,38,32,.10)',
+          padding: '46px clamp(20px, 5vw, 54px) 40px',
+        }}
+        onClick={handleSheetClick}
+      >
+      {/* Chapter header */}
+      {(sheetTitle || sheetEyebrow) && pages.length > 0 && (
+        <div className="mb-7 text-center">
+          {sheetEyebrow && (
+            <div className="text-[12px] font-semibold tracking-[0.16em]" style={{ color: '#b0936a' }}>
+              {sheetEyebrow}
+            </div>
+          )}
+          {sheetTitle && (
+            <h1 className="rr-title mt-3 text-[clamp(26px,4vw,34px)]" style={{ color: 'var(--sheet-ink)' }}>
+              <bdi>{sheetTitle}</bdi>
+            </h1>
+          )}
+          <div className="mt-4 flex items-center justify-center gap-3" aria-hidden>
+            <span className="h-px w-12" style={{ background: 'var(--sheet-rule)' }} />
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="var(--sheet-orn)">
+              <path d="M12 2l1.7 7L21 11l-7.3 2L12 22l-1.7-9L3 11l7.3-2z" />
+            </svg>
+            <span className="h-px w-12" style={{ background: 'var(--sheet-rule)' }} />
+          </div>
+        </div>
+      )}
+
       {/* Top sentinel for scroll detection */}
       {onLoadFirstPage && (
-        <div 
+        <div
           ref={topSentinelRef}
           className="h-1 w-full"
           aria-hidden="true"
         />
       )}
-      
+
       {pages.map((page, index) => {
         const isLastPage = index === pages.length - 1;
         return (
@@ -401,6 +494,8 @@ export default function DocumentViewer({
               language={language}
               tashkeelEnabled={tashkeelEnabled}
               highlights={highlights.filter((h) => h.page_number === page.page_number)}
+              printedRef={page.printed_ref}
+              singleVolume={singleVolume}
             />
           </div>
         );
@@ -423,18 +518,29 @@ export default function DocumentViewer({
       )}
       
       {!hasMore && pages.length > 0 && (
-        <div className="text-center py-10 border-t border-gray-100 mt-8" role="status" aria-live="polite">
-          <div className="flex flex-col items-center gap-2">
-            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <div className="mt-8 py-6 text-center" role="status" aria-live="polite">
+          <div className="flex flex-col items-center gap-1.5" style={{ color: 'var(--rr-ink-3, #9a8b70)' }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="var(--sheet-orn)" aria-hidden="true">
+              <path d="M12 2l1.7 7L21 11l-7.3 2L12 22l-1.7-9L3 11l7.3-2z" />
             </svg>
-            <p className="text-gray-500 text-sm font-medium">
+            <p className="text-[13px] font-medium" style={{ color: 'var(--rr-ink-2, #6e6354)' }}>
               {t('reader.endReached', 'وصلت إلى نهاية المستند')}
             </p>
-            <p className="text-gray-400 text-xs">
+            <p className="text-[11.5px]">
               {t('reader.allLoaded', 'تم تحميل جميع الصفحات')}
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Sheet footer (book name · pages) */}
+      {bookTitle && pages.length > 0 && (
+        <div
+          className="mt-8 flex items-center justify-between pt-4 text-[11.5px]"
+          style={{ borderTop: '1px solid var(--sheet-rule)', color: 'var(--rr-ink-4, #b0a487)' }}
+        >
+          <span className="truncate"><bdi>{bookTitle}</bdi></span>
+          {totalPages ? <span>{toLocaleDigits(totalPages, locale)}</span> : null}
         </div>
       )}
 
@@ -485,6 +591,7 @@ export default function DocumentViewer({
           <ErrorDisplay message={error} onRetry={onRetry} />
         </div>
       )}
+      </div>
     </div>
   );
 }

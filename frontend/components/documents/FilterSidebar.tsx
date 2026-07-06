@@ -6,13 +6,14 @@ import { useLanguageName } from '@/lib/i18n/languageName';
 import { toLocaleDigits } from '@/lib/utils';
 import { getAuthors, getCategories } from '@/lib/api';
 import FacetTypeahead from './FacetTypeahead';
+import DatePickerField from './DatePickerField';
 import {
-  DATE_INPUT_CLASS,
   FACET_INPUT_CLASS,
   FilterSection,
   PILL_OFF,
   PILL_ON,
 } from './filterTokens';
+import type { SavedFilterPreset } from '@/lib/api/documentFilters';
 
 /** Show a search box and a Show more/less toggle once a facet exceeds this. */
 const FACET_VISIBLE = 8;
@@ -44,6 +45,11 @@ interface FilterSidebarProps {
   /* clear */
   hasActiveFilters: boolean;
   onClearAll: () => void;
+  /* saved presets */
+  presets: SavedFilterPreset[];
+  onSavePreset: (name: string) => Promise<void> | void;
+  onApplyPreset: (preset: SavedFilterPreset) => void;
+  onDeletePreset: (id: number) => Promise<void> | void;
 }
 
 interface FacetGroupProps {
@@ -89,7 +95,7 @@ function FacetGroup({ heading, values, selected, onToggle, displayFn }: FacetGro
       {showSearch && (
         <div className="relative mb-3">
           <svg
-            className="absolute top-1/2 -translate-y-1/2 start-2.5 w-3.5 h-3.5 text-text-3 pointer-events-none"
+            className="absolute top-1/2 -translate-y-1/2 start-2.5 w-3.5 h-3.5 text-[#9a8b70] pointer-events-none"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -133,7 +139,7 @@ function FacetGroup({ heading, values, selected, onToggle, displayFn }: FacetGro
         <button
           type="button"
           onClick={() => setExpanded((e) => !e)}
-          className="mt-2.5 text-[11.5px] text-accent-2 hover:text-text transition-colors"
+          className="mt-2.5 text-[11.5px] text-[#b07d2b] hover:text-[#2c2620] transition-colors"
         >
           {expanded
             ? t('docs.facet.showLess', 'عرض أقل')
@@ -141,6 +147,139 @@ function FacetGroup({ heading, values, selected, onToggle, displayFn }: FacetGro
                 count: toLocaleDigits(hiddenCount, locale),
               })}
         </button>
+      )}
+    </FilterSection>
+  );
+}
+
+interface SavedPresetsSectionProps {
+  presets: SavedFilterPreset[];
+  hasActiveFilters: boolean;
+  onSavePreset: (name: string) => Promise<void> | void;
+  onApplyPreset: (preset: SavedFilterPreset) => void;
+  onDeletePreset: (id: number) => Promise<void> | void;
+}
+
+function SavedPresetsSection({
+  presets,
+  hasActiveFilters,
+  onSavePreset,
+  onApplyPreset,
+  onDeletePreset,
+}: SavedPresetsSectionProps) {
+  const { t } = useI18n();
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const name = draft.trim();
+    if (!name || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSavePreset(name);
+      setDraft('');
+      setAdding(false);
+    } catch (e) {
+      // Surface the backend rejection (e.g. duplicate name) inline.
+      setError(e instanceof Error ? e.message : t('docs.savedPresets.saveError', 'تعذّر الحفظ'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Nothing saved and nothing worth saving — hide the whole section.
+  if (presets.length === 0 && !hasActiveFilters) return null;
+
+  return (
+    <FilterSection heading={t('docs.savedPresets', 'المرشحات المحفوظة')}>
+      {presets.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {presets.map((preset) => (
+            <span key={preset.id} className={PILL_OFF}>
+              <button
+                type="button"
+                onClick={() => onApplyPreset(preset)}
+                className="max-w-[9rem] truncate"
+                title={preset.name}
+              >
+                <span dir="auto">{preset.name}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void onDeletePreset(preset.id);
+                }}
+                aria-label={t('docs.savedPresets.delete', 'حذف')}
+                title={t('docs.savedPresets.delete', 'حذف')}
+                className="-me-1 text-[#9a8b70] hover:text-[#2c2620] transition-colors"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {hasActiveFilters && (
+        <div className={presets.length > 0 ? 'mt-3' : ''}>
+          {adding ? (
+            <div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={draft}
+                  autoFocus
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void submit();
+                    } else if (e.key === 'Escape') {
+                      setAdding(false);
+                      setDraft('');
+                      setError(null);
+                    }
+                  }}
+                  placeholder={t('docs.savedPresets.namePlaceholder', 'اسم المُرشِّح…')}
+                  aria-label={t('docs.savedPresets.namePlaceholder', 'اسم المُرشِّح…')}
+                  className={`${FACET_INPUT_CLASS} !ps-3`}
+                />
+                <button
+                  type="button"
+                  onClick={() => void submit()}
+                  disabled={saving || !draft.trim()}
+                  className={`${PILL_ON} disabled:opacity-50`}
+                >
+                  {t('docs.savedPresets.save', 'حفظ')}
+                </button>
+              </div>
+              {error && <p className="mt-1.5 text-[11px] text-red-700">{error}</p>}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setAdding(true);
+                setError(null);
+              }}
+              className="inline-flex items-center gap-1.5 text-[12px] text-[#b07d2b] hover:text-[#2c2620] transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+              </svg>
+              {t('docs.savedPresets.saveCurrent', 'احفظ المرشِّحات الحالية…')}
+            </button>
+          )}
+        </div>
       )}
     </FilterSection>
   );
@@ -163,6 +302,10 @@ export default function FilterSidebar({
   onDateToChange,
   hasActiveFilters,
   onClearAll,
+  presets,
+  onSavePreset,
+  onApplyPreset,
+  onDeletePreset,
 }: FilterSidebarProps) {
   const { t, locale } = useI18n();
   const languageName = useLanguageName();
@@ -170,6 +313,15 @@ export default function FilterSidebar({
 
   return (
     <div className="text-[13px]">
+      {/* Saved filter presets */}
+      <SavedPresetsSection
+        presets={presets}
+        hasActiveFilters={hasActiveFilters}
+        onSavePreset={onSavePreset}
+        onApplyPreset={onApplyPreset}
+        onDeletePreset={onDeletePreset}
+      />
+
       {/* Status */}
       <FilterSection heading={t('docs.filter.status', 'الحالة')}>
         <div className="flex flex-wrap gap-1.5">
@@ -182,7 +334,7 @@ export default function FilterSidebar({
               className={statusSegment === s.key ? PILL_ON : PILL_OFF}
             >
               {s.label}
-              <span className="text-text-3">{formatCount(s.count)}</span>
+              <span className={statusSegment === s.key ? 'text-[#fcf8ee]/80' : 'text-[#9a8b70]'}>{formatCount(s.count)}</span>
             </button>
           ))}
         </div>
@@ -232,24 +384,26 @@ export default function FilterSidebar({
       {/* Upload date */}
       <FilterSection heading={t('docs.uploadDate', 'تاريخ الرفع')}>
         <div className="space-y-3">
-          <label className="block">
-            <span className="block text-[11px] text-text-3 mb-1.5">{t('docs.from', 'من')}</span>
-            <input
-              type="date"
+          <div>
+            <span className="mb-1.5 block text-[11px] text-[#9a8b70]">{t('docs.from', 'من')}</span>
+            <DatePickerField
               value={dateFrom}
-              onChange={(e) => onDateFromChange(e.target.value)}
-              className={DATE_INPUT_CLASS}
+              onChange={onDateFromChange}
+              max={dateTo || undefined}
+              placeholder={t('docs.datePlaceholder', 'اختر تاريخًا')}
+              ariaLabel={`${t('docs.uploadDate', 'تاريخ الرفع')} — ${t('docs.from', 'من')}`}
             />
-          </label>
-          <label className="block">
-            <span className="block text-[11px] text-text-3 mb-1.5">{t('docs.to', 'إلى')}</span>
-            <input
-              type="date"
+          </div>
+          <div>
+            <span className="mb-1.5 block text-[11px] text-[#9a8b70]">{t('docs.to', 'إلى')}</span>
+            <DatePickerField
               value={dateTo}
-              onChange={(e) => onDateToChange(e.target.value)}
-              className={DATE_INPUT_CLASS}
+              onChange={onDateToChange}
+              min={dateFrom || undefined}
+              placeholder={t('docs.datePlaceholder', 'اختر تاريخًا')}
+              ariaLabel={`${t('docs.uploadDate', 'تاريخ الرفع')} — ${t('docs.to', 'إلى')}`}
             />
-          </label>
+          </div>
         </div>
       </FilterSection>
 
@@ -259,7 +413,7 @@ export default function FilterSidebar({
           <button
             type="button"
             onClick={onClearAll}
-            className="inline-flex items-center gap-1.5 text-[12px] text-accent-2 hover:text-text transition-colors"
+            className="inline-flex items-center gap-1.5 text-[12px] text-[#b07d2b] hover:text-[#2c2620] transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

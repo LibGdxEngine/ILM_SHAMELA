@@ -44,7 +44,7 @@ export default function UploadPage() {
   };
 
   return (
-    <RequireAuth>
+    <RequireAuth requireUpload>
       <main className="landing-shell min-h-screen">
         <div className="mx-auto max-w-3xl px-6 sm:px-10 lg:px-16 py-14 relative z-10">
           {/* Header */}

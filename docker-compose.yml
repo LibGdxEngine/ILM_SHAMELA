@@ -15,6 +15,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   es:
     image: elasticsearch:8.11.1
@@ -35,6 +36,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -48,6 +50,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   minio:
     image: minio/minio:latest
@@ -68,6 +71,7 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    restart: unless-stopped
 
   createbuckets:
     image: minio/mc:latest
@@ -289,6 +293,61 @@ services:
       - search_net
     restart: unless-stopped
 
+  agent:
+    # CopilotKit deep-agent sidecar. Reuses the backend image (same context) but
+    # bypasses entrypoint.sh (no migrations/superuser) and serves the AG-UI
+    # endpoint that the Next.js /api/copilotkit runtime bridges to.
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: search_agent
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ "$${ENVIRONMENT:-prod}" = "dev" ]; then
+          exec uvicorn agent_service.main:app --host 0.0.0.0 --port 8123 --reload
+        else
+          exec uvicorn agent_service.main:app --host 0.0.0.0 --port 8123
+        fi
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./backend:/app
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-prod}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ELASTICSEARCH_HOST=es:9200
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - AWS_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_STORAGE_BUCKET_NAME=documents
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      - DEBUG=${DEBUG:-false}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_CHAT_MODEL=${OPENROUTER_CHAT_MODEL:-google/gemini-2.5-flash-lite}
+      - OPENROUTER_AGENT_MODEL=${OPENROUTER_AGENT_MODEL:-google/gemini-3.1-flash-lite}
+      - OPENROUTER_REFERER=${OPENROUTER_REFERER:-https://ilmshamela.com}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_CHAT_MODEL=${ANTHROPIC_CHAT_MODEL:-claude-sonnet-4-6}
+    depends_on:
+      db:
+        condition: service_healthy
+      es:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - search_net
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./frontend
@@ -310,8 +369,12 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-prod}
       - NEXT_PUBLIC_API_URL=http://backend:8000
       - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
+      # Server-side only: the /api/copilotkit route handler bridges to the agent sidecar.
+      - AGENT_SERVICE_URL=${AGENT_SERVICE_URL:-http://agent:8123}
+      - COPILOTKIT_TELEMETRY_DISABLED=${COPILOTKIT_TELEMETRY_DISABLED:-true}
     depends_on:
       - backend
+      - agent
     networks:
       - search_net
     restart: unless-stopped

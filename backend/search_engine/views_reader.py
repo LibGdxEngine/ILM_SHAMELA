@@ -7,15 +7,18 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, renderers, serializers, status, views, viewsets
 from rest_framework.response import Response
 
-from .models import Bookmark, Chapter, Document, Highlight, Note, ReaderPreference, ReadingProgress
+from .models import Bookmark, Chapter, Document, DocumentFilterPreference, Highlight, Note, ReaderPreference, ReadingProgress, SavedFilterPreset, TextCorrection
 from .serializers_reader import (
     BookmarkSerializer,
     ChapterSerializer,
     ContinueReadingSerializer,
+    DocumentFilterPreferenceSerializer,
     HighlightSerializer,
     NoteSerializer,
     ReaderPreferenceSerializer,
     ReadingProgressSerializer,
+    SavedFilterPresetSerializer,
+    TextCorrectionSerializer,
 )
 
 
@@ -92,6 +95,29 @@ class ReaderPreferenceView(generics.RetrieveUpdateAPIView):
         return obj
 
 
+class DocumentFilterPreferenceView(generics.RetrieveUpdateAPIView):
+    """GET/PATCH the per-user auto-saved /documents filter-state singleton."""
+    serializer_class = DocumentFilterPreferenceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        obj, _ = DocumentFilterPreference.objects.get_or_create(user=self.request.user)
+        return obj
+
+
+class SavedFilterPresetViewSet(viewsets.ModelViewSet):
+    """List/create/delete the user's named /documents filter presets."""
+    serializer_class = SavedFilterPresetSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        return SavedFilterPreset.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
 class BookmarkViewSet(viewsets.ModelViewSet):
     serializer_class = BookmarkSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -130,6 +156,19 @@ class HighlightViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Highlight.objects.filter(user=self.request.user)
+        return _filter_by_document(qs, self.request)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class TextCorrectionViewSet(viewsets.ModelViewSet):
+    serializer_class = TextCorrectionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = TextCorrection.objects.filter(user=self.request.user)
         return _filter_by_document(qs, self.request)
 
     def perform_create(self, serializer):

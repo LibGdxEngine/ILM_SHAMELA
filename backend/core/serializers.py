@@ -54,7 +54,10 @@ class CustomLoginSerializer(LoginSerializer):
 class CustomRegisterSerializer(RegisterSerializer):
     """Custom registration serializer with first/last name fields."""
     first_name = serializers.CharField(required=True)
-    last_name = serializers.CharField(required=True)
+    # Optional: the sign-up form collects a single "full name" field, so a
+    # mononym (e.g. "أحمد") yields an empty last name. Allow blank rather than
+    # forcing the UI to fabricate one.
+    last_name = serializers.CharField(required=False, allow_blank=True, default='')
 
     def validate_email(self, email):
         """Check if email already exists with a friendly message."""
@@ -176,6 +179,10 @@ class UserProfileSerializer(serializers.Serializer):
         return None
 
     def to_representation(self, instance):
+        # Import locally to avoid a circular import between the core and
+        # search_engine apps at module load time.
+        from search_engine.permissions import has_editor_privileges
+
         return {
             'pk': instance.pk,
             'username': instance.username,
@@ -186,6 +193,9 @@ class UserProfileSerializer(serializers.Serializer):
             'avatar': self._get_avatar(instance),
             'is_staff': bool(instance.is_staff),
             'is_superuser': bool(instance.is_superuser),
+            # Mirrors the backend upload permission (has_editor_privileges) so the
+            # UI can hide the upload affordance for users who cannot upload.
+            'can_upload': has_editor_privileges(instance),
         }
 
     def validate_first_name(self, value):

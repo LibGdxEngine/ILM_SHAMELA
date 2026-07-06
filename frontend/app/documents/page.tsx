@@ -2,17 +2,32 @@
 
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Document, DocumentsListParams, getDocuments } from '@/lib/api';
+import { CorpusSearchMode, Document, DocumentsListParams, getDocument, getDocuments, getDocumentsSearch, type AssistFilters } from '@/lib/api';
 import BookCard from '@/components/BookCard';
 import BookListRow from '@/components/BookListRow';
 import BookCardSkeleton from '@/components/BookCardSkeleton';
 import RequireAuth from '@/components/RequireAuth';
+import { useAuth } from '@/lib/AuthContext';
 import ContinueShelf from '@/components/documents/ContinueShelf';
 import BookSpine from '@/components/documents/BookSpine';
 import FilterSidebar from '@/components/documents/FilterSidebar';
 import ReadingRoomTopicBar from '@/components/documents/ReadingRoomTopicBar';
-import LibraryAssistantPanel from '@/components/documents/LibraryAssistantPanel';
+import LibraryAssistant from '@/components/documents/LibraryAssistant';
+import { useAssistantDock } from '@/lib/documents/useAssistantDock';
+import { useCopilotAction, useCopilotReadable } from '@copilotkit/react-core';
 import ReaderPanel from '@/components/document/ReaderPanel';
+import ShellHeader from '@/components/ShellHeader';
+import { type SelectedBook } from '@/components/search/NavSearchPopover';
+import SearchCommandPalette from '@/components/documents/SearchCommandPalette';
+import { buildDocumentsSearchParams, type DocumentFilterValues } from '@/lib/documentsSearchParams';
+import {
+  getDocumentFilterPreference,
+  updateDocumentFilterPreference,
+  listSavedFilterPresets,
+  createSavedFilterPreset,
+  deleteSavedFilterPreset,
+  type SavedFilterPreset,
+} from '@/lib/api/documentFilters';
 import useMediaQuery from '@/hooks/useMediaQuery';
 import useDebounce from '@/hooks/useDebounce';
 import { useI18n } from '@/components/i18n/I18nProvider';
@@ -70,6 +85,16 @@ export default function DocumentsPage() {
   const { t, locale } = useI18n();
   const languageName = useLanguageName();
   const localizedPath = useLocalizedPath();
+  const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const canUpload = !!user?.can_upload;
+
+  // Library-assistant drawer layout (open / pinned / edge), persisted per user.
+  // Owned here so the page can reflow its content when the panel is docked.
+  const dock = useAssistantDock();
+  // Below this width the 400px panel is effectively full-width, so docking has
+  // no room — treat pinned as floating (no reflow) there.
+  const canDock = useMediaQuery('(min-width: 768px)', false);
+  const docked = dock.pinned && dock.open && canDock;
 
   /* ─── Query state ─── */
   const [searchQuery, setSearchQuery] = useState('');
@@ -88,9 +113,20 @@ export default function DocumentsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [statusSegment, setStatusSegment] = useState<StatusSegment>('all');
 
+  /* ─── Corpus search (mode + book scope) + popover ─── */
+  const [searchMode, setSearchMode] = useState<CorpusSearchMode>('hybrid');
+  const [selectedBooks, setSelectedBooks] = useState<SelectedBook[]>([]);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  // The AI's one-line reading of the last natural-language query, shown as a
+  // dismissible chip above the results until the filters change by any other
+  // path (manual search, sidebar edit, preset, chip removal, clear).
+  const [assistInterpretation, setAssistInterpretation] = useState<string | null>(null);
+  // Set by applyAssistFilters so its own filter mutation doesn't trip the
+  // "filters changed → drop the stale interpretation" effect below.
+  const assistJustAppliedRef = useRef(false);
+
   /* ─── Layout state ─── */
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
   const isDesktop = useMediaQuery('(min-width: 1024px)', true);
 
   /* ─── Data state ─── */
@@ -104,6 +140,67 @@ export default function DocumentsPage() {
 
   /* ─── URL state sync (search, filters, sort, status, view) ─── */
   const restoredRef = useRef(false);
+  // Did the URL carry any *filter* param at mount? If so it wins over the
+  // backend-saved preference (deep links / shared URLs stay authoritative).
+  const hadUrlFiltersRef = useRef(false);
+
+  // Apply a bag of filter values — from the URL, the saved preference, or a
+  // named preset — to the live filter state. Deliberately excludes
+  // sort/status/view, which stay display-only prefs owned by the URL.
+  const applyFilterState = useCallback((state: DocumentFilterValues) => {
+    const q = state.q ?? '';
+    setSearchQuery(q);
+    setSearchDraft(q);
+    const refine = state.refine ?? '';
+    setRefineText(refine);
+    setRefineDraft(refine);
+    setSelectedAuthors(state.authors ?? []);
+    setSelectedCategories(state.categories ?? []);
+    setSelectedLanguages(state.languages ?? []);
+    setDateFrom(state.dateFrom ?? '');
+    setDateTo(state.dateTo ?? '');
+    const m = state.mode;
+    setSearchMode(m === 'exact' || m === 'semantic' || m === 'hybrid' ? m : 'hybrid');
+    // `documents` is id-based: resolve each id to its title via getDocument().
+    // allSettled so one deleted/invalid id doesn't drop the rest; result order
+    // follows the input order.
+    const docIds = (state.documents ?? []).filter((n) => Number.isInteger(n) && n > 0);
+    if (docIds.length === 0) {
+      setSelectedBooks([]);
+    } else {
+      Promise.allSettled(docIds.map((id) => getDocument(id))).then((settled) => {
+        const books: SelectedBook[] = [];
+        for (const r of settled) {
+          if (r.status === 'fulfilled') books.push({ id: r.value.id, title: r.value.title });
+        }
+        setSelectedBooks(books);
+      });
+    }
+  }, []);
+
+  // Apply the AI-parsed natural-language filters (replace semantics — a fresh
+  // query defines the whole filter set) and surface the assistant's one-line
+  // interpretation. Reuses applyFilterState (the same path presets / URL-restore
+  // use). AssistFilters date bounds are string|null; applyFilterState expects
+  // string|undefined, so normalise here.
+  const applyAssistFilters = useCallback(
+    (filters: AssistFilters, interpretation: string | null) => {
+      assistJustAppliedRef.current = true;
+      const preservedBooks = selectedBooks;
+      applyFilterState({
+        ...filters,
+        dateFrom: filters.dateFrom ?? undefined,
+        dateTo: filters.dateTo ?? undefined,
+      });
+      // The assistant parses corpus filters only and can't express an explicit
+      // book scope, so applyFilterState would clear it — restore the user's
+      // selection (same array ref, so no refetch). `refine` intentionally
+      // resets: a fresh natural-language query supersedes the old refinement.
+      if (preservedBooks.length) setSelectedBooks(preservedBooks);
+      setAssistInterpretation(interpretation);
+    },
+    [applyFilterState, selectedBooks],
+  );
 
   const applyFromUrl = useCallback((search: string) => {
     const p = new URLSearchParams(search);
@@ -111,34 +208,45 @@ export default function DocumentsPage() {
       const v = p.get(key);
       return v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
     };
-    const q = p.get('q') ?? '';
-    setSearchQuery(q);
-    setSearchDraft(q);
-    const refine = p.get('refine') ?? '';
-    setRefineText(refine);
-    setRefineDraft(refine);
-    setSelectedAuthors(parseList('authors'));
-    setSelectedCategories(parseList('categories'));
-    setSelectedLanguages(parseList('languages'));
-    setDateFrom(p.get('date_from') ?? '');
-    setDateTo(p.get('date_to') ?? '');
+    // Filter fields are shared with saved preferences/presets, so route them
+    // through applyFilterState. `documents=` is id-based, so parse to numbers.
+    const m = p.get('mode');
+    applyFilterState({
+      q: p.get('q') ?? '',
+      refine: p.get('refine') ?? '',
+      mode: m === 'exact' || m === 'semantic' || m === 'hybrid' ? m : undefined,
+      documents: parseList('documents').map((s) => Number(s)),
+      authors: parseList('authors'),
+      categories: parseList('categories'),
+      languages: parseList('languages'),
+      dateFrom: p.get('date_from') ?? '',
+      dateTo: p.get('date_to') ?? '',
+    });
+    // sort / status / view are display-only prefs, handled directly here.
     const s = p.get('sort');
     setSort(s === 'newest' || s === 'alphabetical' || s === 'shortest' ? s : 'relevance');
     const st = p.get('status');
     setStatusSegment(st === 'ready' || st === 'processing' ? st : 'all');
     const v = p.get('view');
     if (v === 'list' || v === 'grid' || v === 'shelf') setViewMode(v);
-  }, []);
+  }, [applyFilterState]);
 
   // Restore state from URL (and view preference from localStorage) on mount.
+  // `restoredRef` is intentionally NOT flipped here — the backend-restore
+  // effect below owns that, so the URL-mirror/PATCH effect stays gated until
+  // the saved preference has had its chance to load (see that effect).
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const savedView = window.localStorage.getItem(VIEW_KEY);
     if (savedView === 'list' || savedView === 'grid' || savedView === 'shelf') {
       setViewMode(savedView);
     }
+    // Record whether the URL specified any *filter* param (sort/status/view
+    // don't count) — if so it takes precedence over the saved preference.
+    const p = new URLSearchParams(window.location.search);
+    const FILTER_PARAMS = ['q', 'refine', 'authors', 'categories', 'languages', 'date_from', 'date_to', 'documents', 'mode'];
+    hadUrlFiltersRef.current = FILTER_PARAMS.some((key) => p.has(key));
     applyFromUrl(window.location.search);
-    restoredRef.current = true;
   }, [applyFromUrl]);
 
   // Re-apply state on browser back/forward.
@@ -149,26 +257,72 @@ export default function DocumentsPage() {
     return () => window.removeEventListener('popstate', onPop);
   }, [applyFromUrl]);
 
-  // Mirror all filter/view state into the URL (replaceState — no history spam).
+  // One-time restore of the user's backend-saved filter preference. It waits
+  // for auth to resolve, then either applies the fetched preference or bails
+  // (unauthenticated, or the URL already carried filters). Crucially it only
+  // flips `restoredRef` AFTER that resolves — this is what un-gates the
+  // URL-mirror/PATCH effect below, so an empty pre-restore state can never be
+  // PATCHed over the preference we just fetched.
+  const backendRestoreAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || backendRestoreAttemptedRef.current) return;
+    if (isAuthLoading) return;
+    backendRestoreAttemptedRef.current = true;
+    if (!isAuthenticated || hadUrlFiltersRef.current) {
+      restoredRef.current = true;
+      return;
+    }
+    getDocumentFilterPreference()
+      .then((filters) => { if (filters) applyFilterState(filters); })
+      .catch(() => {})
+      .finally(() => { restoredRef.current = true; });
+  }, [isAuthLoading, isAuthenticated, applyFilterState]);
+
+  // Mirror all filter/view state into the URL (replaceState — no history spam)
+  // and, when authenticated, debounce-PATCH the filter subset to the backend.
   useEffect(() => {
     if (typeof window === 'undefined' || !restoredRef.current) return;
-    const params = new URLSearchParams();
-    if (searchQuery.trim()) params.set('q', searchQuery.trim());
-    if (refineText.trim()) params.set('refine', refineText.trim());
-    if (selectedAuthors.length) params.set('authors', selectedAuthors.join(','));
-    if (selectedCategories.length) params.set('categories', selectedCategories.join(','));
-    if (selectedLanguages.length) params.set('languages', selectedLanguages.join(','));
-    if (dateFrom) params.set('date_from', dateFrom);
-    if (dateTo) params.set('date_to', dateTo);
-    if (sort !== 'relevance') params.set('sort', sort);
-    if (statusSegment !== 'all') params.set('status', statusSegment);
-    if (viewMode !== 'grid') params.set('view', viewMode);
+    const params = buildDocumentsSearchParams({
+      q: searchQuery,
+      refine: refineText,
+      mode: searchMode,
+      documents: selectedBooks.map((b) => b.id),
+      authors: selectedAuthors,
+      categories: selectedCategories,
+      languages: selectedLanguages,
+      dateFrom,
+      dateTo,
+      sort,
+      status: statusSegment,
+      view: viewMode,
+    });
     const qs = params.toString();
     const url = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`;
     window.history.replaceState(null, '', url);
+
+    // Persist the filter subset (never sort/status/view) for signed-in users,
+    // debounced so rapid edits collapse into a single PATCH.
+    if (!isAuthenticated) return;
+    const filterValues: DocumentFilterValues = {
+      q: searchQuery,
+      refine: refineText,
+      mode: searchMode,
+      documents: selectedBooks.map((b) => b.id),
+      authors: selectedAuthors,
+      categories: selectedCategories,
+      languages: selectedLanguages,
+      dateFrom,
+      dateTo,
+    };
+    const timer = window.setTimeout(() => {
+      updateDocumentFilterPreference(filterValues).catch(() => {});
+    }, 600);
+    return () => window.clearTimeout(timer);
   }, [
     searchQuery,
     refineText,
+    searchMode,
+    selectedBooks,
     selectedAuthors,
     selectedCategories,
     selectedLanguages,
@@ -177,6 +331,7 @@ export default function DocumentsPage() {
     sort,
     statusSegment,
     viewMode,
+    isAuthenticated,
   ]);
 
   useEffect(() => {
@@ -188,10 +343,16 @@ export default function DocumentsPage() {
     return [searchQuery, refineText].map((s) => s.trim()).filter(Boolean).join(' ');
   }, [searchQuery, refineText]);
 
+  // An active query keeps the reader on this same Reading Room page and simply
+  // filters the grid in place (rather than swapping in a separate layout).
+  const isSearching = Boolean(effectiveSearch.trim());
+
   const debouncedEffective = useDebounce(effectiveSearch, 350);
 
   const resetKey = JSON.stringify({
     debouncedEffective,
+    searchMode,
+    selectedBooks,
     selectedAuthors,
     selectedCategories,
     selectedLanguages,
@@ -207,15 +368,33 @@ export default function DocumentsPage() {
     else setIsLoading(true);
     setError(null);
 
-    const params: DocumentsListParams = { page: currentPage };
-    if (debouncedEffective) params.search = debouncedEffective;
-    if (selectedAuthors.length > 0) params.authors = selectedAuthors;
-    if (selectedCategories.length > 0) params.categories = selectedCategories;
-    if (selectedLanguages.length > 0) params.language = selectedLanguages[0];
-    if (dateFrom) params.date_from = dateFrom;
-    if (dateTo) params.date_to = dateTo;
+    // With an active query, use the Elasticsearch-backed corpus search (mode +
+    // book scope). With no query, plain browsing is unchanged (getDocuments).
+    let request: Promise<Awaited<ReturnType<typeof getDocuments>>>;
+    if (debouncedEffective) {
+      request = getDocumentsSearch({
+        q: debouncedEffective,
+        mode: searchMode,
+        documents: selectedBooks.map((b) => b.id),
+        authors: selectedAuthors,
+        categories: selectedCategories,
+        language: selectedLanguages[0],
+        date_from: dateFrom,
+        date_to: dateTo,
+        page: currentPage,
+      });
+    } else {
+      const params: DocumentsListParams = { page: currentPage };
+      if (selectedAuthors.length > 0) params.authors = selectedAuthors;
+      if (selectedCategories.length > 0) params.categories = selectedCategories;
+      if (selectedBooks.length > 0) params.documents = selectedBooks.map((b) => b.id);
+      if (selectedLanguages.length > 0) params.language = selectedLanguages[0];
+      if (dateFrom) params.date_from = dateFrom;
+      if (dateTo) params.date_to = dateTo;
+      request = getDocuments(params);
+    }
 
-    getDocuments(params)
+    request
       .then((response) => {
         if (seq !== requestSeq.current) return;
         setTotalCount(response.count);
@@ -232,7 +411,7 @@ export default function DocumentsPage() {
         setIsLoading(false);
         setIsLoadingMore(false);
       });
-  }, [currentPage, debouncedEffective, selectedAuthors, selectedCategories, selectedLanguages, dateFrom, dateTo, t]);
+  }, [currentPage, debouncedEffective, searchMode, selectedBooks, selectedAuthors, selectedCategories, selectedLanguages, dateFrom, dateTo, t]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -299,7 +478,8 @@ export default function DocumentsPage() {
   }, [accumulated, sort, locale]);
 
   /* ─── Grouping / segment derivation ─── */
-  const grouped = statusSegment === 'all' && viewMode !== 'shelf';
+  // A search shows a single flat "results" list — no Continue shelf / picks framing.
+  const grouped = statusSegment === 'all' && viewMode !== 'shelf' && !isSearching;
   const flatDocs = useMemo(() => {
     if (statusSegment === 'all') return filteredSorted;
     const wantReady = statusSegment === 'ready';
@@ -312,21 +492,77 @@ export default function DocumentsPage() {
 
   const toggleIn = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
 
+  // Shared toggle callbacks, reused by both FilterSidebar and NavSearchPopover.
+  const handleToggleCategory = (v: string) => setSelectedCategories((prev) => toggleIn(prev, v));
+  const handleToggleAuthor = (v: string) => setSelectedAuthors((prev) => toggleIn(prev, v));
+  const handleToggleBook = (book: SelectedBook) =>
+    setSelectedBooks((prev) =>
+      prev.some((b) => b.id === book.id) ? prev.filter((b) => b.id !== book.id) : [...prev, book],
+    );
+
   const clearFilters = () => {
     setSearchQuery('');
     setSearchDraft('');
     setRefineText('');
     setRefineDraft('');
+    setSearchMode('hybrid');
+    setSelectedBooks([]);
     setSelectedAuthors([]);
     setSelectedCategories([]);
     setSelectedLanguages([]);
     setDateFrom('');
     setDateTo('');
+    setAssistInterpretation(null);
+  };
+
+  /* ─── Named saved filter presets + the current-filters snapshot ─── */
+  const [presets, setPresets] = useState<SavedFilterPreset[]>([]);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    listSavedFilterPresets().then(setPresets).catch(() => {});
+  }, [isAuthenticated]);
+
+  const currentFilterValues = useMemo((): DocumentFilterValues => ({
+    q: searchQuery,
+    refine: refineText,
+    mode: searchMode,
+    documents: selectedBooks.map((b) => b.id),
+    authors: selectedAuthors,
+    categories: selectedCategories,
+    languages: selectedLanguages,
+    dateFrom,
+    dateTo,
+  }), [searchQuery, refineText, searchMode, selectedBooks, selectedAuthors, selectedCategories, selectedLanguages, dateFrom, dateTo]);
+
+  // Drop the AI "Interpreted as" chip whenever the filters change through any
+  // path other than the AI apply itself (manual search, sidebar toggle, chip
+  // removal, preset, topic bar, URL restore). applyAssistFilters sets the ref
+  // so its own mutation is exempt; every other filter change clears the chip so
+  // it never describes a filter set the user has since edited.
+  useEffect(() => {
+    if (assistJustAppliedRef.current) {
+      assistJustAppliedRef.current = false;
+      return;
+    }
+    setAssistInterpretation(null);
+  }, [currentFilterValues]);
+
+  const handleSavePreset = async (name: string) => {
+    // Let a duplicate-name (400) rejection propagate so the sidebar can show it.
+    const created = await createSavedFilterPreset(name, currentFilterValues);
+    setPresets((prev) => [created, ...prev]);
+  };
+  const handleApplyPreset = (preset: SavedFilterPreset) => applyFilterState(preset.filters);
+  const handleDeletePreset = async (id: number) => {
+    await deleteSavedFilterPreset(id);
+    setPresets((prev) => prev.filter((p) => p.id !== id));
   };
 
   const hasActiveFilters =
     Boolean(searchQuery) ||
     Boolean(refineText) ||
+    searchMode !== 'hybrid' ||
+    selectedBooks.length > 0 ||
     selectedAuthors.length > 0 ||
     selectedCategories.length > 0 ||
     selectedLanguages.length > 0 ||
@@ -337,6 +573,8 @@ export default function DocumentsPage() {
   const activeFilterCount =
     (searchQuery ? 1 : 0) +
     (refineText ? 1 : 0) +
+    (searchMode !== 'hybrid' ? 1 : 0) +
+    (selectedBooks.length ? 1 : 0) +
     (selectedAuthors.length ? 1 : 0) +
     (selectedCategories.length ? 1 : 0) +
     (selectedLanguages.length ? 1 : 0) +
@@ -345,14 +583,73 @@ export default function DocumentsPage() {
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setSearchQuery(searchDraft);
+    setPopoverOpen(false);
+    setAssistInterpretation(null);
   };
 
-  // Drive a real library search from the assistant panel.
-  const askLibrary = useCallback((query: string) => {
-    setSearchQuery(query);
-    setSearchDraft(query);
-    setAssistantOpen(false);
-  }, []);
+  // Expose the active filters + saved presets to the library agent as read-only
+  // context (it can factor them into searches but can't mutate them directly).
+  useCopilotReadable({
+    description:
+      "The user's currently active library filters and their saved named filter presets on this page. Use this to answer questions about what filters are applied, or take it into account when running searches — you cannot change it directly.",
+    value: {
+      activeFilters: currentFilterValues,
+      savedPresets: presets.map((p) => ({ name: p.name, filters: p.filters })),
+    },
+  });
+
+  // Expose the page's controls to the CopilotKit library agent so it can drive
+  // the grid (run searches / apply filters) in addition to answering in chat.
+  useCopilotAction({
+    name: 'runLibrarySearch',
+    description:
+      'Search the library and show the matching books on the page. Use this when the user asks to find or search for books, authors, or topics.',
+    parameters: [
+      { name: 'query', type: 'string', description: 'The search text to run.', required: true },
+    ],
+    handler: async ({ query }: { query: string }) => {
+      setSearchQuery(query);
+      setSearchDraft(query);
+      return `Searching the library for "${query}".`;
+    },
+  });
+
+  useCopilotAction({
+    name: 'applyFilters',
+    description:
+      'Add filters to the library grid (authors, categories, languages, and an uploaded-date range). Facet values are ADDED to the current selection, not replaced, so existing filters are preserved; the user removes filters via the on-screen chips. Pass only the facets you want to add.',
+    parameters: [
+      { name: 'authors', type: 'string[]', description: 'Author names to filter by.', required: false },
+      { name: 'categories', type: 'string[]', description: 'Category names to filter by.', required: false },
+      { name: 'languages', type: 'string[]', description: 'Language codes to filter by, e.g. "ar".', required: false },
+      { name: 'dateFrom', type: 'string', description: 'Uploaded-after date, YYYY-MM-DD.', required: false },
+      { name: 'dateTo', type: 'string', description: 'Uploaded-before date, YYYY-MM-DD.', required: false },
+    ],
+    handler: async ({
+      authors,
+      categories,
+      languages,
+      dateFrom,
+      dateTo,
+    }: {
+      authors?: string[];
+      categories?: string[];
+      languages?: string[];
+      dateFrom?: string;
+      dateTo?: string;
+    }) => {
+      // Additive union so "also filter by X" preserves existing selections
+      // rather than replacing them; an empty array is a no-op, not a clear.
+      const addUnique = (prev: string[], next?: string[]) =>
+        next?.length ? Array.from(new Set([...prev, ...next])) : prev;
+      if (authors?.length) setSelectedAuthors((prev) => addUnique(prev, authors));
+      if (categories?.length) setSelectedCategories((prev) => addUnique(prev, categories));
+      if (languages?.length) setSelectedLanguages((prev) => addUnique(prev, languages));
+      if (dateFrom !== undefined) setDateFrom(dateFrom);
+      if (dateTo !== undefined) setDateTo(dateTo);
+      return 'Updated the library filters.';
+    },
+  });
 
   const applyRefine = () => {
     setRefineText(refineDraft);
@@ -390,15 +687,19 @@ export default function DocumentsPage() {
       selectedCategories={selectedCategories}
       selectedLanguages={selectedLanguages}
       selectedAuthors={selectedAuthors}
-      onToggleCategory={(v) => setSelectedCategories((prev) => toggleIn(prev, v))}
+      onToggleCategory={handleToggleCategory}
       onToggleLanguage={(v) => setSelectedLanguages((prev) => toggleIn(prev, v))}
-      onToggleAuthor={(v) => setSelectedAuthors((prev) => toggleIn(prev, v))}
+      onToggleAuthor={handleToggleAuthor}
       dateFrom={dateFrom}
       dateTo={dateTo}
       onDateFromChange={setDateFrom}
       onDateToChange={setDateTo}
       hasActiveFilters={hasActiveFilters}
       onClearAll={clearFilters}
+      presets={presets}
+      onSavePreset={handleSavePreset}
+      onApplyPreset={handleApplyPreset}
+      onDeletePreset={handleDeletePreset}
     />
   );
 
@@ -458,6 +759,13 @@ export default function DocumentsPage() {
         {refineText && (
           <ActiveChip label={t('docs.refine.button', 'تنقيح')} value={refineText} onRemove={() => { setRefineText(''); setRefineDraft(''); }} />
         )}
+        {searchMode !== 'hybrid' && (
+          <ActiveChip
+            label={t('nav.search.modeLabel', 'نوع البحث')}
+            value={t(`nav.search.mode.${searchMode}`, searchMode === 'exact' ? 'تام' : 'دلالي')}
+            onRemove={() => setSearchMode('hybrid')}
+          />
+        )}
         {selectedCategories.map((c) => (
           <ActiveChip key={c} label={t('docs.filter.category', 'تصنيف')} value={c} onRemove={() => setSelectedCategories((prev) => prev.filter((x) => x !== c))} />
         ))}
@@ -466,6 +774,14 @@ export default function DocumentsPage() {
         ))}
         {selectedAuthors.map((a) => (
           <ActiveChip key={a} label={t('docs.filter.author', 'مؤلف')} value={a} onRemove={() => setSelectedAuthors((prev) => prev.filter((x) => x !== a))} />
+        ))}
+        {selectedBooks.map((b) => (
+          <ActiveChip
+            key={b.id}
+            label={t('nav.search.books', 'الكتب')}
+            value={b.title}
+            onRemove={() => setSelectedBooks((prev) => prev.filter((x) => x.id !== b.id))}
+          />
         ))}
         {(dateFrom || dateTo) && (
           <ActiveChip label={t('docs.filter.date', 'تاريخ')} value={`${dateFrom || '…'} — ${dateTo || '…'}`} onRemove={() => { setDateFrom(''); setDateTo(''); }} />
@@ -654,71 +970,116 @@ export default function DocumentsPage() {
     </button>
   );
 
+  const librarySearchEl = (
+    <div className="relative w-full max-w-[540px]">
+      <form onSubmit={submitSearch} className="w-full">
+        <div
+          className="flex items-center gap-[11px] rounded-[12px] border px-4 py-[11px]"
+          style={{ background: 'var(--rr-surface)', borderColor: 'var(--rr-line)' }}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#9a8b70" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.5" y2="16.5" />
+          </svg>
+          <input
+            type="text"
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            onFocus={() => setPopoverOpen(true)}
+            placeholder={t('docs.rr.searchPlaceholder', 'ابحث في الكتب والمؤلفين والمواضيع…')}
+            dir="auto"
+            aria-label={t('docs.rr.searchPlaceholder', 'ابحث في الكتب والمؤلفين والمواضيع…')}
+            className="min-w-0 flex-1 bg-transparent text-[14.5px] outline-none placeholder:text-[#9a8b70]"
+            style={{ color: 'var(--rr-ink)' }}
+          />
+        </div>
+      </form>
+      <SearchCommandPalette
+        open={popoverOpen}
+        onOpenChange={setPopoverOpen}
+        initialQuery={searchDraft}
+        mode={searchMode}
+        onModeChange={setSearchMode}
+        selectedCategories={selectedCategories}
+        onToggleCategory={handleToggleCategory}
+        selectedAuthors={selectedAuthors}
+        onToggleAuthor={handleToggleAuthor}
+        selectedBooks={selectedBooks}
+        onToggleBook={handleToggleBook}
+        isAuthenticated={isAuthenticated}
+        onAssistApply={applyAssistFilters}
+        onPlainSubmit={(q) => {
+          setSearchDraft(q);
+          setSearchQuery(q);
+          setAssistInterpretation(null);
+        }}
+      />
+    </div>
+  );
+
   return (
     <RequireAuth>
-      <main className="reading-room min-h-screen">
+      <main
+        className="reading-room min-h-screen"
+        style={{
+          transition: 'padding 0.42s cubic-bezier(0.2,0.8,0.2,1)',
+          paddingLeft: docked && dock.edge === 'left' ? 400 : undefined,
+          paddingRight: docked && dock.edge === 'right' ? 400 : undefined,
+          paddingBottom: docked && dock.edge === 'bottom' ? 'min(60vh, 420px)' : undefined,
+        }}
+      >
+        <ShellHeader contained showThemeToggle search={librarySearchEl} />
         <div className="mx-auto max-w-[1400px] px-5 sm:px-9 lg:px-12 relative z-10">
-          {/* ─── Header ─── */}
-          <section className="pt-9 sm:pt-12 pb-5 border-b border-[#e2d5ba]">
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-              <div className="min-w-0">
-                <h1 className="rr-title leading-[1.05] tracking-tight" style={{ fontSize: 'clamp(26px, 2.8vw, 38px)' }}>
-                  {t('nav.app.library', 'مكتبتي')}
-                </h1>
-                {initialLoading ? (
-                  <div className="mt-3 h-4 w-72 max-w-full rounded-[6px] bg-[#fcf8ee] animate-pulse" />
-                ) : totalCount > 0 ? (
-                  <p className="mt-2 text-[13px] text-[#6e6354]">
-                    {t('docs.header.counts', '{total} مستندات · {ready} جاهزة · {processing} قيد المعالجة', {
-                      total: formatCount(totalCount),
-                      ready: formatCount(statusCounts.ready),
-                      processing: formatCount(statusCounts.processing),
-                    })}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="flex-shrink-0">
+          {/* ─── Topic bar + upload ─── */}
+          <section className="pt-6 pb-4 border-b border-[#e2d5ba]">
+            <div className="flex items-center justify-between gap-4">
+              {!emptyLibrary ? (
+                <div className="min-w-0 flex-1">
+                  <ReadingRoomTopicBar
+                    selectedCategories={selectedCategories}
+                    onToggleCategory={(v) => setSelectedCategories((prev) => toggleIn(prev, v))}
+                    onClearCategories={() => setSelectedCategories([])}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1" />
+              )}
+              {canUpload && (
                 <Link
                   href={localizedPath('/upload')}
-                  className="inline-flex items-center gap-2 rounded-full bg-[#b07d2b] text-[#fcf8ee] text-[13.5px] font-semibold px-5 h-11 shadow-[0_4px_18px_-6px_rgba(176,125,43,0.6)] hover:brightness-105 hover:-translate-y-[1px] transition-all"
+                  className="flex-shrink-0 inline-flex items-center gap-2 rounded-full bg-[#b07d2b] text-[#fcf8ee] text-[12.5px] font-semibold px-4 h-9 shadow-[0_4px_18px_-6px_rgba(176,125,43,0.6)] hover:brightness-105 hover:-translate-y-[1px] transition-all"
                 >
                   <UploadIcon />
-                  {t('nav.app.uploadBook', 'رفع كتاب')}
+                  <span className="hidden sm:inline">{t('nav.app.uploadBook', 'رفع كتاب')}</span>
                 </Link>
-              </div>
+              )}
             </div>
-
-            {/* Browse-by-topic chip bar (real category filter) */}
-            {!emptyLibrary && (
-              <div className="mt-5">
-                <ReadingRoomTopicBar
-                  selectedCategories={selectedCategories}
-                  onToggleCategory={(v) => setSelectedCategories((prev) => toggleIn(prev, v))}
-                  onClearCategories={() => setSelectedCategories([])}
-                />
-              </div>
-            )}
           </section>
 
           {emptyLibrary ? (
             <div className="py-20 text-center">
               <h2 className="rr-title text-[clamp(22px,2.6vw,32px)] mb-3">
-                {t('docs.hero.empty.headline', 'ابدأ مكتبتك.')}
+                {canUpload
+                  ? t('docs.hero.empty.headline', 'ابدأ مكتبتك.')
+                  : t('docs.hero.empty.readerHeadline', 'المكتبة فارغة حاليًا.')}
               </h2>
               <p className="text-[14px] text-[#6e6354] mb-7 max-w-md mx-auto leading-[1.8]">
-                {t('docs.hero.empty.subtext', 'ارفع كتابك الأوّل لتبدأ القراءة مع علم.')}
+                {canUpload
+                  ? t('docs.hero.empty.subtext', 'ارفع كتابك الأوّل لتبدأ القراءة مع علم.')
+                  : t('docs.hero.empty.readerSubtext', 'لم تتم إضافة أي كتب بعد. تحقّق مرة أخرى قريبًا.')}
               </p>
-              <Link
-                href={localizedPath('/upload')}
-                className="inline-flex items-center gap-2 rounded-full bg-[#b07d2b] text-[#fcf8ee] text-[13.5px] font-semibold px-5 h-11 shadow-[0_4px_18px_-6px_rgba(176,125,43,0.6)] hover:brightness-105 transition-all"
-              >
-                <UploadIcon />
-                {t('docs.hero.empty.cta', 'ارفع كتابك الأوّل')}
-              </Link>
+              {canUpload && (
+                <Link
+                  href={localizedPath('/upload')}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#b07d2b] text-[#fcf8ee] text-[13.5px] font-semibold px-5 h-11 shadow-[0_4px_18px_-6px_rgba(176,125,43,0.6)] hover:brightness-105 transition-all"
+                >
+                  <UploadIcon />
+                  {t('docs.hero.empty.cta', 'ارفع كتابك الأوّل')}
+                </Link>
+              )}
             </div>
           ) : (
-            <div className="pt-6 lg:grid lg:grid-cols-[272px_minmax(0,1fr)] lg:gap-8 xl:grid-cols-[272px_minmax(0,1fr)_340px] lg:items-start">
+            <div className="pt-6 lg:grid lg:grid-cols-[272px_minmax(0,1fr)] lg:gap-8 lg:items-start">
               {/* ─── Filter rail ─── */}
               {isDesktop && (
                 <aside className="hidden lg:block lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto custom-scrollbar pe-1">
@@ -730,13 +1091,13 @@ export default function DocumentsPage() {
 
               {/* ─── Main column ─── */}
               <div className="min-w-0">
-                {/* Mobile filter + assistant triggers */}
-                <div className="flex items-center gap-2 mb-4 xl:hidden">
-                  {!isDesktop && (
+                {/* Mobile filter trigger (the assistant opens from the floating bubble) */}
+                {!isDesktop && (
+                  <div className="flex items-center gap-2 mb-4 lg:hidden">
                     <button
                       type="button"
                       onClick={() => setFiltersOpen(true)}
-                      className="lg:hidden inline-flex items-center gap-2 px-4 py-2 text-[12.5px] rounded-full border border-[#e2d5ba] bg-[#fcf8ee] text-[#2c2620] hover:border-[#b07d2b] transition-all"
+                      className="inline-flex items-center gap-2 px-4 py-2 text-[12.5px] rounded-full border border-[#e2d5ba] bg-[#fcf8ee] text-[#2c2620] hover:border-[#b07d2b] transition-all"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M6 12h12M10 20h4" />
@@ -745,45 +1106,34 @@ export default function DocumentsPage() {
                         ? t('docs.filters.open', 'تصفية ({count})', { count: formatCount(activeFilterCount) })
                         : t('docs.filters', 'المرشحات')}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setAssistantOpen(true)}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-[12.5px] rounded-full border border-[#e2d5ba] bg-[#fcf8ee] text-[#2c2620] hover:border-[#b07d2b] transition-all"
-                  >
-                    <span className="text-[#b07d2b]" aria-hidden>✦</span>
-                    {t('docs.rr.assistant.open', 'اسأل المساعد')}
-                  </button>
-                </div>
-
-                {/* Search */}
-                <form onSubmit={submitSearch} className="mb-5 max-w-2xl">
-                  <div className="relative">
-                    <svg
-                      className="absolute top-1/2 -translate-y-1/2 start-3.5 w-4 h-4 text-[#9a8b70] pointer-events-none"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      aria-hidden
-                    >
-                      <circle cx="11" cy="11" r="7" />
-                      <path d="m21 21-4.3-4.3" />
-                    </svg>
-                    <input
-                      type="text"
-                      value={searchDraft}
-                      onChange={(e) => setSearchDraft(e.target.value)}
-                      placeholder={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
-                      dir="auto"
-                      aria-label={t('docs.zoneC.searchPlaceholder', 'ابحث في مكتبتك…')}
-                      className={SEARCH_INPUT_CLASS}
-                    />
                   </div>
-                </form>
+                )}
 
                 {/* Active chips */}
                 {renderActiveChips()}
+
+                {/* AI interpretation of the last natural-language query */}
+                {assistInterpretation && (
+                  <div className="mb-4 flex items-start gap-2.5 rounded-[12px] border border-[#e3cfa3] bg-[#faf3e2] px-4 py-3">
+                    <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#b07d2b]" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                      <path d="M12 2l1.9 4.8L18.7 8.7 13.9 10.6 12 15.4 10.1 10.6 5.3 8.7 10.1 6.8z" />
+                    </svg>
+                    <p className="flex-1 text-[13px] leading-[1.6] text-[#6e6354]">
+                      <span className="font-semibold text-[#b07d2b]">{t('docs.palette.interpretedAs', 'فُسِّر كـ')}: </span>
+                      <bdi>{assistInterpretation}</bdi>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setAssistInterpretation(null)}
+                      aria-label={t('reader.closePanel', 'إغلاق')}
+                      className="flex-shrink-0 rounded-full p-0.5 text-[#9a8b70] hover:text-[#2c2620] transition-colors"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
 
                 {/* Legend */}
                 {renderLegend()}
@@ -797,16 +1147,28 @@ export default function DocumentsPage() {
                     <label className="text-[11.5px] tracking-[0.12em] uppercase text-[#9a8b70]">
                       {t('docs.sort.label', 'الترتيب')}
                     </label>
-                    <select
-                      value={sort}
-                      onChange={(e) => setSort(e.target.value as SortKey)}
-                      className="px-3 py-2 text-[12.5px] bg-[#fcf8ee] border border-[#e2d5ba] rounded-[10px] focus:border-[#b07d2b] outline-none text-[#2c2620] cursor-pointer transition-all"
-                    >
-                      <option value="relevance">{t('docs.sort.relevance', 'الأكثر صلة')}</option>
-                      <option value="newest">{t('docs.sort.newest', 'الأحدث')}</option>
-                      <option value="alphabetical">{t('docs.sort.alphabetical', 'أبجدي')}</option>
-                      <option value="shortest">{t('docs.sort.shortest', 'الأقصر أولًا')}</option>
-                    </select>
+                    <div className="relative">
+                      <select
+                        value={sort}
+                        onChange={(e) => setSort(e.target.value as SortKey)}
+                        className="appearance-none ps-3 pe-9 py-2 text-[12.5px] bg-[#fcf8ee] border border-[#e2d5ba] rounded-[10px] focus:border-[#b07d2b] focus:shadow-[0_0_0_4px_rgba(176,125,43,0.10)] outline-none text-[#2c2620] cursor-pointer transition-all"
+                      >
+                        <option value="relevance">{t('docs.sort.relevance', 'الأكثر صلة')}</option>
+                        <option value="newest">{t('docs.sort.newest', 'الأحدث')}</option>
+                        <option value="alphabetical">{t('docs.sort.alphabetical', 'أبجدي')}</option>
+                        <option value="shortest">{t('docs.sort.shortest', 'الأقصر أولًا')}</option>
+                      </select>
+                      <svg
+                        className="pointer-events-none absolute top-1/2 end-3 -translate-y-1/2 w-3.5 h-3.5 text-[#b07d2b]"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2.2}
+                        aria-hidden
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+                      </svg>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -892,7 +1254,13 @@ export default function DocumentsPage() {
                   renderEmptyResults()
                 ) : (
                   <>
-                    {grouped ? (
+                    {isSearching ? (
+                      viewMode === 'shelf' ? (
+                        renderShelf(flatDocs)
+                      ) : (
+                        renderGroup(t('docs.search.resultsHeading', 'نتائج البحث'), flatDocs)
+                      )
+                    ) : grouped ? (
                       <>
                         <ContinueShelf />
                         {renderGroup(t('docs.group.processing', 'قيد المعالجة'), processingDocs)}
@@ -909,11 +1277,6 @@ export default function DocumentsPage() {
                 )}
               </div>
 
-              {/* ─── AI assistant rail (xl and up) ─── */}
-              <aside className="hidden xl:block xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)]">
-                <LibraryAssistantPanel onAsk={askLibrary} />
-              </aside>
-
               {/* Mobile filter drawer */}
               {!isDesktop && (
                 <ReaderPanel
@@ -926,18 +1289,8 @@ export default function DocumentsPage() {
                 </ReaderPanel>
               )}
 
-              {/* Assistant drawer (below xl) */}
-              <div className="contents xl:hidden">
-                <ReaderPanel
-                  isOpen={assistantOpen}
-                  onClose={() => setAssistantOpen(false)}
-                  title={t('docs.rr.assistant.title', 'المساعد الذكي')}
-                >
-                  <div className="h-[70vh]">
-                    <LibraryAssistantPanel onAsk={askLibrary} hideHeader />
-                  </div>
-                </ReaderPanel>
-              </div>
+              {/* ─── AI library assistant (bespoke Reading Room edge drawer) ─── */}
+              <LibraryAssistant dock={dock} />
             </div>
           )}
         </div>

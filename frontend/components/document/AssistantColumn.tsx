@@ -5,20 +5,33 @@ import { forwardRef, useImperativeHandle, useRef } from 'react';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useChat } from '@/lib/reader/useChat';
 
+import AssistantContextBar from './AssistantContextBar';
 import AssistantInput, { AssistantInputHandle } from './AssistantInput';
 import AssistantMessageList from './AssistantMessageList';
-import { useReaderShell } from './ReaderShell';
+import AssistantSessionMenu from './AssistantSessionMenu';
+import PanelIconButton from './PanelIconButton';
 
 interface AssistantColumnProps {
   documentId: number;
   currentPage: number;
   /** Click-to-jump handler — fired when a citation chip is clicked. */
   onCitationClick: (page: number) => void;
+  /** Ask the host to reveal the assistant (it lives in a header-triggered drawer). */
+  onRequestOpen?: () => void;
+  /** Close the assistant panel. */
+  onClose?: () => void;
+  /** Pinned = docked column; unpinned = floating overlay. */
+  pinned?: boolean;
+  onTogglePin?: () => void;
 }
 
 export interface AssistantColumnHandle {
   /** Pre-populate the input with a draft string (e.g. from a selection). */
   setDraft: (text: string) => void;
+  /** Pin a selected snippet as persistent context (e.g. from a selection). */
+  addPin: (text: string, page: number) => void;
+  /** Reveal the assistant and immediately send a message (e.g. translate/summarize a selection). */
+  ask: (text: string) => void;
 }
 
 const SUGGESTED_PROMPT_KEYS: Array<{ key: string; fallback: string }> = [
@@ -29,42 +42,33 @@ const SUGGESTED_PROMPT_KEYS: Array<{ key: string; fallback: string }> = [
 ];
 
 const AssistantColumn = forwardRef<AssistantColumnHandle, AssistantColumnProps>(
-  function AssistantColumn({ documentId, currentPage, onCitationClick }, ref) {
+  function AssistantColumn({ documentId, currentPage, onCitationClick, onRequestOpen, onClose, pinned, onTogglePin }, ref) {
     const { t } = useI18n();
-    const { assistantCollapsed, toggleAssistant } = useReaderShell();
     const chat = useChat(documentId);
     const inputRef = useRef<AssistantInputHandle | null>(null);
-    /** Stashed draft used when the column is currently collapsed; consumed by AssistantInput on mount. */
+    /** Stashed draft consumed by AssistantInput on mount (e.g. when opened from a selection). */
     const pendingDraftRef = useRef<string | null>(null);
 
     useImperativeHandle(ref, () => ({
       setDraft: (text) => {
-        if (assistantCollapsed) {
-          pendingDraftRef.current = text;
-          toggleAssistant();
+        onRequestOpen?.();
+        if (inputRef.current) {
+          inputRef.current.setDraft(text);
         } else {
-          inputRef.current?.setDraft(text);
+          pendingDraftRef.current = text;
         }
       },
+      addPin: (text, page) => {
+        onRequestOpen?.();
+        void chat.addPin(text, page);
+      },
+      ask: (text) => {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        onRequestOpen?.();
+        void chat.send(trimmed, currentPage);
+      },
     }));
-
-    if (assistantCollapsed) {
-      return (
-        <div className="flex h-full flex-col items-center gap-2 py-3">
-          <button
-            type="button"
-            aria-label={t('assistant.expand', 'Expand AI assistant')}
-            onClick={toggleAssistant}
-            className="rounded-md p-2 text-text-2 transition-colors hover:bg-accent-soft hover:text-accent"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="15 18 9 12 15 6" className="rtl:hidden" />
-              <polyline points="9 18 15 12 9 6" className="hidden rtl:block" />
-            </svg>
-          </button>
-        </div>
-      );
-    }
 
     const showSuggestions = chat.messages.length === 0 && !chat.isStreaming;
 
@@ -87,18 +91,27 @@ const AssistantColumn = forwardRef<AssistantColumnHandle, AssistantColumnProps>(
               <span className="ms-1 text-[12px] text-text-3">{chat.toolStatus}</span>
             )}
           </div>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-label={t('assistant.collapse', 'Collapse AI assistant')}
-              onClick={toggleAssistant}
-              className="rounded-md p-1.5 text-text-3 transition-colors hover:bg-accent-soft hover:text-accent"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="9 18 15 12 9 6" className="rtl:hidden" />
-                <polyline points="15 18 9 12 15 6" className="hidden rtl:block" />
-              </svg>
-            </button>
+          <div className="flex items-center gap-0.5">
+            <AssistantSessionMenu
+              sessions={chat.sessions}
+              activeSessionId={chat.activeSessionId}
+              onSwitch={chat.switchSession}
+              onNew={chat.startNewSession}
+              onRename={chat.renameSession}
+              onDelete={chat.deleteSession}
+              disabled={chat.isStreaming}
+            />
+            {onTogglePin && (
+              <PanelIconButton
+                onClick={onTogglePin}
+                active={pinned}
+                label={t(pinned ? 'reader.panel.unpin' : 'reader.panel.pin', pinned ? 'إلغاء التثبيت' : 'تثبيت')}
+                icon="pin"
+              />
+            )}
+            {onClose && (
+              <PanelIconButton onClick={onClose} label={t('reader.closePanel', 'إغلاق')} icon="close" />
+            )}
           </div>
         </div>
 
@@ -146,6 +159,16 @@ const AssistantColumn = forwardRef<AssistantColumnHandle, AssistantColumnProps>(
           />
         )}
 
+        <AssistantContextBar
+          scope={chat.contextScope}
+          onScopeChange={chat.setContextScope}
+          pins={chat.pins}
+          onRemovePin={chat.removePin}
+          onClearPins={chat.clearPins}
+          currentPage={currentPage}
+          disabled={chat.isStreaming}
+        />
+
         <AssistantInput
           ref={(handle) => {
             inputRef.current = handle;
@@ -155,7 +178,6 @@ const AssistantColumn = forwardRef<AssistantColumnHandle, AssistantColumnProps>(
             }
           }}
           isStreaming={chat.isStreaming}
-          currentPage={currentPage}
           onSend={(content) => void chat.send(content, currentPage)}
         />
       </div>

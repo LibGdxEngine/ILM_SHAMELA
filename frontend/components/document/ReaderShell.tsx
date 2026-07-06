@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CSSProperties,
   ReactNode,
   createContext,
   useCallback,
@@ -9,50 +10,60 @@ import {
   useState,
 } from 'react';
 
-import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useIsDesktop } from '@/hooks/useIsDesktop';
 
 const LS_KEY = 'reader:layout';
 
 interface PersistedLayout {
   tocCollapsed?: boolean;
-  assistantCollapsed?: boolean;
+}
+
+export interface PanelState {
+  /** Whether the panel is shown at all. */
+  open: boolean;
+  /** Pinned = docked column (reserves layout space). Unpinned = floating overlay. */
+  pinned: boolean;
 }
 
 interface ReaderShellProps {
   header: ReactNode;
-  /** Right-side column in RTL (TOC). */
-  tocColumn: ReactNode;
-  /** Left-side column in RTL (AI assistant). */
-  assistantColumn: ReactNode;
-  /** Center reading column content. */
+  /** Right-side column in RTL (table of contents). Pass null to omit the region entirely (PDF-overlay books). */
+  tocColumn?: ReactNode;
+  /** Left-side panel in RTL (advanced in-document search). */
+  searchColumn: ReactNode;
+  search: PanelState;
+  onCloseSearch: () => void;
+  /** Full-screen reading mode: hide the TOC + side panels entirely. */
+  fullscreen?: boolean;
   children: ReactNode;
 }
 
 /**
- * Three-column reading workspace with responsive drawers.
+ * Three-region reading workspace.
  *
- * Desktop (≥1200px): all three columns visible side-by-side; sides collapsible
- *   to 56px icon rails. Collapse state persists to localStorage.
- * Tablet  (768–1199px): both side columns become slide-over drawers triggered
- *   by header icons.
- * Mobile  (<768px): single column; side columns become bottom sheets.
+ * - TOC: docked collapsible column on the inline-end (right in RTL).
+ * - Search + Assistant: each open/closable and pinnable. Pinned → docked column
+ *   on the inline-start; unpinned → floating overlay drawer. Toggling pin/float
+ *   only changes styles (never re-parents the panel node) so stateful panels —
+ *   the assistant's chat — never remount.
+ * - Full-screen mode hides the TOC and both panels for distraction-free reading.
  *
- * RTL: source order is [toc, reading, assistant]. In RTL the grid flips so
- * TOC sits on the right, assistant on the left.
+ * Below 1200px the side regions always behave as floating overlays.
  */
 export default function ReaderShell({
   header,
   tocColumn,
-  assistantColumn,
+  searchColumn,
+  search,
+  onCloseSearch,
+  fullscreen = false,
   children,
 }: ReaderShellProps) {
-  const isDesktop = useMediaQuery('(min-width: 1200px)', true);
-  const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1199px)', false);
+  const isDesktop = useIsDesktop();
 
   const [tocCollapsed, setTocCollapsed] = useState(false);
-  const [assistantCollapsed, setAssistantCollapsed] = useState(false);
 
-  // Hydrate persisted collapse state once on mount (desktop only).
+  // Hydrate persisted TOC collapse state once on mount (desktop only).
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -60,73 +71,83 @@ export default function ReaderShell({
       if (!raw) return;
       const parsed: PersistedLayout = JSON.parse(raw);
       if (typeof parsed.tocCollapsed === 'boolean') setTocCollapsed(parsed.tocCollapsed);
-      if (typeof parsed.assistantCollapsed === 'boolean') {
-        setAssistantCollapsed(parsed.assistantCollapsed);
-      }
     } catch {
       /* ignore */
     }
   }, []);
 
-  // Persist on change.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(
-        LS_KEY,
-        JSON.stringify({ tocCollapsed, assistantCollapsed } satisfies PersistedLayout),
-      );
+      window.localStorage.setItem(LS_KEY, JSON.stringify({ tocCollapsed } satisfies PersistedLayout));
     } catch {
       /* ignore */
     }
-  }, [tocCollapsed, assistantCollapsed]);
+  }, [tocCollapsed]);
 
   const toggleToc = useCallback(() => setTocCollapsed((v) => !v), []);
-  const toggleAssistant = useCallback(() => setAssistantCollapsed((v) => !v), []);
 
-  // On non-desktop, the columns render as drawers driven by the same collapse
-  // flags (collapsed === closed). Default to closed on first paint there.
+  // On non-desktop the TOC defaults to closed (a drawer).
   useEffect(() => {
-    if (!isDesktop) {
-      setTocCollapsed(true);
-      setAssistantCollapsed(true);
-    }
+    if (!isDesktop) setTocCollapsed(true);
   }, [isDesktop]);
 
+  // Pinning only docks on desktop; on smaller screens panels always float.
+  const tocDocked = isDesktop && !fullscreen;
+  const searchPinned = isDesktop && search.pinned;
+
   return (
-    <ReaderShellContext.Provider
-      value={{
-        tocCollapsed,
-        assistantCollapsed,
-        toggleToc,
-        toggleAssistant,
-      }}
-    >
-      <div className="reader-shell relative flex h-full min-h-0 flex-col overflow-hidden">
+    <ReaderShellContext.Provider value={{ tocCollapsed, toggleToc }}>
+      <div className="reader-room relative flex h-full min-h-0 flex-col overflow-hidden">
         {header}
 
-        <div className="relative flex-1 min-h-0 overflow-hidden">
-          {isDesktop ? (
-            <DesktopGrid
-              tocColumn={tocColumn}
-              assistantColumn={assistantColumn}
-              tocCollapsed={tocCollapsed}
-              assistantCollapsed={assistantCollapsed}
+        <div className="relative flex min-h-0 flex-1">
+          {/* TOC — docked column on desktop, floating drawer otherwise */}
+          {!fullscreen && tocColumn &&
+            (tocDocked ? (
+              <aside
+                className="shrink-0 overflow-hidden border-l"
+                style={{
+                  width: tocCollapsed ? 56 : 236,
+                  background: 'var(--rr-rail)',
+                  borderColor: 'var(--rr-line-2)',
+                  transition: 'width 200ms ease',
+                }}
+                aria-label="Table of contents"
+              >
+                {tocColumn}
+              </aside>
+            ) : (
+              <PanelHost
+                state={{ open: !tocCollapsed, pinned: false }}
+                docked={false}
+                side="end"
+                width={300}
+                onClose={() => setTocCollapsed(true)}
+                background="var(--rr-rail)"
+              >
+                {tocColumn}
+              </PanelHost>
+            ))}
+
+          <main className="relative min-w-0 flex-1 overflow-y-auto" id="document-scroll-container">
+            {children}
+          </main>
+
+          {/* Search panel — docked when pinned, floating overlay otherwise.
+              The AI assistant is no longer a shell panel: it renders as a
+              self-positioned floating drawer (see ReaderAssistant). */}
+          {!fullscreen && (
+            <PanelHost
+              state={search}
+              docked={searchPinned}
+              side="start"
+              width={374}
+              onClose={onCloseSearch}
+              background="var(--rr-rail-2)"
             >
-              {children}
-            </DesktopGrid>
-          ) : (
-            <DrawerLayout
-              tocColumn={tocColumn}
-              assistantColumn={assistantColumn}
-              tocCollapsed={tocCollapsed}
-              assistantCollapsed={assistantCollapsed}
-              onCloseToc={() => setTocCollapsed(true)}
-              onCloseAssistant={() => setAssistantCollapsed(true)}
-              isTablet={isTablet}
-            >
-              {children}
-            </DrawerLayout>
+              {searchColumn}
+            </PanelHost>
           )}
         </div>
       </div>
@@ -134,131 +155,72 @@ export default function ReaderShell({
   );
 }
 
-function DesktopGrid({
+/**
+ * Hosts a side panel. The panel node is rendered in a single, stable position;
+ * only its style toggles between hidden / docked (in-flow flex child) / floating
+ * (fixed overlay), so children never unmount on pin/close.
+ */
+function PanelHost({
+  state,
+  docked,
+  side,
+  width,
+  onClose,
+  background,
   children,
-  tocColumn,
-  assistantColumn,
-  tocCollapsed,
-  assistantCollapsed,
 }: {
+  state: PanelState;
+  docked: boolean;
+  side: 'start' | 'end';
+  width: number;
+  onClose: () => void;
+  background: string;
   children: ReactNode;
-  tocColumn: ReactNode;
-  assistantColumn: ReactNode;
-  tocCollapsed: boolean;
-  assistantCollapsed: boolean;
 }) {
-  const tocWidth = tocCollapsed ? 56 : 240;
-  const assistantWidth = assistantCollapsed ? 56 : 360;
-  return (
-    <div
-      className="grid h-full w-full"
-      style={{
-        gridTemplateColumns: `${tocWidth}px minmax(0, 1fr) ${assistantWidth}px`,
-        transition: 'grid-template-columns 220ms ease',
-      }}
-    >
-      <aside
-        className="border-l border-border bg-card-2 overflow-hidden"
-        data-collapsed={tocCollapsed}
-        aria-label="Table of contents"
-      >
-        {tocColumn}
-      </aside>
-      <main className="overflow-y-auto" id="document-scroll-container">
-        {children}
-      </main>
-      <aside
-        className="border-r border-border bg-card overflow-hidden"
-        data-collapsed={assistantCollapsed}
-        aria-label="AI assistant"
-      >
-        {assistantColumn}
-      </aside>
-    </div>
-  );
-}
+  const floating = state.open && !docked;
 
-function DrawerLayout({
-  children,
-  tocColumn,
-  assistantColumn,
-  tocCollapsed,
-  assistantCollapsed,
-  onCloseToc,
-  onCloseAssistant,
-  isTablet,
-}: {
-  children: ReactNode;
-  tocColumn: ReactNode;
-  assistantColumn: ReactNode;
-  tocCollapsed: boolean;
-  assistantCollapsed: boolean;
-  onCloseToc: () => void;
-  onCloseAssistant: () => void;
-  isTablet: boolean;
-}) {
-  const tocOpen = !tocCollapsed;
-  const assistantOpen = !assistantCollapsed;
-  const showOverlay = tocOpen || assistantOpen;
-
-  // Tablet drawers slide from the side; mobile drawers slide from the bottom.
-  const tocStyle = isTablet
-    ? { transform: tocOpen ? 'translateX(0)' : 'translateX(100%)' }
-    : { transform: tocOpen ? 'translateY(0)' : 'translateY(100%)' };
-  const assistantStyle = isTablet
-    ? { transform: assistantOpen ? 'translateX(0)' : 'translateX(-100%)' }
-    : { transform: assistantOpen ? 'translateY(0)' : 'translateY(100%)' };
+  let style: CSSProperties;
+  if (!state.open) {
+    style = { display: 'none' };
+  } else if (docked) {
+    style = {
+      width,
+      flexShrink: 0,
+      background,
+      borderInlineStart: '1px solid var(--rr-line-2)',
+      overflow: 'hidden',
+    };
+  } else {
+    style = {
+      position: 'fixed',
+      insetBlock: 0,
+      insetInlineStart: side === 'start' ? 0 : 'auto',
+      insetInlineEnd: side === 'end' ? 0 : 'auto',
+      width: `min(${width}px, 92vw)`,
+      zIndex: 60,
+      background,
+      boxShadow: '0 0 40px -8px rgba(44,38,32,0.45)',
+      overflow: 'hidden',
+    };
+  }
 
   return (
-    <div className="relative h-full w-full">
-      <main className="h-full overflow-y-auto" id="document-scroll-container">
-        {children}
-      </main>
-
-      {showOverlay && (
-        <button
-          type="button"
-          aria-label="Close panels"
-          className="absolute inset-0 z-30 bg-black/35 transition-opacity"
-          onClick={() => {
-            if (tocOpen) onCloseToc();
-            if (assistantOpen) onCloseAssistant();
-          }}
-        />
-      )}
-
-      <aside
-        aria-label="Table of contents"
-        className={
-          isTablet
-            ? 'absolute inset-y-0 end-0 z-40 w-[300px] border-s border-border bg-card-2 shadow-2xl transition-transform'
-            : 'absolute inset-x-0 bottom-0 z-40 h-[80%] rounded-t-2xl border-t border-border bg-card-2 shadow-2xl transition-transform'
-        }
-        style={{ ...tocStyle, transitionDuration: '220ms' }}
-      >
-        {tocColumn}
-      </aside>
-
-      <aside
-        aria-label="AI assistant"
-        className={
-          isTablet
-            ? 'absolute inset-y-0 start-0 z-40 w-[380px] border-e border-border bg-card shadow-2xl transition-transform'
-            : 'absolute inset-x-0 bottom-0 z-40 h-[80%] rounded-t-2xl border-t border-border bg-card shadow-2xl transition-transform'
-        }
-        style={{ ...assistantStyle, transitionDuration: '220ms' }}
-      >
-        {assistantColumn}
-      </aside>
-    </div>
+    <>
+      <button
+        type="button"
+        aria-label="Close panel"
+        onClick={onClose}
+        className="fixed inset-0 z-[55] bg-black/35 transition-opacity"
+        style={{ display: floating ? 'block' : 'none' }}
+      />
+      <aside style={style}>{children}</aside>
+    </>
   );
 }
 
 interface ReaderShellContextValue {
   tocCollapsed: boolean;
-  assistantCollapsed: boolean;
   toggleToc: () => void;
-  toggleAssistant: () => void;
 }
 
 const ReaderShellContext = createContext<ReaderShellContextValue | null>(null);

@@ -71,9 +71,9 @@ export default function HowItWorksSection() {
               className="h-10 px-4 flex items-center bg-[var(--cream-card-soft)] border-b border-[var(--border-warm-soft)] relative"
             >
               <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-warm-soft)]" />
-                <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-warm-soft)]" />
-                <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-warm-soft)]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#d98b7a]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#e3c078]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#88b98a]" />
               </div>
               <div className="absolute left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-white border border-[var(--border-warm-soft)] text-[12px] text-[var(--ink-muted)] font-mono">
                 {t("home.how.urlBar", "ilm.shamela/read/muqaddima/ch3/p47")}
@@ -135,7 +135,7 @@ export default function HowItWorksSection() {
                     </span>
                   </div>
                   <div className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-muted)] font-body-ar">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-deep" />
                     <span>{t("home.how.assistantConnected", "متّصل")}</span>
                   </div>
                 </div>

@@ -1,6 +1,8 @@
 import React from 'react';
 import { useI18n } from '@/components/i18n/I18nProvider';
+import type { PrintedRef } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
+import { TASHKEEL, buildTashkeelStripMapping } from '@/lib/arabic';
 
 interface DocumentPageProps {
   pageNumber: number;
@@ -10,31 +12,10 @@ interface DocumentPageProps {
   language?: string | null;
   tashkeelEnabled?: boolean;
   highlights?: ApiHighlight[];
-}
-
-const TASHKEEL = /[\u064B-\u065F\u0670]/g;
-const TASHKEEL_CHAR = /[\u064B-\u065F\u0670]/;
-
-/**
- * Build a per-character mapping from the original string to its tashkeel-stripped
- * counterpart. `mapping[i]` is the index in the stripped string of the character
- * that was originally at position `i`. `mapping[original.length]` equals the
- * stripped string's length so end-exclusive ranges map correctly.
- */
-function buildTashkeelStripMapping(original: string): { stripped: string; mapping: number[] } {
-  const mapping: number[] = new Array(original.length + 1);
-  let strippedIdx = 0;
-  let stripped = '';
-  for (let i = 0; i < original.length; i += 1) {
-    mapping[i] = strippedIdx;
-    const ch = original[i];
-    if (!TASHKEEL_CHAR.test(ch)) {
-      stripped += ch;
-      strippedIdx += 1;
-    }
-  }
-  mapping[original.length] = strippedIdx;
-  return { stripped, mapping };
+  /** Printed-edition (volume, page) reference for this page, when mapped. */
+  printedRef?: PrintedRef | null;
+  /** Hide the volume part of the printed label for single-volume editions. */
+  singleVolume?: boolean;
 }
 
 function escapeHtml(text: string): string {
@@ -151,8 +132,21 @@ export default function DocumentPage({
   language,
   tashkeelEnabled = true,
   highlights = [],
+  printedRef = null,
+  singleVolume = false,
 }: DocumentPageProps) {
   const { t } = useI18n();
+
+  // Printed-edition label (موافقة المطبوع) — display metadata only; the digital
+  // page number stays the canonical anchor for jumps/highlights.
+  const printedLabel = printedRef
+    ? singleVolume
+      ? t('reader.editionPageLabelNoVolume', 'ص {page}', { page: printedRef.printed_page })
+      : t('reader.editionPageLabel', 'ج{volume} ص{page}', {
+          volume: printedRef.volume,
+          page: printedRef.printed_page,
+        })
+    : null;
 
   // Determine text direction: Arabic = RTL, others = LTR
   const textDirection = language === 'ar' ? 'rtl' : 'ltr';
@@ -181,19 +175,29 @@ export default function DocumentPage({
 
   return (
     <article
-      className="bg-white rounded-xl shadow-sm mb-6 overflow-hidden relative group transition-all hover:shadow-md"
+      className="ilm-sheet-page relative"
       aria-label={t('reader.pageLabel', 'صفحة {page}', { page: pageNumber })}
     >
-      {/* Page Header */}
-      <header className="px-6 py-3 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between">
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-          {t('reader.pageLabel', 'صفحة {page}', { page: pageNumber })}
-        </span>
-      </header>
+      {/* Subtle page divider + marker (continuous-sheet style). The first page
+          omits the top rule so the chapter header sits flush. */}
+      {pageNumber > 1 && (
+        <div className="mb-8 mt-2 flex items-center justify-center gap-3" aria-hidden>
+          <span className="h-px w-12" style={{ background: 'var(--sheet-rule)' }} />
+          <span className="text-[11px]" style={{ color: 'var(--rr-ink-4, #b0a487)' }}>
+            {printedLabel ?? t('reader.pageLabel', 'صفحة {page}', { page: pageNumber })}
+          </span>
+          {printedLabel && (
+            <span className="text-[10px] opacity-75" style={{ color: 'var(--rr-ink-4, #b0a487)' }}>
+              {t('reader.pageLabel', 'صفحة {page}', { page: pageNumber })}
+            </span>
+          )}
+          <span className="h-px w-12" style={{ background: 'var(--sheet-rule)' }} />
+        </div>
+      )}
 
-      {/* Page Content */}
+      {/* Page content */}
       <div
-        className="p-8 md:p-10 cursor-default"
+        className="cursor-text"
         onContextMenu={(e) => e.preventDefault()}
         dir={textDirection}
         role="text"
@@ -204,17 +208,16 @@ export default function DocumentPage({
             textDirection === 'rtl' ? 'text-right' : 'text-left'
           }`}
           style={{
+            color: 'var(--sheet-ink, #2a2419)',
             fontSize: 'var(--reader-font-size, 1.125rem)',
             letterSpacing: 'var(--reader-letter-spacing, 0)',
             lineHeight: 'var(--reader-line-height, 1.8)',
             fontWeight: 'var(--reader-font-weight, 400)',
+            textAlign: textDirection === 'rtl' ? 'justify' : undefined,
           }}
           dangerouslySetInnerHTML={{ __html: innerHtml }}
         />
       </div>
-
-      {/* Footer / Overlay (optional) */}
-      <div className="absolute inset-0 pointer-events-none border-2 border-transparent group-hover:border-indigo-500/10 rounded-xl transition-colors" aria-hidden="true" />
     </article>
   );
 }
