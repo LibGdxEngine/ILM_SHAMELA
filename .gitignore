@@ -16,3 +16,8 @@ frontend/coverage/
 frontend/test-results/
 frontend/playwright-report/
 /.claude
+
+# OMC state, session scratch, and stale build dirs
+.omc/
+frontend/.next.root-old/
+progress.txt

@@ -39,6 +39,13 @@
 		reverse_proxy backend:8000
 	}
 
+	# CopilotKit runtime bridge is a Next.js route handler, not Django.
+	# Must be matched before the general /api/* Django proxy.
+	@copilotkit path /api/copilotkit /api/copilotkit/*
+	handle @copilotkit {
+		reverse_proxy frontend:3000
+	}
+
 	# Django API
 	handle /api/* {
 		reverse_proxy backend:8000
