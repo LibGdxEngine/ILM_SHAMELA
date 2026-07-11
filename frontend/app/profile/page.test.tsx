@@ -171,9 +171,13 @@ describe('ProfilePage', () => {
   });
 
   it('renders password field validation error returned by api', async () => {
-    const updateProfile = vi
-      .fn()
-      .mockRejectedValue(new AuthValidationError('Password too weak.', { new_password: 'Password too weak.' }));
+    const updateProfile = vi.fn().mockRejectedValue(
+      new AuthValidationError(
+        'This password is too common.',
+        { new_password: 'This password is too common.' },
+        { new_password: ['This password is too common.'] }
+      )
+    );
 
     mockAuthState({ updateProfile });
 
@@ -186,14 +190,18 @@ describe('ProfilePage', () => {
     await userInput.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Password too weak.')).toBeInTheDocument();
+      expect(screen.getByText('This password is too common.')).toBeInTheDocument();
     });
   });
 
   it('renders general validation error returned by api', async () => {
-    const updateProfile = vi
-      .fn()
-      .mockRejectedValue(new AuthValidationError('Current password is incorrect.'));
+    const updateProfile = vi.fn().mockRejectedValue(
+      new AuthValidationError(
+        'Current password is incorrect.',
+        {},
+        { non_field_errors: ['Current password is incorrect.'] }
+      )
+    );
 
     mockAuthState({ updateProfile });
 

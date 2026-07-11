@@ -8,12 +8,17 @@ import {
   logout as apiLogout,
   getUser,
   googleLogin as apiGoogleLogin,
+  refreshAccessToken,
   updateUserProfile as apiUpdateUserProfile,
   LoginRequest,
   RegisterRequest,
   UserProfileUpdateRequest,
 } from './auth';
 import { migrateAllReaderLocalStorage } from './reader/migrate';
+
+// Comfortably under the 60-minute access-token TTL (SIMPLE_JWT.ACCESS_TOKEN_LIFETIME),
+// tolerant of a missed cycle from background-tab timer throttling.
+const REFRESH_INTERVAL_MS = 20 * 60 * 1000;
 
 interface AuthContextType {
   user: User | null;
@@ -45,20 +50,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Check auth status on mount
+  // Check auth status on mount. The access-token cookie may have expired while
+  // the tab was closed (its 60-minute TTL is well under the 1-day refresh-token
+  // TTL), so try one silent refresh before treating the user as signed out.
   useEffect(() => {
     const checkAuth = async () => {
       try {
         const userData = await getUser();
         setUser(userData);
       } catch {
-        setUser(null);
+        const refreshed = await refreshAccessToken().catch(() => false);
+        if (refreshed) {
+          try {
+            const userData = await getUser();
+            setUser(userData);
+          } catch {
+            setUser(null);
+          }
+        } else {
+          setUser(null);
+        }
       } finally {
         setIsLoading(false);
       }
     };
     checkAuth();
   }, []);
+
+  // While signed in, proactively refresh the access-token cookie so long-lived
+  // sessions don't silently expire: a periodic timer, plus an immediate refresh
+  // when the tab regains visibility (covers the timer being throttled while
+  // backgrounded). A clean refresh failure means the refresh token itself is
+  // gone/expired, so sign the user out; a thrown error (network blip) is left
+  // for the next cycle to retry.
+  useEffect(() => {
+    if (!user) return;
+
+    const attemptRefresh = async () => {
+      try {
+        const ok = await refreshAccessToken();
+        if (!ok) setUser(null);
+      } catch {
+        // transient network error - don't sign the user out over this
+      }
+    };
+
+    const interval = setInterval(attemptRefresh, REFRESH_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void attemptRefresh();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [user]);
 
   // Once authenticated, push any legacy reader localStorage data to the API.
   // Best-effort: the helper itself swallows errors and sets a flag to prevent

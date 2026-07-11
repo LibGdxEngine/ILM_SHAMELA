@@ -79,7 +79,7 @@ export default function BookListRow({ document }: BookListRowProps) {
 
   const coverSvg = generateCoverPattern(document.title);
   const coverDataUrl = `data:image/svg+xml,${encodeURIComponent(coverSvg)}`;
-  const coverPhotoUrl = normalizeMediaUrl(document.cover_photo_url);
+  const coverPhotoUrl = normalizeMediaUrl(document.cover_photo_url ?? document.thumbnail_url);
 
   const bookmarkKey = `ilm.bookmarks.${document.id}`;
 

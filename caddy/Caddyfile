@@ -33,9 +33,10 @@
 		reverse_proxy backend:8000
 	}
 
-	# Django media
+	# Django media. "private": book content under /media/documents/ is
+	# auth-gated, so shared caches must never store/serve these bytes.
 	handle /media/* {
-		header Cache-Control "public, immutable, max-age=604800"
+		header Cache-Control "private, max-age=604800"
 		reverse_proxy backend:8000
 	}
 

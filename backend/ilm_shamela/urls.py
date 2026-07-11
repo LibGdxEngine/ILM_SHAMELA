@@ -14,16 +14,16 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from core.views import GoogleLogin, UserProfileView
 from core.views_health import LivenessView, ReadinessView, MetricsView
+from core.views_media import protected_media
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/search_engine/', include('search_engine.urls')),
+    path('api/analytics/', include('analytics.urls')),
     # Include registration URLs before main dj-rest-auth URLs to avoid conflicts
     path('api/auth/registration/', include('dj_rest_auth.registration.urls')),
     path('api/auth/google/', GoogleLogin.as_view(), name='google_login'),
@@ -34,15 +34,10 @@ urlpatterns = [
     path('api/metrics/', MetricsView.as_view(), name='metrics'),
 ]
 
-# Serve media files - needed because files are stored on local filesystem
-# In production with S3/MinIO, this would not be needed as files would be served from S3
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-else:
-    # Also serve media in non-debug mode since we're behind Caddy
-    # and files are on the local filesystem (not S3)
-    from django.views.static import serve
-    from django.urls import re_path
-    urlpatterns += [
-        re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
-    ]
+# Media lives on the local filesystem and is served by Django (behind Caddy
+# in prod). Book content under media/documents/ requires authentication;
+# covers/thumbnails/author photos stay public. Same route in DEBUG and prod
+# so dev behaves like production.
+urlpatterns += [
+    re_path(r'^media/(?P<path>.*)$', protected_media),
+]

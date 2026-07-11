@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { useAuth } from '@/lib/AuthContext';
+import { translateAuthError } from '@/lib/authErrorMessages';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { isLocale, withLocale, type Locale } from '@/lib/i18n/config';
@@ -49,7 +50,7 @@ export default function GoogleCallbackPage() {
           router.push(successPath);
         })
         .catch((err) => {
-          setError(err instanceof Error ? err.message : t('google.errorFallback', 'فشل تسجيل الدخول عبر Google'));
+          setError(translateAuthError(err, t, 'google.errorFallback'));
         });
       return;
     }

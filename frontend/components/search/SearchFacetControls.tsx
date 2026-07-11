@@ -64,17 +64,9 @@ export default function SearchFacetControls({
     if (id != null) onToggleBook({ id, title });
   };
 
-  if (!isAuthenticated) {
-    return (
-      <p className="text-[12.5px] leading-[1.7]" style={{ color: 'var(--shell-muted, #6e6354)' }}>
-        {t('nav.search.signInHint', 'سجّل الدخول للتصفية حسب العلم أو المؤلف أو الكتاب.')}
-      </p>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-4">
-      {/* Search type — segmented control */}
+      {/* Search type — segmented control (always visible, no API call involved) */}
       <div>
         <div
           className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em]"
@@ -120,53 +112,63 @@ export default function SearchFacetControls({
         </p>
       </div>
 
-      {/* Discipline / Category */}
-      <FacetTypeahead
-        cacheKey="facet-categories"
-        fetchItems={getCategories}
-        selected={selectedCategories}
-        onToggle={onToggleCategory}
-        labels={{
-          heading: t('docs.categories', 'العلم'),
-          placeholder: t('docs.categorySearch.placeholder', 'ابحث عن علم…'),
-          loading: t('docs.categorySearch.loading', 'جارٍ البحث…'),
-          empty: t('docs.categorySearch.empty', 'لا تخصصات مطابقة'),
-          more: t('docs.categorySearch.more', 'اكتب لتضييق النتائج'),
-          remove: t('docs.categorySearch.remove', 'إزالة'),
-        }}
-      />
+      {/* Discipline / Author / Book facets require an authenticated API call,
+          so they stay gated; the mode toggle above does not. */}
+      {!isAuthenticated ? (
+        <p className="text-[12.5px] leading-[1.7]" style={{ color: 'var(--shell-muted, #6e6354)' }}>
+          {t('nav.search.signInHint', 'سجّل الدخول للتصفية حسب العلم أو المؤلف أو الكتاب.')}
+        </p>
+      ) : (
+        <>
+          {/* Discipline / Category */}
+          <FacetTypeahead
+            cacheKey="facet-categories"
+            fetchItems={getCategories}
+            selected={selectedCategories}
+            onToggle={onToggleCategory}
+            labels={{
+              heading: t('docs.categories', 'العلم'),
+              placeholder: t('docs.categorySearch.placeholder', 'ابحث عن علم…'),
+              loading: t('docs.categorySearch.loading', 'جارٍ البحث…'),
+              empty: t('docs.categorySearch.empty', 'لا تخصصات مطابقة'),
+              more: t('docs.categorySearch.more', 'اكتب لتضييق النتائج'),
+              remove: t('docs.categorySearch.remove', 'إزالة'),
+            }}
+          />
 
-      {/* Authors */}
-      <FacetTypeahead
-        cacheKey="facet-authors"
-        fetchItems={getAuthors}
-        selected={selectedAuthors}
-        onToggle={onToggleAuthor}
-        labels={{
-          heading: t('docs.authors', 'المؤلفون'),
-          placeholder: t('docs.authorSearch.placeholder', 'ابحث عن مؤلف…'),
-          loading: t('docs.authorSearch.loading', 'جارٍ البحث…'),
-          empty: t('docs.authorSearch.empty', 'لا مؤلفين مطابقين'),
-          more: t('docs.authorSearch.more', 'اكتب لتضييق النتائج'),
-          remove: t('docs.authorSearch.remove', 'إزالة'),
-        }}
-      />
+          {/* Authors */}
+          <FacetTypeahead
+            cacheKey="facet-authors"
+            fetchItems={getAuthors}
+            selected={selectedAuthors}
+            onToggle={onToggleAuthor}
+            labels={{
+              heading: t('docs.authors', 'المؤلفون'),
+              placeholder: t('docs.authorSearch.placeholder', 'ابحث عن مؤلف…'),
+              loading: t('docs.authorSearch.loading', 'جارٍ البحث…'),
+              empty: t('docs.authorSearch.empty', 'لا مؤلفين مطابقين'),
+              more: t('docs.authorSearch.more', 'اكتب لتضييق النتائج'),
+              remove: t('docs.authorSearch.remove', 'إزالة'),
+            }}
+          />
 
-      {/* Books (title → id resolved via useBooksFacetSource) */}
-      <FacetTypeahead
-        cacheKey="facet-books"
-        fetchItems={books.fetchItems}
-        selected={selectedBookTitles}
-        onToggle={handleToggleBook}
-        labels={{
-          heading: t('nav.search.books', 'الكتب'),
-          placeholder: t('nav.search.booksSearch.placeholder', 'ابحث عن كتاب بالعنوان…'),
-          loading: t('docs.categorySearch.loading', 'جارٍ البحث…'),
-          empty: t('nav.search.booksSearch.empty', 'لا كتب مطابقة'),
-          more: t('docs.categorySearch.more', 'اكتب لتضييق النتائج'),
-          remove: t('docs.categorySearch.remove', 'إزالة'),
-        }}
-      />
+          {/* Books (title → id resolved via useBooksFacetSource) */}
+          <FacetTypeahead
+            cacheKey="facet-books"
+            fetchItems={books.fetchItems}
+            selected={selectedBookTitles}
+            onToggle={handleToggleBook}
+            labels={{
+              heading: t('nav.search.books', 'الكتب'),
+              placeholder: t('nav.search.booksSearch.placeholder', 'ابحث عن كتاب بالعنوان…'),
+              loading: t('docs.categorySearch.loading', 'جارٍ البحث…'),
+              empty: t('nav.search.booksSearch.empty', 'لا كتب مطابقة'),
+              more: t('docs.categorySearch.more', 'اكتب لتضييق النتائج'),
+              remove: t('docs.categorySearch.remove', 'إزالة'),
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

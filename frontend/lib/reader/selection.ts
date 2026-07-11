@@ -155,3 +155,22 @@ export function computeSelectionPayload(): SelectionPayload | null {
     text: selection.toString(),
   };
 }
+
+// Double-click-to-search suppresses the SelectionPopover for the gesture: the
+// native dblclick word-selection fires `selectionchange` before the dblclick
+// handler can clear it, so the popover's debounced timer would flash it.
+// Module-level state is fine — only one reader mounts at a time.
+let popoverSuppressedUntil = 0;
+
+/** Suppress the SelectionPopover briefly (double-click-to-search gesture). */
+export function suppressSelectionPopover(ms = 400): void {
+  popoverSuppressedUntil = Date.now() + ms;
+}
+
+export function releaseSelectionPopoverSuppression(): void {
+  popoverSuppressedUntil = 0;
+}
+
+export function isSelectionPopoverSuppressed(): boolean {
+  return Date.now() < popoverSuppressedUntil;
+}

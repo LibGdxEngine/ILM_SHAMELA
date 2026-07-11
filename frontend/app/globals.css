@@ -463,9 +463,14 @@ mark[data-hid] { cursor: context-menu; }
   color: transparent;
   caret-color: transparent;
   white-space: pre-wrap;
-  word-break: break-word;
+  /* With pre-wrap, `text-align: justify` leaves `\n`-terminated lines
+     unstretched ("last lines"); `text-align-last` stretches them across the
+     block width so each invisible line tracks its printed line horizontally.
+     No `word-break`: the per-block font cap already prevents wrapping, and a
+     mid-word break would shift every following row off its printed line. */
   text-align: justify;
-  line-height: 1.25;
+  text-align-last: justify;
+  line-height: 1.25; /* fallback; the per-block inline line-height wins */
   cursor: text;
   font-family: serif;
 }
@@ -485,7 +490,7 @@ mark[data-hid] { cursor: context-menu; }
    above the later shell-level `::selection` rules (e.g. `.reader-room`). */
 .ilm-pdf-overlay .ilm-pdf-block ::selection,
 .ilm-pdf-overlay .ilm-pdf-block::selection {
-  background: rgba(20, 184, 166, 0.35);
+  background: rgba(20, 184, 166, 0.45);
   color: transparent;
 }
 

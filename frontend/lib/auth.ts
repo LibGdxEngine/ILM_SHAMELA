@@ -67,11 +67,32 @@ export interface AuthError {
 
 export class AuthValidationError extends Error {
   fieldErrors: Partial<Record<keyof UserProfileUpdateRequest, string>>;
+  // Full raw error body from the API, so the general-error path can surface the
+  // complete non_field_errors array (not just the first-per-field message).
+  fields: AuthError;
 
-  constructor(message: string, fieldErrors: Partial<Record<keyof UserProfileUpdateRequest, string>> = {}) {
+  constructor(
+    message: string,
+    fieldErrors: Partial<Record<keyof UserProfileUpdateRequest, string>> = {},
+    fields: AuthError = {}
+  ) {
     super(message);
     this.name = 'AuthValidationError';
     this.fieldErrors = fieldErrors;
+    this.fields = fields;
+  }
+}
+
+// Carries the full parsed DRF error body (all fields, all messages) alongside a
+// raw English fallback message, so callers can localize every validation
+// message rather than only the first picked string.
+export class AuthApiError extends Error {
+  fields: AuthError;
+
+  constructor(fields: AuthError, fallbackMessage: string) {
+    super(fallbackMessage);
+    this.name = 'AuthApiError';
+    this.fields = fields;
   }
 }
 
@@ -100,18 +121,25 @@ export async function login(credentials: LoginRequest): Promise<User> {
   // Ensure we have a fresh CSRF token before login
   await ensureCsrfToken();
 
+  const csrfToken = getCsrfToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (csrfToken) {
+    headers['X-CSRFToken'] = csrfToken;
+  }
+
   const response = await fetch(buildUrl('/api/auth/login/'), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     credentials: 'include',
     body: JSON.stringify(credentials),
   });
 
   if (!response.ok) {
     const error: AuthError = await response.json().catch(() => ({}));
-    throw new Error(
+    throw new AuthApiError(
+      error,
       error.detail ||
       error.non_field_errors?.[0] ||
       error.email?.[0] ||
@@ -129,11 +157,20 @@ export async function login(credentials: LoginRequest): Promise<User> {
  * Register a new user
  */
 export async function register(data: RegisterRequest): Promise<User> {
+  // Ensure we have a fresh CSRF token before registering
+  await ensureCsrfToken();
+
+  const csrfToken = getCsrfToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (csrfToken) {
+    headers['X-CSRFToken'] = csrfToken;
+  }
+
   const response = await fetch(buildUrl('/api/auth/registration/'), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     credentials: 'include',
     body: JSON.stringify({
       ...data,
@@ -143,7 +180,8 @@ export async function register(data: RegisterRequest): Promise<User> {
 
   if (!response.ok) {
     const error: AuthError = await response.json().catch(() => ({}));
-    throw new Error(
+    throw new AuthApiError(
+      error,
       error.detail ||
       error.non_field_errors?.[0] ||
       error.email?.[0] ||
@@ -292,10 +330,33 @@ export async function updateUserProfile(data: UserProfileUpdateRequest): Promise
       fieldErrors.new_password_confirm ||
       fieldErrors.name ||
       'Failed to update profile';
-    throw new AuthValidationError(message, fieldErrors);
+    throw new AuthValidationError(message, fieldErrors, error);
   }
 
   return response.json();
+}
+
+/**
+ * Refresh the JWT access cookie using the httpOnly refresh cookie. dj-rest-auth
+ * rotates and re-sets both cookies on success (ROTATE_REFRESH_TOKENS=True), so
+ * there's nothing else for the caller to store — just check the return value.
+ */
+export async function refreshAccessToken(): Promise<boolean> {
+  const csrfToken = getCsrfToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (csrfToken) {
+    headers['X-CSRFToken'] = csrfToken;
+  }
+
+  const response = await fetch(buildUrl('/api/auth/token/refresh/'), {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+  });
+
+  return response.ok;
 }
 
 /**
@@ -314,12 +375,12 @@ export async function googleLogin(accessToken: string): Promise<User> {
   if (!response.ok) {
     const error: AuthError = await response.json().catch(() => ({}));
     // Map common error scenarios to user-friendly messages
-    const errorMessage = 
+    const errorMessage =
       error.detail ||
       error.non_field_errors?.[0] ||
       error.email?.[0] ||
       'Google login failed. Please try again.';
-    throw new Error(errorMessage);
+    throw new AuthApiError(error, errorMessage);
   }
 
   // Fetch user data after Google login

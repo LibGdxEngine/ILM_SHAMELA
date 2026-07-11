@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import type { HighlightColor } from '@/lib/api/reader';
-import { computeSelectionPayload } from '@/lib/reader/selection';
+import { computeSelectionPayload, isSelectionPopoverSuppressed } from '@/lib/reader/selection';
 
 interface CreatePayload {
   page_number: number;
@@ -46,6 +46,13 @@ export default function SelectionPopover({ enabled, onCreateHighlight, onAskAssi
 
   const handleSelectionChange = useCallback(() => {
     if (!enabled) return;
+    // Double-click-to-search: the gesture selects a word natively; don't flash
+    // the popover for it. Checked here (in the deferred callback) so it covers
+    // both orderings of the debounce timer vs. the suppression flag being set.
+    if (isSelectionPopoverSuppressed()) {
+      setState(null);
+      return;
+    }
     const payload = computeSelectionPayload();
     if (!payload) {
       setState(null);

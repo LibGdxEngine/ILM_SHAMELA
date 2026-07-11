@@ -7,6 +7,11 @@ import { motion } from 'framer-motion';
 import RequireAuth from '@/components/RequireAuth';
 import { useAuth } from '@/lib/AuthContext';
 import { AuthValidationError } from '@/lib/auth';
+import {
+  translateAuthError,
+  translateAuthErrorMessage,
+  translateAuthValidationError,
+} from '@/lib/authErrorMessages';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 
@@ -271,22 +276,28 @@ export default function ProfilePage() {
       }));
     } catch (error) {
       if (error instanceof AuthValidationError) {
-        const nextFieldErrors = error.fieldErrors as ProfileFieldErrors;
+        const rawFieldErrors = error.fieldErrors as ProfileFieldErrors;
+        // Localize each inline field message; leave undefined fields untouched.
+        const nextFieldErrors = Object.fromEntries(
+          Object.entries(rawFieldErrors).map(([field, value]) => [
+            field,
+            typeof value === 'string' ? translateAuthErrorMessage(value, t) : value,
+          ])
+        ) as ProfileFieldErrors;
         setFieldErrors(nextFieldErrors);
 
-        const hasMatchingFieldMessage = Object.values(nextFieldErrors)
+        // Compare raw-to-raw: error.message is still raw English, so match it
+        // against the raw field messages to decide if the general banner would
+        // just duplicate a field error.
+        const hasMatchingFieldMessage = Object.values(rawFieldErrors)
           .filter((value): value is string => Boolean(value))
           .includes(error.message);
 
         if (!hasMatchingFieldMessage) {
-          setGeneralError(error.message);
+          setGeneralError(translateAuthValidationError(error, t, 'profile.errorFallback'));
         }
       } else {
-        setGeneralError(
-          error instanceof Error
-            ? error.message
-            : t('profile.errorFallback', 'Failed to update profile.')
-        );
+        setGeneralError(translateAuthError(error, t, 'profile.errorFallback'));
       }
     } finally {
       setIsSaving(false);

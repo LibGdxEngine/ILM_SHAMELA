@@ -9,6 +9,7 @@ import BookCardSkeleton from '@/components/BookCardSkeleton';
 import RequireAuth from '@/components/RequireAuth';
 import { useAuth } from '@/lib/AuthContext';
 import ContinueShelf from '@/components/documents/ContinueShelf';
+import RecommendedShelf from '@/components/documents/RecommendedShelf';
 import BookSpine from '@/components/documents/BookSpine';
 import FilterSidebar from '@/components/documents/FilterSidebar';
 import ReadingRoomTopicBar from '@/components/documents/ReadingRoomTopicBar';
@@ -1263,6 +1264,7 @@ export default function DocumentsPage() {
                     ) : grouped ? (
                       <>
                         <ContinueShelf />
+                        <RecommendedShelf />
                         {renderGroup(t('docs.group.processing', 'قيد المعالجة'), processingDocs)}
                         {renderGroup(t('docs.rr.picks', 'مختارات المكتبة'), readyDocs, showAll)}
                       </>

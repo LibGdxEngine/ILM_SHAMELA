@@ -6,6 +6,7 @@ import {
   getDocument,
   getDocumentPages,
   searchInDocument,
+  QuotaExceededError,
   Document,
   DocumentPage as DocumentPageType,
   DocumentSearchResponse,
@@ -33,6 +34,7 @@ import { CopilotKit } from '@copilotkit/react-core';
 import { useReaderCopilotSessions } from '@/lib/reader/useReaderCopilotSessions';
 import { useChapters, findActiveChapter } from '@/lib/reader/useChapters';
 import { useReadingStats } from '@/hooks/useReadingStats';
+import { useReadingSession } from '@/hooks/useReadingSession';
 import { useIsDesktop } from '@/hooks/useIsDesktop';
 import type { Bookmark, Note } from '@/components/document/readerToolsTypes';
 import type { ReaderTheme, FontSizeKey } from '@/components/document/FontThemeControls';
@@ -77,6 +79,7 @@ export default function DocumentDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [quotaError, setQuotaError] = useState<QuotaExceededError | null>(null);
   const [currentBatchPage, setCurrentBatchPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
@@ -215,6 +218,10 @@ export default function DocumentDetailPage() {
   const preferencesHook = useReaderPreferences();
   const progressHook = useReadingProgress(documentId);
   const chaptersHook = useChapters(documentId);
+  // Behavioral telemetry: measure active reading time / dwell for this book and
+  // flush `reading_session` events to the backend (opens/searches/annotations
+  // are captured server-side). Runs for the whole reading lifetime.
+  useReadingSession(documentId, visiblePageNum, totalPages);
 
   // Right-click behavior inside the reader (highlights are injected via
   // dangerouslySetInnerHTML, so we use a delegated listener):
@@ -422,7 +429,11 @@ export default function DocumentDetailPage() {
 
         setCurrentBatchPage(batchPageNum);
       } catch (fetchError) {
-        if (resetArgs) {
+        if (fetchError instanceof QuotaExceededError) {
+          // Daily reading limit — must surface even mid-scroll, not just on
+          // the initial batch, so the reader sees why loading stopped.
+          setQuotaError(fetchError);
+        } else if (resetArgs) {
           // Initial batch — nothing to read, so surface it as a page-level error.
           setError(fetchError instanceof Error ? fetchError.message : t('docs.errorLoading', 'Failed to load document'));
         } else {
@@ -453,7 +464,11 @@ export default function DocumentDetailPage() {
       setPages((prev) => [...response.pages, ...prev]);
       earliestBatchRef.current = prevBatch;
     } catch (err) {
-      console.error('Error fetching previous pages:', err);
+      if (err instanceof QuotaExceededError) {
+        setQuotaError(err);
+      } else {
+        console.error('Error fetching previous pages:', err);
+      }
     } finally {
       setIsLoadingMore(false);
       isFetchingRef.current = false;
@@ -505,7 +520,7 @@ export default function DocumentDetailPage() {
         if (err instanceof Error && err.name === 'AbortError') return;
         if (abortController.signal.aborted) return;
         console.error('Search error:', err);
-        setSearchResults({ matches: [], total_matches: 0, query });
+        setSearchResults({ matches: [], total_matches: 0, query, mode });
         setSearchError(err instanceof Error ? err.message : t('reader.search.error', 'تعذّر البحث'));
       } finally {
         if (!abortController.signal.aborted) {
@@ -578,7 +593,11 @@ export default function DocumentDetailPage() {
           setHighlightedPage(pageNumber);
         }, 100);
       } catch (jumpError) {
-        console.error('Failed to jump to page', jumpError);
+        if (jumpError instanceof QuotaExceededError) {
+          setQuotaError(jumpError);
+        } else {
+          console.error('Failed to jump to page', jumpError);
+        }
       } finally {
         setIsLoadingMore(false);
         isFetchingRef.current = false;
@@ -918,6 +937,29 @@ export default function DocumentDetailPage() {
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([w]) => w);
   }, [pages]);
 
+  if (quotaError) {
+    return (
+      <RequireAuth>
+        <div className="reader-room flex min-h-screen items-center justify-center px-6">
+          <div className="rounded-[16px] p-8 max-w-md w-full text-center" style={{ background: 'var(--rr-surface)', border: '1px solid var(--rr-line)' }}>
+            <span className="inline-flex items-center gap-2.5 text-[11.5px] tracking-[0.16em] uppercase font-medium" style={{ color: 'var(--rr-brand, #b07d2b)' }}>
+              <span className="w-6 h-[1px]" style={{ background: 'var(--rr-brand, #b07d2b)' }} aria-hidden />
+              {t('reader.quota.eyebrow', 'بلغت الحد اليومي')}
+            </span>
+            <p className="mt-4 text-[14px] leading-relaxed" style={{ color: 'var(--rr-ink-2)' }}>
+              {quotaError.quota === 'pages'
+                ? t('reader.quota.pagesBody', 'لقد بلغت الحد الأقصى لعدد الصفحات التي يمكنك قراءتها اليوم.')
+                : t('reader.quota.docsBody', 'لقد بلغت الحد الأقصى لعدد الكتب التي يمكنك فتحها اليوم.')}
+            </p>
+            <p className="mt-3 text-[14px] leading-relaxed font-medium" style={{ color: 'var(--rr-ink)' }}>
+              {t('reader.quota.comeBack', 'عُد غدًا لمواصلة القراءة.')}
+            </p>
+          </div>
+        </div>
+      </RequireAuth>
+    );
+  }
+
   if (error) {
     return (
       <RequireAuth>
@@ -1106,6 +1148,7 @@ export default function DocumentDetailPage() {
               isLoading={isLoadingMore}
               hasMore={hasMore}
               searchQuery={searchResults?.query || ''}
+              searchMode={searchResults?.mode ?? 'mix'}
               onLoadMore={handleLoadMore}
               onPageVisible={setVisiblePageNum}
               onLoadFirstPage={fetchPreviousBatch}
@@ -1125,6 +1168,7 @@ export default function DocumentDetailPage() {
               isLoading={isLoadingMore}
               hasMore={hasMore}
               searchQuery={searchResults?.query || ''}
+              searchMode={searchResults?.mode ?? 'mix'}
               onLoadMore={handleLoadMore}
               onPageVisible={setVisiblePageNum}
               onLoadFirstPage={fetchPreviousBatch}

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion, type Variants } from 'framer-motion';
 
 import { useAuth } from '@/lib/AuthContext';
+import { translateAuthError } from '@/lib/authErrorMessages';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import ShellLanguagePills from '@/components/ShellLanguagePills';
@@ -94,7 +95,7 @@ export default function AuthPanel({ initialMode }: { initialMode: Mode }) {
       const next = searchParams.get('next');
       router.push(next || localizedPath('/'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('login.errorFallback', 'Sign-in failed'));
+      setError(translateAuthError(err, t, 'login.errorFallback'));
     }
   };
 
@@ -123,7 +124,7 @@ export default function AuthPanel({ initialMode }: { initialMode: Mode }) {
       });
       router.push(localizedPath('/'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('register.errorFallback', 'Account creation failed'));
+      setError(translateAuthError(err, t, 'register.errorFallback'));
     }
   };
 

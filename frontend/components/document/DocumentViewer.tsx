@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { DocumentPage as DocumentPageType } from '@/lib/api';
+import { DocumentPage as DocumentPageType, InDocSearchMode } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
 import DocumentPage from './DocumentPage';
 import DocumentPageSkeleton from './DocumentPageSkeleton';
@@ -8,12 +8,15 @@ import ErrorDisplay from '@/components/ErrorDisplay';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { toLocaleDigits } from '@/lib/utils';
+import { suppressSelectionPopover, releaseSelectionPopoverSuppression } from '@/lib/reader/selection';
 
 interface DocumentViewerProps {
   pages: DocumentPageType[];
   isLoading: boolean;
   hasMore: boolean;
   searchQuery: string;
+  /** Mode the current search results were produced with; drives on-page match strictness. */
+  searchMode?: InDocSearchMode;
   onLoadMore: () => void;
   onPageVisible: (pageNumber: number) => void;
   onLoadFirstPage?: () => void;
@@ -31,7 +34,7 @@ interface DocumentViewerProps {
   sheetEyebrow?: string | null;
   /** Book title shown in the sheet footer. */
   bookTitle?: string;
-  /** Click a word in the text → search it (design "click-to-search"). */
+  /** Double-click a word in the text → search it. */
   onWordSearch?: (word: string) => void;
   /** Hide the volume part of printed-edition page labels (single-volume works). */
   singleVolume?: boolean;
@@ -69,6 +72,7 @@ export default function DocumentViewer({
   isLoading,
   hasMore,
   searchQuery,
+  searchMode = 'mix',
   onLoadMore,
   onPageVisible,
   onLoadFirstPage,
@@ -89,16 +93,41 @@ export default function DocumentViewer({
   const { t, locale } = useI18n();
   const localizedPath = useLocalizedPath();
 
-  // Click a word (no active selection) → search it.
-  const handleSheetClick = useCallback(
+  // Double-click a word → search it. The popover is suppressed from the 2nd
+  // mousedown (before the browser's native word-selection fires
+  // selectionchange), because its debounced timer can run before dblclick does.
+  const handleSheetMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!onWordSearch) return;
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed) return; // real selection → SelectionPopover handles it
+      if (e.detail === 2) {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest('a, button, input, textarea, mark[data-hid]')) return;
+        suppressSelectionPopover();
+      } else if (e.detail > 2) {
+        // Triple-click paragraph selection keeps its popover.
+        releaseSelectionPopoverSuppression();
+      }
+    },
+    [onWordSearch],
+  );
+
+  const handleSheetDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!onWordSearch) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest('a, button, input, textarea, mark[data-hid]')) return;
-      const word = wordAtPoint(e.clientX, e.clientY);
-      if (word) onWordSearch(word);
+      const sel = window.getSelection();
+      const selText = sel?.toString().trim() ?? '';
+      // dblclick+drag selects multiple words — that's a real selection for the
+      // popover flow, not a word search.
+      if (/\s/.test(selText)) {
+        releaseSelectionPopoverSuppression();
+        return;
+      }
+      const word = wordAtPoint(e.clientX, e.clientY) ?? (selText.length >= 2 ? selText : null);
+      if (!word) return;
+      sel?.removeAllRanges(); // don't leave the native word-selection up
+      onWordSearch(word);
     },
     [onWordSearch],
   );
@@ -433,7 +462,8 @@ export default function DocumentViewer({
           boxShadow: '0 8px 30px rgba(44,38,32,.10)',
           padding: '46px clamp(20px, 5vw, 54px) 40px',
         }}
-        onClick={handleSheetClick}
+        onMouseDown={handleSheetMouseDown}
+        onDoubleClick={handleSheetDoubleClick}
       >
       {/* Chapter header */}
       {(sheetTitle || sheetEyebrow) && pages.length > 0 && (
@@ -491,6 +521,7 @@ export default function DocumentViewer({
               pageNumber={page.page_number}
               content={page.content}
               searchQuery={searchQuery}
+              searchMode={searchMode}
               language={language}
               tashkeelEnabled={tashkeelEnabled}
               highlights={highlights.filter((h) => h.page_number === page.page_number)}

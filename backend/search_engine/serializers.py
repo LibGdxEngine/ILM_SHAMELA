@@ -177,7 +177,11 @@ class DocumentListSerializer(serializers.ModelSerializer):
 
 
 class DocumentDetailSerializer(serializers.ModelSerializer):
-    """Serializer for Document model in detail views (with full content)."""
+    """Serializer for Document model in detail views (metadata only).
+
+    Deliberately excludes `content`: full book text is only available
+    page-by-page via the quota-enforced pages endpoint.
+    """
     authors = AuthorListSerializer(many=True, read_only=True)
     authors_ids = serializers.PrimaryKeyRelatedField(
         many=True,
@@ -213,7 +217,6 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
             'processing_started_at',
             'processing_completed_at',
             'language',
-            'content',
             'authors',
             'authors_ids',
             'categories',

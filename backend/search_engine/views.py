@@ -16,6 +16,7 @@ from . import ocr as ocr_registry
 from .documents import DocumentIndex
 from .models import Author, Category, Document, DocumentChunk
 from .permissions import IsAuthenticatedReadOnlyOrEditor
+from .quotas import check_and_count_document_open, check_and_count_pages
 from .semantic import VECTOR_DIMENSIONS, build_embedding, cosine_similarity
 from .serializers import (
     AuthorDetailSerializer,
@@ -27,6 +28,8 @@ from .serializers import (
 )
 from .tasks import process_document_task
 from .utils import split_document_content_into_pages
+from analytics.models import EventType
+from analytics.services import record_event
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +323,17 @@ class DocumentDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_throttles(self):
         self.throttle_scope = 'upload' if self.request.method not in permissions.SAFE_METHODS else 'search'
         return super().get_throttles()
+
+    def retrieve(self, request, *args, **kwargs):
+        response = super().retrieve(request, *args, **kwargs)
+        # Behavioral signal: user opened a book (best-effort telemetry).
+        record_event(
+            user_id=request.user.id,
+            event_type=EventType.DOCUMENT_OPEN,
+            document_id=kwargs.get('pk'),
+            source='reader',
+        )
+        return response
 
 
 def execute_corpus_search(
@@ -721,6 +735,26 @@ class DocumentSearchView(generics.ListAPIView):
         if degraded_reason and isinstance(response.data, dict):
             response.data['degraded_reason'] = degraded_reason
 
+        # Behavioral signal: corpus search (query + facets + result count).
+        result_count = (
+            response.data.get('count') if isinstance(response.data, dict) else len(data)
+        )
+        facet_keys = ('authors', 'categories', 'language', 'date_from', 'date_to', 'documents')
+        filters = {
+            k: request.query_params.get(k)
+            for k in facet_keys if request.query_params.get(k)
+        }
+        record_event(
+            user_id=request.user.id,
+            event_type=EventType.SEARCH,
+            metadata={
+                'q': query,
+                'mode': mode,
+                'result_count': result_count,
+                'filters': filters,
+            },
+        )
+
         return response
 
 
@@ -901,6 +935,13 @@ class DocumentSearchAssistView(views.APIView):
         locale = (request.data.get('locale') or 'ar').strip()[:5] or 'ar'
         if not raw:
             return Response({'detail': 'q is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Behavioral signal: natural-language search query.
+        record_event(
+            user_id=request.user.id,
+            event_type=EventType.SEARCH_ASSIST,
+            metadata={'q': raw, 'locale': locale},
+        )
 
         parsed = self._parse_with_llm(raw, locale)
         if parsed is None:
@@ -1095,13 +1136,45 @@ class DocumentStatusView(views.APIView):
 
 class DocumentContentPagesView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = 'reader_pages'
+
+    # Anti-scraping clamp; the reader fetches batches of 5.
+    MAX_PAGE_SIZE = 10
 
     def get(self, request, pk):
         try:
             document = Document.objects.get(id=pk)
 
-            page = int(request.query_params.get('page', 1))
-            page_size = int(request.query_params.get('page_size', 1))
+            try:
+                page = int(request.query_params.get('page', 1))
+                page_size = int(request.query_params.get('page_size', 1))
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'invalid_pagination'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if page < 1 or page_size < 1:
+                return Response(
+                    {'error': 'invalid_pagination'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            page_size = min(page_size, self.MAX_PAGE_SIZE)
+
+            exceeded = (
+                check_and_count_document_open(request.user, document.id)
+                or check_and_count_pages(request.user, page_size)
+            )
+            if exceeded:
+                return Response(
+                    {
+                        'error': 'quota_exceeded',
+                        'quota': exceeded.quota,
+                        'limit': exceeded.limit,
+                        'retry_after_seconds': exceeded.retry_after_seconds,
+                    },
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                    headers={'Retry-After': str(exceeded.retry_after_seconds)},
+                )
 
             edition = document.primary_edition
 
@@ -1459,6 +1532,14 @@ class DocumentInDocumentSearchView(views.APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
             result = search_within_document(document, query, mode=mode, threshold=threshold)
+            # Behavioral signal: search within a specific book.
+            record_event(
+                user_id=request.user.id,
+                event_type=EventType.IN_DOC_SEARCH,
+                document_id=pk,
+                metadata={'q': query, 'mode': mode},
+                source='reader',
+            )
             return Response(result, status=status.HTTP_200_OK)
         except Exception as exc:
             logger.error('[DOC_SEARCH] Error: %s', str(exc), exc_info=True)

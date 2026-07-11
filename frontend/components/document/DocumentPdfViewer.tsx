@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { DocumentPage as DocumentPageType, LayoutBlock, PageLayout, normalizeMediaUrl } from '@/lib/api';
+import { DocumentPage as DocumentPageType, InDocSearchMode, LayoutBlock, PageLayout, normalizeMediaUrl } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
 import DocumentPage from './DocumentPage';
 import DocumentPageSkeleton from './DocumentPageSkeleton';
@@ -8,7 +8,9 @@ import ErrorDisplay from '@/components/ErrorDisplay';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { toLocaleDigits } from '@/lib/utils';
-import { findArabicMatches } from '@/lib/arabic';
+import { findArabicMatches, findArabicPhraseMatches } from '@/lib/arabic';
+import { blockOverlayMetrics } from '@/lib/reader/overlayMetrics';
+import { suppressSelectionPopover, releaseSelectionPopoverSuppression } from '@/lib/reader/selection';
 
 /**
  * PDF-overlay reader: renders each page as its original PDF page image with the
@@ -25,6 +27,8 @@ interface DocumentPdfViewerProps {
   isLoading: boolean;
   hasMore: boolean;
   searchQuery: string;
+  /** Mode the current search results were produced with; drives on-page match strictness. */
+  searchMode?: InDocSearchMode;
   onLoadMore: () => void;
   onPageVisible: (pageNumber: number) => void;
   onLoadFirstPage?: () => void;
@@ -38,7 +42,7 @@ interface DocumentPdfViewerProps {
   sheetTitle?: string | null;
   sheetEyebrow?: string | null;
   bookTitle?: string;
-  /** Click a word in the transparent layer → search it. */
+  /** Double-click a word in the transparent layer → search it. */
   onWordSearch?: (word: string) => void;
   /** Hide the volume part of printed-edition page labels (single-volume works). */
   singleVolume?: boolean;
@@ -98,6 +102,7 @@ interface OverlayRange {
 function renderBlockHtml(
   block: LayoutBlock,
   searchQuery: string,
+  searchMode: InDocSearchMode,
   highlights: ApiHighlight[]
 ): string {
   const text = block.text;
@@ -123,7 +128,12 @@ function renderBlockHtml(
   if (searchQuery.trim()) {
     // Tashkeel/variant-insensitive matching, mirroring the backend's
     // `content.exact` analyzer, with ranges mapped back to original offsets.
-    for (const m of findArabicMatches(text, searchQuery)) {
+    // Exact mode additionally restricts marks to whole-token phrase matches.
+    const matches =
+      searchMode === 'exact'
+        ? findArabicPhraseMatches(text, searchQuery)
+        : findArabicMatches(text, searchQuery);
+    for (const m of matches) {
       ranges.push({ start: m.start, end: m.end, type: 'search' });
     }
   }
@@ -165,32 +175,12 @@ function renderBlockHtml(
   return html;
 }
 
-/**
- * Font size for the invisible text so it roughly fills the block box and the
- * `<mark>` runs land near the printed words. Area heuristic (avg glyph box ≈
- * 0.62·f²) capped so explicit lines fit; returned in `cqh` units relative to
- * `.ilm-pdf-overlay` (the size container), so 100cqh == rendered page height
- * and it scales responsively. The unit cannot be relative to the block itself:
- * an element is never its own query container, and with no ancestor container
- * cq units silently fall back to the viewport (~8× too large here).
- */
-function blockFontSizeCqh(block: LayoutBlock, pageHeight: number): number {
-  const width = block.bbox[2] - block.bbox[0];
-  const height = block.bbox[3] - block.bbox[1];
-  if (width <= 0 || height <= 0 || pageHeight <= 0) return 2;
-  const len = Math.max(block.text.length, 1);
-  const explicitLines = block.text.split('\n').length;
-  let fontSize = Math.sqrt((width * height) / (len * 0.62));
-  fontSize = Math.min(fontSize, height / (explicitLines * 1.25));
-  fontSize = Math.min(fontSize, height * 0.8);
-  return Math.max((fontSize / pageHeight) * 100, 0.4);
-}
-
 interface PdfOverlayPageProps {
   pageNumber: number;
   layout: PageLayout;
   imageUrl: string | null;
   searchQuery: string;
+  searchMode: InDocSearchMode;
   highlights: ApiHighlight[];
   textDirection: 'rtl' | 'ltr';
   pageLabel: string;
@@ -201,6 +191,7 @@ function PdfOverlayPage({
   layout,
   imageUrl,
   searchQuery,
+  searchMode,
   highlights,
   textDirection,
   pageLabel,
@@ -232,7 +223,8 @@ function PdfOverlayPage({
         )}
         <div className="ilm-pdf-overlay" dir={textDirection}>
           {layout.blocks.map((block) => {
-            const html = renderBlockHtml(block, searchQuery, highlights);
+            const html = renderBlockHtml(block, searchQuery, searchMode, highlights);
+            const metrics = blockOverlayMetrics(block, height);
             return (
               <div
                 key={block.id}
@@ -244,7 +236,8 @@ function PdfOverlayPage({
                   top: `${(block.bbox[1] / height) * 100}%`,
                   width: `${((block.bbox[2] - block.bbox[0]) / width) * 100}%`,
                   height: `${((block.bbox[3] - block.bbox[1]) / height) * 100}%`,
-                  fontSize: `${blockFontSizeCqh(block, height)}cqh`,
+                  fontSize: `${metrics.fontSizeCqh}cqh`,
+                  lineHeight: `${metrics.lineHeightCqh}cqh`,
                 }}
                 dangerouslySetInnerHTML={{ __html: html }}
               />
@@ -261,6 +254,7 @@ export default function DocumentPdfViewer({
   isLoading,
   hasMore,
   searchQuery,
+  searchMode = 'mix',
   onLoadMore,
   onPageVisible,
   onLoadFirstPage,
@@ -279,16 +273,41 @@ export default function DocumentPdfViewer({
   const { t, locale } = useI18n();
   const localizedPath = useLocalizedPath();
 
-  // Click a word (no active selection) → search it.
-  const handleSheetClick = useCallback(
+  // Double-click a word → search it. The popover is suppressed from the 2nd
+  // mousedown (before the browser's native word-selection fires
+  // selectionchange), because its debounced timer can run before dblclick does.
+  const handleSheetMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!onWordSearch) return;
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed) return; // real selection → SelectionPopover handles it
+      if (e.detail === 2) {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest('a, button, input, textarea, mark[data-hid]')) return;
+        suppressSelectionPopover();
+      } else if (e.detail > 2) {
+        // Triple-click paragraph selection keeps its popover.
+        releaseSelectionPopoverSuppression();
+      }
+    },
+    [onWordSearch],
+  );
+
+  const handleSheetDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!onWordSearch) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest('a, button, input, textarea, mark[data-hid]')) return;
-      const word = wordAtPoint(e.clientX, e.clientY);
-      if (word) onWordSearch(word);
+      const sel = window.getSelection();
+      const selText = sel?.toString().trim() ?? '';
+      // dblclick+drag selects multiple words — that's a real selection for the
+      // popover flow, not a word search.
+      if (/\s/.test(selText)) {
+        releaseSelectionPopoverSuppression();
+        return;
+      }
+      const word = wordAtPoint(e.clientX, e.clientY) ?? (selText.length >= 2 ? selText : null);
+      if (!word) return;
+      sel?.removeAllRanges(); // don't leave the native word-selection up
+      onWordSearch(word);
     },
     [onWordSearch],
   );
@@ -519,7 +538,11 @@ export default function DocumentPdfViewer({
       dir={textDirection}
       style={{ background: 'var(--sheet-area)', minHeight: '100%' }}
     >
-      <div className="ilm-pdf-sheet relative mx-auto" onClick={handleSheetClick}>
+      <div
+        className="ilm-pdf-sheet relative mx-auto"
+        onMouseDown={handleSheetMouseDown}
+        onDoubleClick={handleSheetDoubleClick}
+      >
         {/* Chapter header (parity with the text reader) */}
         {(sheetTitle || sheetEyebrow) && pages.length > 0 && (
           <div className="mb-7 text-center">
@@ -585,6 +608,7 @@ export default function DocumentPdfViewer({
                   layout={page.layout}
                   imageUrl={normalizeMediaUrl(page.image_url ?? null)}
                   searchQuery={searchQuery}
+                  searchMode={searchMode}
                   highlights={highlights.filter((h) => h.page_number === page.page_number)}
                   textDirection={textDirection}
                   pageLabel={pageLabel}
@@ -595,6 +619,7 @@ export default function DocumentPdfViewer({
                   pageNumber={page.page_number}
                   content={page.content}
                   searchQuery={searchQuery}
+                  searchMode={searchMode}
                   language={language}
                   highlights={highlights.filter((h) => h.page_number === page.page_number)}
                 />

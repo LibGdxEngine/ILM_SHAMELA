@@ -16,37 +16,6 @@ interface BookCardProps {
   progressPercent?: number;
 }
 
-const TEXT_FILE_TYPES = new Set(['PDF', 'DOC', 'DOCX', 'TXT', 'RTF', 'MD', 'EPUB']);
-
-function WatermarkIcon({ fileType, color }: { fileType: string; color: string }) {
-  const isText = !fileType || TEXT_FILE_TYPES.has(fileType);
-  return (
-    <svg
-      className="absolute left-1/2 top-1/2 w-16 h-16 -translate-x-1/2 -translate-y-1/2 opacity-[0.16]"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      {isText ? (
-        <>
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-          <path d="M14 3v5h5" />
-          <path d="M9 13h6M9 17h6" />
-        </>
-      ) : (
-        <>
-          <path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z" />
-          <path d="M4 19a2 2 0 0 0 2 2h13" />
-        </>
-      )}
-    </svg>
-  );
-}
-
 export default function BookCard({ document, progressPercent }: BookCardProps) {
   const { t, locale } = useI18n();
   const localizedPath = useLocalizedPath();
@@ -57,7 +26,7 @@ export default function BookCard({ document, progressPercent }: BookCardProps) {
   const [imageError, setImageError] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
 
-  const coverPhotoUrl = normalizeMediaUrl(document.cover_photo_url);
+  const coverPhotoUrl = normalizeMediaUrl(document.cover_photo_url ?? document.thumbnail_url);
   const hasPhoto = Boolean(coverPhotoUrl) && !imageError;
   const langDisplay = document.language ? languageName(document.language) : null;
   const fileType = fileTypeLabel(document.file);
@@ -105,11 +74,8 @@ export default function BookCard({ document, progressPercent }: BookCardProps) {
 
   return (
     <div className="group relative">
-      <Link
-        href={localizedPath(`/documents/${document.id}`)}
-        className="block bg-gradient-to-b from-card-2 to-card rounded-[18px] border border-border hover:border-accent/40 shadow-[0_4px_20px_-8px_rgba(0,0,0,0.5)] hover:shadow-[0_12px_36px_-12px_rgba(192,133,82,0.25)] transition-all duration-300 overflow-hidden transform hover:-translate-y-1"
-      >
-        <div className="relative aspect-[2/3] overflow-hidden bg-bg-2">
+      <Link href={localizedPath(`/documents/${document.id}`)} className="block">
+        <div className="relative aspect-[2/3] overflow-hidden rounded-[18px] border border-border bg-bg-2 shadow-[0_4px_20px_-8px_rgba(0,0,0,0.5)] transition-all duration-300 group-hover:-translate-y-1 group-hover:border-accent/40 group-hover:shadow-[0_12px_36px_-12px_rgba(192,133,82,0.25)]">
           {hasPhoto ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -123,18 +89,15 @@ export default function BookCard({ document, progressPercent }: BookCardProps) {
               className="absolute inset-0 transition-transform duration-500 group-hover:scale-[1.03]"
               style={{ backgroundImage: `linear-gradient(135deg, ${palette.from}, ${palette.to})` }}
             >
-              {/* Manuscript-style accent hairlines + watermark — no baked title text. */}
-              <div
-                className="absolute inset-x-6 top-9 h-px"
-                style={{ background: palette.accent, opacity: 0.5 }}
-                aria-hidden
-              />
-              <div
-                className="absolute inset-x-6 bottom-9 h-px"
-                style={{ background: palette.accent, opacity: 0.5 }}
-                aria-hidden
-              />
-              <WatermarkIcon fileType={fileType} color={palette.accent} />
+              <div className="absolute inset-x-5 bottom-9">
+                <p
+                  dir="auto"
+                  className="font-fraunces text-[15px] leading-[1.3] line-clamp-4"
+                  style={{ color: palette.text }}
+                >
+                  {document.title}
+                </p>
+              </div>
             </div>
           )}
 
@@ -177,24 +140,21 @@ export default function BookCard({ document, progressPercent }: BookCardProps) {
           </button>
         </div>
 
-        <div
-          className="p-4"
-          style={hasPhoto ? { borderTop: `2px solid ${palette.accent}` } : undefined}
-        >
+        <div className="mt-3">
           <h3
             dir="auto"
-            className="font-fraunces text-[17px] leading-[1.3] text-text line-clamp-2 group-hover:text-accent-2 transition-colors"
+            className="font-fraunces text-[14px] leading-[1.25] text-text line-clamp-2 group-hover:text-accent-2 transition-colors"
           >
             {document.title}
           </h3>
 
           {hasProgress ? (
-            <p className="mt-2.5 text-[11.5px] text-accent-2 tracking-wide">
+            <p className="mt-1 text-[11.5px] text-accent-2 tracking-wide">
               {t('docs.card.percentReadShort', 'قُرئ {n}٪', { n: toLocaleDigits(percent, locale) })}
             </p>
           ) : (
             metaParts.length > 0 && (
-              <p className="mt-2.5 pt-2.5 border-t border-border text-[11px] text-text-3 tracking-wide flex items-center gap-1.5">
+              <p className="mt-1 text-[11.5px] text-text-3 tracking-wide flex items-center gap-1.5">
                 {metaParts.map((part, i) => (
                   <span key={i} className="inline-flex items-center gap-1.5">
                     {i > 0 && <span aria-hidden className="text-text-3/60">·</span>}

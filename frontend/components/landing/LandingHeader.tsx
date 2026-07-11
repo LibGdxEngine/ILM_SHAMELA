@@ -1,23 +1,25 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import ShellHeader from '@/components/ShellHeader';
-import NavSearchPopover, { type SelectedBook } from '@/components/search/NavSearchPopover';
+import SearchCommandPalette from '@/components/documents/SearchCommandPalette';
+import type { SelectedBook } from '@/components/search/SearchFacetControls';
 import { useAuth } from '@/lib/AuthContext';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { buildDocumentsSearchParams } from '@/lib/documentsSearchParams';
-import type { CorpusSearchMode } from '@/lib/api';
+import type { AssistFilters, CorpusSearchMode } from '@/lib/api';
 
 /**
  * Landing's persistent header. Composes the shared `ShellHeader` (gold Reading
  * Room accent, inherited from the `.landing-shell` CSS variables) around an
- * inline search box that opens the shared `NavSearchPopover`. The landing page
- * has no in-place browsing concept, so submitting always navigates to
- * `/documents` with the serialized query + filters — mirroring the landing
- * hero's own search box behavior, just relocated into the header.
+ * inline search box that opens the shared `SearchCommandPalette` — the same
+ * AI-assisted search modal `/documents` uses. The landing page has no
+ * in-place browsing concept, so both submit paths always navigate to
+ * `/documents` with the serialized query + filters instead of setting local
+ * page state.
  */
 export default function LandingHeader() {
   const router = useRouter();
@@ -31,14 +33,33 @@ export default function LandingHeader() {
   const [selectedAuthors, setSelectedAuthors] = useState<string[]>([]);
   const [selectedBooks, setSelectedBooks] = useState<SelectedBook[]>([]);
   const [popoverOpen, setPopoverOpen] = useState(false);
-  const searchTriggerRef = useRef<HTMLDivElement>(null);
 
-  // Landing never filters in place: always jump to the catalog with the current
-  // query + popup filters, serialized identically to every other surface that
-  // links into /documents. Mirrors HeroSection's empty-query guard.
-  const handleSubmit = () => {
+  // AI-assisted submit: the assistant parses a natural-language query into
+  // structured filters. It can't express a book scope, so preserve the
+  // user's existing book selection — mirrors /documents's applyAssistFilters.
+  const onAssistApply = (filters: AssistFilters) => {
     const params = buildDocumentsSearchParams({
-      q: queryValue,
+      q: filters.q,
+      mode: filters.mode,
+      documents: selectedBooks.map((b) => b.id),
+      authors: filters.authors,
+      categories: filters.categories,
+      languages: filters.languages,
+      dateFrom: filters.dateFrom ?? undefined,
+      dateTo: filters.dateTo ?? undefined,
+    });
+    const qs = params.toString();
+    router.push(localizedPath(qs ? `/documents?${qs}` : '/documents'));
+    setPopoverOpen(false);
+  };
+
+  // Plain-search fallback (AI unavailable, or the outer trigger form submits
+  // before the palette steals focus): jump to the catalog with the current
+  // query + filters, serialized identically to every other surface that
+  // links into /documents.
+  const onPlainSubmit = (q: string) => {
+    const params = buildDocumentsSearchParams({
+      q,
       mode: searchMode,
       documents: selectedBooks.map((b) => b.id),
       authors: selectedAuthors,
@@ -50,11 +71,11 @@ export default function LandingHeader() {
   };
 
   const landingSearchEl = (
-    <div className="relative w-full max-w-[540px]" ref={searchTriggerRef}>
+    <div className="relative w-full max-w-[540px]">
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          handleSubmit();
+          onPlainSubmit(queryValue);
         }}
       >
         <div
@@ -88,14 +109,10 @@ export default function LandingHeader() {
         </div>
       </form>
 
-      <NavSearchPopover
+      <SearchCommandPalette
         open={popoverOpen}
         onOpenChange={setPopoverOpen}
-        anchorRef={searchTriggerRef}
-        showQueryField={false}
-        queryValue={queryValue}
-        onQueryChange={setQueryValue}
-        onSubmit={handleSubmit}
+        initialQuery={queryValue}
         mode={searchMode}
         onModeChange={setSearchMode}
         selectedCategories={selectedCategories}
@@ -119,6 +136,8 @@ export default function LandingHeader() {
           )
         }
         isAuthenticated={isAuthenticated}
+        onAssistApply={onAssistApply}
+        onPlainSubmit={onPlainSubmit}
       />
     </div>
   );

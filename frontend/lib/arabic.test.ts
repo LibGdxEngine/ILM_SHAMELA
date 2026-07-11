@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { TASHKEEL_CHAR, buildTashkeelStripMapping, findArabicMatches, normalizeArabicForSearch } from './arabic';
+import {
+  TASHKEEL_CHAR,
+  buildTashkeelStripMapping,
+  findArabicMatches,
+  findArabicPhraseMatches,
+  normalizeArabicForSearch,
+  tokenizeArabicForSearch,
+} from './arabic';
 
 describe('normalizeArabicForSearch', () => {
   it('strips tashkeel', () => {
@@ -71,6 +78,97 @@ describe('findArabicMatches', () => {
     expect(findArabicMatches('نص', '   ')).toEqual([]);
     // A tashkeel-only query normalizes to nothing.
     expect(findArabicMatches('نص', 'ًٌٍ')).toEqual([]);
+  });
+});
+
+describe('tokenizeArabicForSearch', () => {
+  it('splits on whitespace and punctuation, normalizing each token', () => {
+    const { tokens } = tokenizeArabicForSearch('قرأ كتاب، الله أكبر');
+    expect(tokens).toEqual(['قرا', 'كتاب', 'الله', 'اكبر']);
+  });
+
+  it('returns original-offset ranges whose slices normalize back to the token', () => {
+    const original = 'وإذا تَطَبَّعَتِ النَّفْسُ، على الكِبَرِ';
+    const { tokens, ranges } = tokenizeArabicForSearch(original);
+    expect(ranges).toHaveLength(tokens.length);
+    for (let i = 0; i < tokens.length; i += 1) {
+      const slice = original.slice(ranges[i].start, ranges[i].end);
+      expect(normalizeArabicForSearch(slice).normalized).toBe(tokens[i]);
+    }
+  });
+});
+
+describe('findArabicPhraseMatches', () => {
+  it('rejects sub-word occurrences', () => {
+    expect(findArabicPhraseMatches('ذهب إلى المكتبة', 'كتب')).toEqual([]);
+    expect(findArabicPhraseMatches('الكتاب والكتابة', 'الكتاب')).toHaveLength(1);
+  });
+
+  it('matches whole words only, at original offsets', () => {
+    const text = 'طلب العلم فريضة والعلم نور';
+    const ranges = findArabicPhraseMatches(text, 'العلم');
+    expect(ranges).toHaveLength(1);
+    expect(text.slice(ranges[0].start, ranges[0].end)).toBe('العلم');
+  });
+
+  it('treats punctuation between phrase words as transparent, like ES match_phrase', () => {
+    const text = 'قرأ كتاب، الله أكبر';
+    const ranges = findArabicPhraseMatches(text, 'كتاب الله');
+    expect(ranges).toHaveLength(1);
+    const span = text.slice(ranges[0].start, ranges[0].end);
+    expect(span.startsWith('كتاب')).toBe(true);
+    expect(span.endsWith('الله')).toBe(true);
+  });
+
+  it('does not match when an extra token sits between phrase words', () => {
+    expect(findArabicPhraseMatches('كتاب عظيم لله', 'كتاب الله')).toEqual([]);
+  });
+
+  it('matches a bare query against vocalized text, including trailing tashkeel', () => {
+    const vocalized = 'كان أَضَرُّ عَلَيْها مِنْ طَبْعِ الحِدَةِ';
+    const ranges = findArabicPhraseMatches(vocalized, 'من طبع الحدة');
+    expect(ranges).toHaveLength(1);
+    const span = vocalized.slice(ranges[0].start, ranges[0].end);
+    expect(span.startsWith('مِنْ')).toBe(true);
+    expect(span.endsWith('الحِدَةِ')).toBe(true);
+  });
+
+  it('matches a vocalized query against bare text', () => {
+    const text = 'كان أضر عليها من طبع الحدة';
+    const ranges = findArabicPhraseMatches(text, 'مِنْ طَبْعِ الحِدَّةِ');
+    expect(ranges).toHaveLength(1);
+    expect(text.slice(ranges[0].start, ranges[0].end)).toBe('من طبع الحدة');
+  });
+
+  it('returns no ranges for queries that normalize to no tokens', () => {
+    expect(findArabicPhraseMatches('نص', '')).toEqual([]);
+    expect(findArabicPhraseMatches('نص', '   ')).toEqual([]);
+    expect(findArabicPhraseMatches('نص', 'ًٌٍ')).toEqual([]);
+    expect(findArabicPhraseMatches('نص', '،؟!')).toEqual([]);
+  });
+
+  it('matches a phrase across a newline', () => {
+    const text = 'على\nالكبر';
+    expect(findArabicPhraseMatches(text, 'على الكبر')).toEqual([{ start: 0, end: text.length }]);
+  });
+
+  it('reports overlapping repeated-phrase occurrences', () => {
+    expect(findArabicPhraseMatches('الله الله الله', 'الله الله')).toHaveLength(2);
+  });
+
+  it('handles digits and Latin tokens', () => {
+    expect(findArabicPhraseMatches('صفحة ٥١', '٥١')).toHaveLength(1);
+    expect(findArabicPhraseMatches('test الكتاب', 'tes')).toEqual([]);
+    expect(findArabicPhraseMatches('test الكتاب', 'test')).toHaveLength(1);
+  });
+
+  it('gives the same matches on the tashkeel-stripped display variant', () => {
+    const original = 'كان أَضَرُّ عَلَيْها مِنْ طَبْعِ الحِدَةِ ثم من طبع الحدة';
+    const { stripped } = buildTashkeelStripMapping(original);
+    const query = 'من طبع الحدة';
+    expect(findArabicPhraseMatches(stripped, query)).toHaveLength(
+      findArabicPhraseMatches(original, query).length
+    );
   });
 });
 

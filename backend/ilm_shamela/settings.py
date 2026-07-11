@@ -3,6 +3,7 @@ Django settings for ilm_shamela project.
 """
 
 import os
+import sys
 from pathlib import Path
 from datetime import timedelta
 from django.core.exceptions import ImproperlyConfigured
@@ -79,6 +80,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'core',
     'search_engine',
+    'analytics',
     'rest_framework.authtoken',
     'dj_rest_auth',
     'dj_rest_auth.registration',
@@ -228,6 +230,9 @@ REST_FRAMEWORK = {
         'upload': '30/hour',
         'search': '600/hour',
         'reader_progress': '30/min',
+        'reader_pages': '60/min',
+        'analytics_ingest': '120/min',
+        'recommendations': '60/min',
     },
 }
 
@@ -237,6 +242,33 @@ REDIS_HOST = os.environ.get('REDIS_HOST', 'redis')
 REDIS_PORT = os.environ.get('REDIS_PORT', '6379')
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 
+# Shared cache (DRF throttle counters + reader quotas). Redis DB /1 so the
+# Celery broker on /0 and the cache never clobber each other's keys.
+CACHE_REDIS_URL = os.environ.get(
+    'CACHE_REDIS_URL', f"redis://{REDIS_HOST}:{REDIS_PORT}/1"
+)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': CACHE_REDIS_URL,
+        'KEY_PREFIX': 'ilm',
+    }
+}
+
+# Unit tests must not depend on a live Redis instance.
+if 'test' in sys.argv:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }
+
+# Reader anti-scraping quotas (per user, per UTC day); 0 disables a quota.
+READER_MAX_DOCS_PER_DAY = int(os.environ.get('READER_MAX_DOCS_PER_DAY', '50'))
+READER_MAX_PAGES_PER_DAY = int(
+    os.environ.get('READER_MAX_PAGES_PER_DAY', '5000')
+)
+
 # Celery Configuration
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
@@ -244,6 +276,13 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+
+# Analytics / behavior tracking
+# Raw UserEvent rows older than this are purged by `manage.py purge_events`
+# (or the analytics.tasks.purge_old_events Celery task). Aggregates are kept.
+ANALYTICS_EVENT_RETENTION_DAYS = int(
+    os.environ.get('ANALYTICS_EVENT_RETENTION_DAYS', '180')
+)
 
 
 # Elasticsearch Configuration
@@ -356,7 +395,13 @@ SIMPLE_JWT = {
 }
 
 ACCOUNT_LOGIN_METHODS = {'email'}
-ACCOUNT_EMAIL_VERIFICATION = 'optional'
+# Flip to 'mandatory' (via env) only once a real SMTP provider is configured
+# (EMAIL_HOST/EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/EMAIL_USE_TLS); with the
+# default localhost:25 backend, verification mails never arrive and signup
+# silently breaks. Google OAuth signups are provider-verified either way.
+ACCOUNT_EMAIL_VERIFICATION = os.environ.get(
+    'ACCOUNT_EMAIL_VERIFICATION', 'optional'
+)
 ACCOUNT_SIGNUP_PASSWORD_ENTER_TWICE = False
 ACCOUNT_UNIQUE_EMAIL = True
 # Still seems to be used by some parts, but warnings said otherwise.

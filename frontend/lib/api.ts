@@ -296,6 +296,8 @@ export interface DocumentSearchResponse {
   total_matches: number;
   query: string;
   has_semantic?: boolean;
+  /** Mode these results were produced with — stamped client-side (the backend does not echo it). */
+  mode?: InDocSearchMode;
 }
 
 /** In-document search modes (mirror of the backend `VALID_SEARCH_MODES`). */
@@ -716,6 +718,25 @@ export async function getDocument(id: number): Promise<Document> {
 }
 
 /**
+ * Thrown when the backend reports the user's daily reading quota is spent
+ * (429 with `error: 'quota_exceeded'`), so the reader can show a dedicated
+ * "come back tomorrow" screen instead of a generic failure.
+ */
+export class QuotaExceededError extends Error {
+  quota: 'documents' | 'pages';
+  limit: number;
+  retryAfterSeconds: number;
+
+  constructor(body: { quota: 'documents' | 'pages'; limit: number; retry_after_seconds: number }) {
+    super('quota_exceeded');
+    this.name = 'QuotaExceededError';
+    this.quota = body.quota;
+    this.limit = body.limit;
+    this.retryAfterSeconds = body.retry_after_seconds;
+  }
+}
+
+/**
  * Get paginated content pages of a document
  */
 export async function getDocumentPages(
@@ -740,6 +761,9 @@ export async function getDocumentPages(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
+    if (response.status === 429 && error.error === 'quota_exceeded') {
+      throw new QuotaExceededError(error);
+    }
     throw new Error(error.detail || error.message || error.error || 'Failed to fetch document pages');
   }
 
@@ -760,6 +784,7 @@ export async function searchInDocument(
       matches: [],
       total_matches: 0,
       query: '',
+      mode,
     };
   }
 
@@ -788,7 +813,7 @@ export async function searchInDocument(
     throw new Error(error.detail || error.message || 'Search failed');
   }
 
-  return response.json();
+  return { ...(await response.json()), mode };
 }
 
 /**

@@ -1,13 +1,15 @@
 import React from 'react';
 import { useI18n } from '@/components/i18n/I18nProvider';
-import type { PrintedRef } from '@/lib/api';
+import type { InDocSearchMode, PrintedRef } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
-import { TASHKEEL, buildTashkeelStripMapping } from '@/lib/arabic';
+import { TASHKEEL, buildTashkeelStripMapping, findArabicMatches, findArabicPhraseMatches } from '@/lib/arabic';
 
 interface DocumentPageProps {
   pageNumber: number;
   content: string;
   searchQuery: string;
+  /** Mode the current search results were produced with; drives on-page match strictness. */
+  searchMode?: InDocSearchMode;
   isIntersecting?: boolean;
   language?: string | null;
   tashkeelEnabled?: boolean;
@@ -25,10 +27,6 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 interface Range {
@@ -52,6 +50,7 @@ interface Range {
 function renderContentHtml(
   content: string,
   searchQuery: string,
+  searchMode: InDocSearchMode,
   highlights: ApiHighlight[]
 ): string {
   const ranges: Range[] = [];
@@ -74,12 +73,14 @@ function renderContentHtml(
   }
 
   if (searchQuery.trim()) {
-    const escaped = escapeRegex(searchQuery);
-    const regex = new RegExp(escaped, 'gi');
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(content)) !== null) {
-      ranges.push({ start: match.index, end: match.index + match[0].length, type: 'search' });
-      if (match.index === regex.lastIndex) regex.lastIndex += 1;
+    // Mirror the backend's highlight semantics: exact mode marks whole-token
+    // phrases only; the other modes mark tashkeel/variant-insensitive substrings.
+    const matches =
+      searchMode === 'exact'
+        ? findArabicPhraseMatches(content, searchQuery)
+        : findArabicMatches(content, searchQuery);
+    for (const m of matches) {
+      ranges.push({ start: m.start, end: m.end, type: 'search' });
     }
   }
 
@@ -129,6 +130,7 @@ export default function DocumentPage({
   pageNumber,
   content,
   searchQuery,
+  searchMode = 'mix',
   language,
   tashkeelEnabled = true,
   highlights = [],
@@ -171,7 +173,7 @@ export default function DocumentPage({
     }));
   }
 
-  const innerHtml = renderContentHtml(visibleContent, searchQuery, displayHighlights);
+  const innerHtml = renderContentHtml(visibleContent, searchQuery, searchMode, displayHighlights);
 
   return (
     <article
