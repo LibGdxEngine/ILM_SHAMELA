@@ -157,6 +157,24 @@ def _load_ocr_layout(document):
         document.ocr_layout.close()
 
 
+def _layout_page_index(raw_page, position):
+    """
+    0-based page index for a datalab/marker page container.
+
+    Per-page exports set a top-level integer 'page'. Full-document exports leave
+    the page-container 'page' absent (None) and encode the index only in the id
+    ('/page/N/Page/N'); their leaf blocks carry the 'page'. Fall back to the
+    container's position (children are emitted in page order) when neither exists.
+    """
+    page = raw_page.get('page')
+    if isinstance(page, int):
+        return page
+    match = re.match(r'/page/(\d+)', str(raw_page.get('id') or ''))
+    if match:
+        return int(match.group(1))
+    return position
+
+
 def _build_layout_pages(layout_data):
     """
     Convert a datalab/marker OCR JSON into reader pages.
@@ -169,8 +187,13 @@ def _build_layout_pages(layout_data):
     index into that exact string.
     """
     raw_pages = layout_data.get('children') or []
+    indexed_pages = sorted(
+        ((_layout_page_index(raw_page, position), raw_page)
+         for position, raw_page in enumerate(raw_pages)),
+        key=lambda item: item[0],
+    )
     pages = []
-    for raw_page in sorted(raw_pages, key=lambda p: p.get('page') or 0):
+    for page_index, raw_page in indexed_pages:
         page_bbox = raw_page.get('bbox') or []
         width = float(page_bbox[2]) if len(page_bbox) == 4 and page_bbox[2] else 1.0
         height = float(page_bbox[3]) if len(page_bbox) == 4 and page_bbox[3] else 1.0
@@ -188,7 +211,7 @@ def _build_layout_pages(layout_data):
             if not text:
                 continue
             blocks.append({
-                'id': raw_block.get('id') or f'/page/{raw_page.get("page") or 0}/Block/{len(blocks)}',
+                'id': raw_block.get('id') or f'/page/{page_index}/Block/{len(blocks)}',
                 'type': block_type,
                 'bbox': [round(float(value), 2) for value in bbox],
                 'text': text,
@@ -198,7 +221,7 @@ def _build_layout_pages(layout_data):
             texts.append(text)
             offset += len(text) + 1  # +1 for the '\n' join separator
         pages.append({
-            'page_number': (raw_page.get('page') or 0) + 1,
+            'page_number': page_index + 1,
             'content': '\n'.join(texts),
             'layout': {'width': width, 'height': height, 'blocks': blocks},
         })
@@ -229,6 +252,14 @@ def _render_layout_page_images(document, file_content, chunk_objects, batch_size
     by_page = {chunk.page_number: chunk for chunk in chunk_objects}
     if not by_page:
         return
+    if len(by_page) != len(chunk_objects):
+        # Duplicate page numbers collapse the dict and silently drop page images
+        # (e.g. a layout JSON whose page indices all resolve to the same value).
+        # Fail loudly so processing is marked failed instead of rendering blanks.
+        raise ValueError(
+            f'Layout chunks have duplicate page numbers: {len(chunk_objects)} chunks '
+            f'collapsed to {len(by_page)} distinct pages — page images would be lost.'
+        )
     max_page = max(by_page)
     for first_page in range(1, max_page + 1, batch_size):
         last_page = min(first_page + batch_size - 1, max_page)
