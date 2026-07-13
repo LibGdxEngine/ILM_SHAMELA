@@ -5,21 +5,23 @@ import { useRouter } from 'next/navigation';
 
 import ShellHeader from '@/components/ShellHeader';
 import SearchCommandPalette from '@/components/documents/SearchCommandPalette';
-import type { SelectedBook } from '@/components/search/SearchFacetControls';
+import useLocalCorpusSearchState, {
+  corpusFiltersToValues,
+} from '@/lib/search/useCorpusSearchState';
+import useFilterPresets from '@/hooks/useFilterPresets';
 import { useAuth } from '@/lib/AuthContext';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
-import { buildDocumentsSearchParams } from '@/lib/documentsSearchParams';
-import type { AssistFilters, CorpusSearchMode } from '@/lib/api';
+import { buildDocumentsSearchParams, type DocumentsSearchState } from '@/lib/documentsSearchParams';
+import type { AssistFilters } from '@/lib/api';
 
 /**
  * Landing's persistent header. Composes the shared `ShellHeader` (gold Reading
  * Room accent, inherited from the `.landing-shell` CSS variables) around an
  * inline search box that opens the shared `SearchCommandPalette` — the same
- * AI-assisted search modal `/documents` uses. The landing page has no
- * in-place browsing concept, so both submit paths always navigate to
- * `/documents` with the serialized query + filters instead of setting local
- * page state.
+ * research console `/documents` uses. The landing page has no in-place
+ * browsing concept, so every submit path (plain, AI, preset apply) navigates
+ * to `/documents` with the serialized query + filters.
  */
 export default function LandingHeader() {
   const router = useRouter();
@@ -28,46 +30,40 @@ export default function LandingHeader() {
   const { isAuthenticated } = useAuth();
 
   const [queryValue, setQueryValue] = useState('');
-  const [searchMode, setSearchMode] = useState<CorpusSearchMode>('hybrid');
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [selectedAuthors, setSelectedAuthors] = useState<string[]>([]);
-  const [selectedBooks, setSelectedBooks] = useState<SelectedBook[]>([]);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const { filters, handlers } = useLocalCorpusSearchState();
+  const { presets, savePreset, deletePreset } = useFilterPresets(isAuthenticated);
 
-  // AI-assisted submit: the assistant parses a natural-language query into
-  // structured filters. It can't express a book scope, so preserve the
-  // user's existing book selection — mirrors /documents's applyAssistFilters.
-  const onAssistApply = (filters: AssistFilters) => {
-    const params = buildDocumentsSearchParams({
-      q: filters.q,
-      mode: filters.mode,
-      documents: selectedBooks.map((b) => b.id),
-      authors: filters.authors,
-      categories: filters.categories,
-      languages: filters.languages,
-      dateFrom: filters.dateFrom ?? undefined,
-      dateTo: filters.dateTo ?? undefined,
-    });
-    const qs = params.toString();
+  const goToDocuments = (state: DocumentsSearchState) => {
+    const qs = buildDocumentsSearchParams(state).toString();
     router.push(localizedPath(qs ? `/documents?${qs}` : '/documents'));
     setPopoverOpen(false);
   };
 
+  // AI-assisted submit: the assistant parses a natural-language query into
+  // structured filters. It can't express a book scope, so preserve the
+  // user's existing book selection — mirrors /documents's applyAssistFilters.
+  const onAssistApply = (assist: AssistFilters) => {
+    goToDocuments({
+      q: assist.q,
+      mode: assist.mode,
+      documents: filters.books.map((b) => b.id),
+      authors: assist.authors,
+      categories: assist.categories,
+      languages: assist.languages,
+      countries: assist.countries ?? [],
+      deathCenturies: assist.deathCenturies ?? [],
+      dateFrom: assist.dateFrom ?? undefined,
+      dateTo: assist.dateTo ?? undefined,
+    });
+  };
+
   // Plain-search fallback (AI unavailable, or the outer trigger form submits
   // before the palette steals focus): jump to the catalog with the current
-  // query + filters, serialized identically to every other surface that
-  // links into /documents.
+  // query + every selected facet, serialized identically to every other
+  // surface that links into /documents.
   const onPlainSubmit = (q: string) => {
-    const params = buildDocumentsSearchParams({
-      q,
-      mode: searchMode,
-      documents: selectedBooks.map((b) => b.id),
-      authors: selectedAuthors,
-      categories: selectedCategories,
-    });
-    const qs = params.toString();
-    router.push(localizedPath(qs ? `/documents?${qs}` : '/documents'));
-    setPopoverOpen(false);
+    goToDocuments(corpusFiltersToValues(filters, q));
   };
 
   const landingSearchEl = (
@@ -113,31 +109,23 @@ export default function LandingHeader() {
         open={popoverOpen}
         onOpenChange={setPopoverOpen}
         initialQuery={queryValue}
-        mode={searchMode}
-        onModeChange={setSearchMode}
-        selectedCategories={selectedCategories}
-        onToggleCategory={(name) =>
-          setSelectedCategories((prev) =>
-            prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name],
-          )
-        }
-        selectedAuthors={selectedAuthors}
-        onToggleAuthor={(name) =>
-          setSelectedAuthors((prev) =>
-            prev.includes(name) ? prev.filter((a) => a !== name) : [...prev, name],
-          )
-        }
-        selectedBooks={selectedBooks}
-        onToggleBook={(book) =>
-          setSelectedBooks((prev) =>
-            prev.some((b) => b.id === book.id)
-              ? prev.filter((b) => b.id !== book.id)
-              : [...prev, book],
-          )
-        }
+        filters={filters}
+        handlers={handlers}
         isAuthenticated={isAuthenticated}
+        analyticsSurface="landing"
         onAssistApply={onAssistApply}
         onPlainSubmit={onPlainSubmit}
+        presets={
+          isAuthenticated
+            ? {
+                list: presets,
+                // No in-place state here — applying a preset IS a navigation.
+                onApply: (preset) => goToDocuments(preset.filters),
+                onSave: (name, values) => savePreset(name, values),
+                onDelete: (id) => deletePreset(id),
+              }
+            : undefined
+        }
       />
     </div>
   );

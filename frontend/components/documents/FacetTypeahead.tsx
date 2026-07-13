@@ -1,8 +1,7 @@
 'use client';
 
-import { useId, useRef, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import useDebounce from '@/hooks/useDebounce';
+import { useCallback, useId, useRef, useState } from 'react';
+import useOptionSearch from '@/components/search/console/useOptionSearch';
 import { FACET_INPUT_CLASS, FilterSection, PILL_ON } from './filterTokens';
 
 interface FacetItem {
@@ -49,26 +48,28 @@ export default function FacetTypeahead({
   onToggle,
   labels,
 }: FacetTypeaheadProps) {
-  const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listboxId = useId();
 
-  const debounced = useDebounce(query.trim(), 300);
-  const { data, isFetching } = useQuery<FacetSearchResponse, Error>({
-    queryKey: [cacheKey, 'search', debounced],
-    queryFn: () => fetchItems(debounced),
-    placeholderData: keepPreviousData, // no flicker between keystrokes
-    staleTime: 60_000,
-    enabled: open, // only fetch while the dropdown is focused/open
-  });
+  // Shared option-search mechanics (debounce + cache + keepPreviousData);
+  // fetches only while the dropdown is focused/open.
+  const fetchOptions = useCallback(
+    async (search: string) => {
+      const res = await fetchItems(search);
+      return { count: res.count, options: res.results.map((r) => ({ id: r.id, label: r.name })) };
+    },
+    [fetchItems],
+  );
+  const { query, setQuery, options, isFetching, hasMore } = useOptionSearch(
+    cacheKey,
+    fetchOptions,
+    open,
+  );
 
-  const results = data?.results ?? [];
-  const count = data?.count ?? 0;
   // Hide already-selected values from the suggestion list.
-  const suggestions = results.filter((item) => !selected.includes(item.name));
-  const hasMore = count > results.length;
+  const suggestions = options.filter((item) => !selected.includes(item.label));
 
   const select = (name: string) => {
     onToggle(name);
@@ -88,14 +89,14 @@ export default function FacetTypeahead({
       const choice = suggestions[activeIndex];
       if (choice) {
         e.preventDefault();
-        select(choice.name);
+        select(choice.label);
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
     }
   };
 
-  const showEmpty = open && !isFetching && debounced !== '' && suggestions.length === 0;
+  const showEmpty = open && !isFetching && query.trim() !== '' && suggestions.length === 0;
   const showDropdown = open && (isFetching || suggestions.length > 0 || showEmpty);
 
   return (
@@ -122,7 +123,7 @@ export default function FacetTypeahead({
 
       <div className="relative">
         <svg
-          className="absolute top-1/2 -translate-y-1/2 start-2.5 w-3.5 h-3.5 text-[#9a8b70] pointer-events-none z-10"
+          className="absolute top-1/2 -translate-y-1/2 start-2.5 w-3.5 h-3.5 text-[var(--shell-muted,#9a8b70)] pointer-events-none z-10"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -166,16 +167,16 @@ export default function FacetTypeahead({
           <ul
             id={listboxId}
             role="listbox"
-            className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-[10px] border border-[#e2d5ba] bg-[#fcf8ee] shadow-[0_18px_42px_-12px_rgba(44,38,32,0.28)] py-1"
+            className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-[10px] border border-[var(--shell-line,#e2d5ba)] bg-[var(--shell-surface,#fcf8ee)] shadow-[0_18px_42px_-12px_rgba(44,38,32,0.28)] py-1"
           >
             {isFetching && suggestions.length === 0 && (
-              <li className="px-3 py-2 text-[12px] text-[#9a8b70]" aria-live="polite">
+              <li className="px-3 py-2 text-[12px] text-[var(--shell-muted,#9a8b70)]" aria-live="polite">
                 {labels.loading}
               </li>
             )}
 
             {showEmpty && (
-              <li className="px-3 py-2 text-[12px] text-[#9a8b70]">{labels.empty}</li>
+              <li className="px-3 py-2 text-[12px] text-[var(--shell-muted,#9a8b70)]">{labels.empty}</li>
             )}
 
             {suggestions.map((item, i) => (
@@ -188,18 +189,20 @@ export default function FacetTypeahead({
                   // Prevent the input's blur from firing before this click.
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setActiveIndex(i)}
-                  onClick={() => select(item.name)}
+                  onClick={() => select(item.label)}
                   className={`w-full text-start px-3 py-2 text-[12.5px] transition-colors ${
-                    i === activeIndex ? 'bg-[rgba(176,125,43,0.12)] text-[#8a6a23]' : 'text-[#6e6354] hover:bg-[#f4ecd8]'
+                    i === activeIndex
+                      ? 'bg-[color-mix(in_srgb,var(--accent,#b07d2b)_12%,transparent)] text-[var(--accent,#8a6a23)]'
+                      : 'text-[var(--shell-ink-2,#6e6354)] hover:bg-[var(--shell-rail,#f4ecd8)]'
                   }`}
                 >
-                  <span dir="auto">{item.name}</span>
+                  <span dir="auto">{item.label}</span>
                 </button>
               </li>
             ))}
 
             {hasMore && suggestions.length > 0 && (
-              <li className="px-3 pt-1.5 pb-1 text-[11px] text-[#9a8b70] border-t border-[#e7dbc1]">
+              <li className="px-3 pt-1.5 pb-1 text-[11px] text-[var(--shell-muted,#9a8b70)] border-t border-[var(--shell-line,#e7dbc1)]">
                 {labels.more}
               </li>
             )}

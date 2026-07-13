@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   TASHKEEL_CHAR,
+  boundedLevenshtein,
   buildTashkeelStripMapping,
+  classifyArabicTokenMatches,
   findArabicMatches,
   findArabicPhraseMatches,
   normalizeArabicForSearch,
@@ -183,6 +185,65 @@ describe('buildTashkeelStripMapping', () => {
       if (!TASHKEEL_CHAR.test(original[i])) {
         expect(stripped[mapping[i]]).toBe(original[i]);
       }
+    }
+  });
+});
+
+describe('boundedLevenshtein', () => {
+  it('computes exact distances within the budget', () => {
+    expect(boundedLevenshtein('العلم', 'العلم', 2)).toBe(0);
+    expect(boundedLevenshtein('العلم', 'العلوم', 2)).toBe(1);
+    expect(boundedLevenshtein('كتاب', 'كتب', 2)).toBe(1);
+  });
+
+  it('early-exits past the budget with maxDist + 1', () => {
+    expect(boundedLevenshtein('العلم', 'المعرفه', 1)).toBe(2);
+    expect(boundedLevenshtein('اب', 'كتابكبير', 2)).toBe(3); // length gap alone busts the budget
+  });
+});
+
+describe('classifyArabicTokenMatches', () => {
+  it('returns nothing for an empty or tokenless query', () => {
+    expect(classifyArabicTokenMatches('فضل العلم', '')).toEqual([]);
+    expect(classifyArabicTokenMatches('فضل العلم', ' ، ')).toEqual([]);
+  });
+
+  it('marks exact token hits insensitive to tashkeel with original offsets', () => {
+    const text = 'فَضْلُ العِلْمِ ونوره';
+    const matches = classifyArabicTokenMatches(text, 'العلم');
+    expect(matches).toHaveLength(1);
+    expect(matches[0].kind).toBe('exact');
+    expect(text.slice(matches[0].start, matches[0].end)).toBe('العِلْمِ');
+  });
+
+  it('marks near tokens at edit distance 1 for length >= 4', () => {
+    const matches = classifyArabicTokenMatches('في العلوم فوائد', 'العلم');
+    expect(matches).toHaveLength(1);
+    expect(matches[0].kind).toBe('near');
+  });
+
+  it('never fuzzy-matches short tokens', () => {
+    // "في" (2 chars) is within distance 1 of "فيه" but is below the length guard.
+    expect(classifyArabicTokenMatches('في الدار', 'فيه')).toEqual([]);
+  });
+
+  it('marks a multi-word phrase occurrence as a single exact range', () => {
+    const text = 'ذكر فضل العلم مرارا ثم فضل آخر';
+    const matches = classifyArabicTokenMatches(text, 'فضل العلم');
+    const exact = matches.filter((m) => m.kind === 'exact');
+    expect(exact).toHaveLength(1);
+    expect(text.slice(exact[0].start, exact[0].end)).toBe('فضل العلم');
+    // The lone "فضل" later in the sentence is a near hit, not exact.
+    const near = matches.filter((m) => m.kind === 'near');
+    expect(near.length).toBeGreaterThanOrEqual(1);
+    expect(near.every((m) => m.start > exact[0].end)).toBe(true);
+  });
+
+  it('returns sorted, non-overlapping ranges', () => {
+    const text = 'العلم ثم العلوم ثم العلم';
+    const matches = classifyArabicTokenMatches(text, 'العلم');
+    for (let i = 1; i < matches.length; i += 1) {
+      expect(matches[i].start).toBeGreaterThanOrEqual(matches[i - 1].end);
     }
   });
 });

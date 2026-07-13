@@ -6,7 +6,8 @@ from .views import (
     DocumentSearchAssistView,
     DocumentStatusView, DocumentContentPagesView, DocumentInDocumentSearchView,
     DocumentSuggestionsView, AuthorListView, AuthorDetailView, CategoryListView,
-    OCREngineListView, DocumentByCountryView, CountryDocumentStatsView
+    OCREngineListView, DocumentByCountryView, CountryDocumentStatsView,
+    DocumentFacetOptionsView,
 )
 from .views_reader import (
     BookmarkViewSet,
@@ -85,6 +86,7 @@ urlpatterns = [
     path('documents/search/assist/', DocumentSearchAssistView.as_view(), name='document-search-assist'),
     path('documents/country/<str:country>/', DocumentByCountryView.as_view(), name='documents-by-country'),
     path('documents/country-stats/', CountryDocumentStatsView.as_view(), name='country-document-stats'),
+    path('documents/facet-options/', DocumentFacetOptionsView.as_view(), name='document-facet-options'),
     path('documents/suggest/', DocumentSuggestionsView.as_view(), name='document-suggest'),
     path('documents/<int:doc_id>/status/', DocumentStatusView.as_view(), name='document-status'),
     path('ocr-engines/', OCREngineListView.as_view(), name='ocr-engine-list'),

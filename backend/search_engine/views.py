@@ -3,7 +3,7 @@ import os
 import re
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from django.core.cache import cache
 from django.db.models import Q as DjangoQ
@@ -59,6 +59,22 @@ def build_multi_match_query(query: str) -> Q:
     )
 
 
+def _csv_param(request, *names: str) -> List[str]:
+    """First non-empty query param among ``names``, comma-split, stripped,
+    de-duplicated (order-preserving). Lets a filter accept both its canonical
+    plural param and a legacy singular alias (``languages``/``language``)."""
+    for name in names:
+        raw = request.query_params.get(name, None)
+        if raw:
+            seen = {}
+            for token in raw.split(','):
+                token = token.strip()
+                if token and token not in seen:
+                    seen[token] = True
+            return list(seen)
+    return []
+
+
 def apply_document_filters(queryset, request):
     authors = request.query_params.get('authors', None)
     if authors:
@@ -92,9 +108,32 @@ def apply_document_filters(queryset, request):
         if category_list:
             queryset = queryset.filter(categories__name__in=category_list).distinct()
 
-    language = request.query_params.get('language', None)
-    if language:
-        queryset = queryset.filter(language=language)
+    # Multi-value; ``languages`` is canonical, ``language`` kept as a legacy
+    # alias (now CSV-tolerant). Exact match, preserving the old ``=`` semantics
+    # — canonical casing comes from the facet-options endpoint.
+    languages = _csv_param(request, 'languages', 'language')
+    if languages:
+        queryset = queryset.filter(language__in=languages)
+
+    # Author-attribute filters (countries, death centuries) are Django-side
+    # only, like ``authors`` itself — see build_es_filter_clauses' docstring.
+    countries = _csv_param(request, 'countries')
+    if countries:
+        # OR of iexact lookups (matches DocumentByCountryView/refresh_country
+        # case-insensitivity; ``__in`` would be case-sensitive). An unknown
+        # country matches nothing within the OR without zeroing the whole set.
+        lookup = DjangoQ()
+        for country in countries:
+            lookup |= DjangoQ(authors__nationality__iexact=country)
+        queryset = queryset.filter(lookup).distinct()
+
+    death_centuries_raw = _csv_param(request, 'death_centuries')
+    if death_centuries_raw:
+        # Hijri centuries of author death; non-digit/out-of-range tokens are
+        # silently dropped, matching the ``documents`` param convention.
+        centuries = [int(t) for t in death_centuries_raw if t.isdigit() and 1 <= int(t) <= 20]
+        if centuries:
+            queryset = queryset.filter(authors__death_century__in=centuries).distinct()
 
     date_from = request.query_params.get('date_from', None)
     if date_from:
@@ -129,7 +168,7 @@ def build_es_filter_clauses(request):
     query body instead of the Django queryset, so relevance is computed only
     within the scoped candidate set (otherwise a narrow scope can rank outside
     the unfiltered top-N and silently vanish). Handles ``documents``,
-    ``categories``, ``language`` and ``date_from``/``date_to``.
+    ``categories``, ``languages``/``language`` and ``date_from``/``date_to``.
 
     ``authors`` is deliberately excluded: the ES ``authors`` field is analyzed
     text with no keyword sub-field, so a ``terms`` filter wouldn't reliably match
@@ -139,6 +178,13 @@ def build_es_filter_clauses(request):
     ``rights_status`` is also Django-side only: it is not indexed in ES (adding
     it would force a corpus reindex), so narrow rights slices are applied after
     ranking and can under-return from the top-N.
+
+    ``countries`` and ``death_centuries`` are Django-side only for the same
+    reason as ``authors``: they are author attributes (``nationality``,
+    derived ``death_century``) with no ES field, and indexing them would force
+    a mapping change + corpus reindex. Note the multi-author caveat: a document
+    can satisfy ``authors=X&death_centuries=8`` through *different* authors
+    (each ``.filter(authors__...)`` is an independent join).
     """
     clauses: List[Dict] = []
 
@@ -157,9 +203,11 @@ def build_es_filter_clauses(request):
         if category_list:
             clauses.append({"terms": {"categories": category_list}})
 
-    language = request.query_params.get('language', None)
-    if language:
-        clauses.append({"term": {"language": language}})
+    # ``language`` is a KeywordField; a one-element ``terms`` is equivalent to
+    # the previous single-value ``term``, so legacy callers are unaffected.
+    languages = _csv_param(request, 'languages', 'language')
+    if languages:
+        clauses.append({"terms": {"language": languages}})
 
     date_from = request.query_params.get('date_from', None)
     if date_from:
@@ -348,8 +396,9 @@ def execute_corpus_search(
     The stable single-path ranker for the CopilotKit ``search_library`` agent
     tool. ``filters`` is any object exposing ``.get(key)`` (a DRF
     ``QueryDict`` or a plain dict) with the keys understood by
-    ``apply_document_filters`` (authors, categories, language, date_from,
-    date_to); pass ``None`` to skip filtering. When ``include_snippets`` is set,
+    ``apply_document_filters`` (authors, categories, languages/language,
+    countries, death_centuries, date_from, date_to); pass ``None`` to skip
+    filtering. When ``include_snippets`` is set,
     each metadata entry also carries a plain-text ``snippet`` (first highlight
     fragment) for the agent to show — the REST endpoint leaves it off so its
     response shape is unchanged.
@@ -368,10 +417,11 @@ def execute_corpus_search(
     es = connections.get_connection()
     index_name = DocumentIndex._index._name
 
-    # Push non-author filters (categories/language/dates/documents) INTO the ES
+    # Push non-author filters (categories/languages/dates/documents) INTO the ES
     # query so relevance is computed only within the scoped candidate set —
     # otherwise a matching doc can rank outside the unfiltered top-N and silently
-    # vanish. Authors stay Django-side (see build_es_filter_clauses's docstring).
+    # vanish. Author-attribute filters (authors/countries/death_centuries) stay
+    # Django-side (see build_es_filter_clauses's docstring).
     filter_clauses = (
         build_es_filter_clauses(SimpleNamespace(query_params=filters))
         if filters is not None else []
@@ -739,7 +789,10 @@ class DocumentSearchView(generics.ListAPIView):
         result_count = (
             response.data.get('count') if isinstance(response.data, dict) else len(data)
         )
-        facet_keys = ('authors', 'categories', 'language', 'date_from', 'date_to', 'documents')
+        facet_keys = (
+            'authors', 'categories', 'language', 'languages', 'countries',
+            'death_centuries', 'date_from', 'date_to', 'documents',
+        )
         filters = {
             k: request.query_params.get(k)
             for k in facet_keys if request.query_params.get(k)
@@ -841,6 +894,24 @@ ASSIST_FILTER_TOOL = {
                     'type': 'array', 'items': {'type': 'string'},
                     'description': 'Language codes if the user restricts language, e.g. "ar", "en".',
                 },
+                'countries': {
+                    'type': 'array', 'items': {'type': 'string'},
+                    'description': (
+                        "Author origin/nationality countries or regions, ONLY when "
+                        "the user asks about where the AUTHORS are from (e.g. "
+                        '"علماء مصر", "Andalusian scholars") — never for book topics '
+                        'about a place.'
+                    ),
+                },
+                'death_centuries': {
+                    'type': 'array', 'items': {'type': 'integer'},
+                    'description': (
+                        "Hijri centuries of the AUTHOR'S DEATH as integers, e.g. "
+                        '"علماء القرن الثامن الهجري" → [8], "died 728 AH" → [8]. '
+                        'Only for author-era phrases; leave book-content periods '
+                        'in search_terms.'
+                    ),
+                },
                 'date_from': {
                     'type': 'string',
                     'description': (
@@ -881,7 +952,11 @@ ASSIST_SYSTEM_PROMPT = (
     'anything ambiguous in `search_terms` rather than guessing a facet.\n'
     '- Only set date_from/date_to for when a book was uploaded/added to the '
     'library. NEVER translate authorship or Hijri/Gregorian composition dates '
-    '(e.g. "قبل 700 هـ", "before 1900") into date filters — keep such phrases in '
+    '(e.g. "قبل 700 هـ", "before 1900") into date filters.\n'
+    '- Author-era phrases (القرن الثامن الهجري, "8th-century scholars", '
+    '"died 728 AH") go to `death_centuries` as hijri century integers '
+    '(year 728 → century 8). Author origin phrases (علماء مصر, "Andalusian '
+    'scholars") go to `countries`. Other period/place phrases stay in '
     'search_terms.\n'
     '- Default mode to "hybrid" unless the user clearly wants an exact phrase '
     '("exact") or a purely conceptual/meaning search ("semantic").\n'
@@ -894,6 +969,26 @@ ASSIST_SYSTEM_PROMPT = (
 _ASSIST_LANGUAGES_CACHE_KEY = 'assist_known_languages_v1'
 
 
+def get_known_languages() -> Dict[str, str]:
+    """Lowercase → canonical map of the corpus's distinct language codes.
+
+    Changes only on upload, so it is cached briefly (the same 300s TTL pattern
+    as the facet-options payload). Shared by the assist resolver and anything
+    else needing to validate/canonicalize a language value.
+    """
+    known = cache.get(_ASSIST_LANGUAGES_CACHE_KEY)
+    if known is None:
+        known = {
+            (lang or '').lower(): lang
+            for lang in Document.objects.exclude(language__isnull=True)
+            .exclude(language='')
+            .values_list('language', flat=True)
+            .distinct()
+        }
+        cache.set(_ASSIST_LANGUAGES_CACHE_KEY, known, 300)
+    return known
+
+
 def _empty_assist_filters(raw: str) -> Dict:
     """The degraded/no-op filter set: a plain hybrid search over the raw text."""
     return {
@@ -902,9 +997,30 @@ def _empty_assist_filters(raw: str) -> Dict:
         'authors': [],
         'categories': [],
         'languages': [],
+        'countries': [],
+        'deathCenturies': [],
         'dateFrom': None,
         'dateTo': None,
     }
+
+
+# Short-lived cache of known author-nationality country names, used to validate
+# assist country guesses (canonical values = CountryDocumentCount rows).
+_ASSIST_COUNTRIES_CACHE_KEY = 'assist_known_countries_v1'
+
+
+def get_known_countries() -> Dict[str, str]:
+    """Lowercase → canonical map of countries with at least one document."""
+    known = cache.get(_ASSIST_COUNTRIES_CACHE_KEY)
+    if known is None:
+        from .models import CountryDocumentCount
+
+        known = {
+            (c or '').lower(): c
+            for c in CountryDocumentCount.objects.values_list('country', flat=True)
+        }
+        cache.set(_ASSIST_COUNTRIES_CACHE_KEY, known, 300)
+    return known
 
 
 def _valid_iso_date(value) -> str | None:
@@ -991,6 +1107,8 @@ class DocumentSearchAssistView(views.APIView):
         authors = self._resolve_names(parsed.get('authors'), Author, extra_terms)
         categories = self._resolve_names(parsed.get('categories'), Category, extra_terms)
         languages = self._resolve_languages(parsed.get('languages'))
+        countries = self._resolve_countries(parsed.get('countries'), extra_terms)
+        death_centuries = self._resolve_death_centuries(parsed.get('death_centuries'))
 
         mode = parsed.get('mode')
         if mode not in VALID_CORPUS_SEARCH_MODES:
@@ -1006,6 +1124,8 @@ class DocumentSearchAssistView(views.APIView):
             'authors': authors,
             'categories': categories,
             'languages': languages,
+            'countries': countries,
+            'deathCenturies': death_centuries,
             'dateFrom': _valid_iso_date(parsed.get('date_from')),
             'dateTo': _valid_iso_date(parsed.get('date_to')),
         }
@@ -1058,16 +1178,7 @@ class DocumentSearchAssistView(views.APIView):
         """
         if not values:
             return []
-        known = cache.get(_ASSIST_LANGUAGES_CACHE_KEY)
-        if known is None:
-            known = {
-                (lang or '').lower(): lang
-                for lang in Document.objects.exclude(language__isnull=True)
-                .exclude(language='')
-                .values_list('language', flat=True)
-                .distinct()
-            }
-            cache.set(_ASSIST_LANGUAGES_CACHE_KEY, known, 300)
+        known = get_known_languages()
         out: List[str] = []
         seen = set()
         for value in values:
@@ -1075,6 +1186,41 @@ class DocumentSearchAssistView(views.APIView):
             if canonical and canonical not in seen:
                 seen.add(canonical)
                 out.append(canonical)
+        return out
+
+    @staticmethod
+    def _resolve_countries(values, extra_terms: List[str]) -> List[str]:
+        """Keep countries that exist in the corpus (case-insensitive canonical
+        match against ``CountryDocumentCount``); unresolved guesses fold back
+        into the free-text query — the ``_resolve_names`` precedent."""
+        names = [n for n in ((v or '').strip() for v in (values or [])) if n]
+        if not names:
+            return []
+        known = get_known_countries()
+        out: List[str] = []
+        seen = set()
+        for name in names:
+            canonical = known.get(name.lower())
+            if canonical:
+                if canonical not in seen:
+                    seen.add(canonical)
+                    out.append(canonical)
+            else:
+                extra_terms.append(name)
+        return out
+
+    @staticmethod
+    def _resolve_death_centuries(values) -> List[int]:
+        """Keep plausible hijri century ints (1..20); invalid entries are
+        dropped (folding numbers into the free text would be noise)."""
+        out: List[int] = []
+        for value in values or []:
+            try:
+                century = int(value)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= century <= 20 and century not in out:
+                out.append(century)
         return out
 
 
@@ -1257,31 +1403,155 @@ SEMANTIC_FALLBACK_TOP_K = 20
 DEFAULT_SEMANTIC_THRESHOLD = 0.5
 LEXICAL_WEIGHT = 0.60
 SEMANTIC_WEIGHT = 0.40
-VALID_SEARCH_MODES = ('exact', 'similar', 'semantic', 'mix')
+VALID_SEARCH_MODES = ('exact', 'similar', 'semantic', 'mix', 'all')
+PAGE_FREQ_WEIGHT = 0.25  # per-page mark-frequency boost in _score_lexical_matches
+_WS_RE = re.compile(r'\s+')
+_PAGE_BREAK_RE = re.compile(r'[\f\x0c]|\n{3,}')  # mirrors split_document_content_into_pages
+_MARK_RE = re.compile(r'</?mark>')
 
 
-def _es_lexical_stage(document, query: str, pages: List[Dict], *, phrase: bool) -> List[Dict]:
+def _build_lexical_query(query: str, *, phrase: bool, ignore_diacritics: bool) -> Tuple[Q, List[str]]:
+    """Build the ES lexical query and the field names to highlight.
+
+    ``ignore_diacritics=True`` targets the normalized subfields: ``content.exact``
+    (``arabic_exact`` analyzer — tashkeel/alef-variant folding, no stemming) for
+    phrase matching, and for the fuzzy stage a bool-should of the STEMMED
+    ``content.arabic`` (root & derivatives — the تقارب لفظي behavior) plus a
+    fuzzy match on ``content.exact`` (edit-distance typo tolerance).
+    ``ignore_diacritics=False`` targets the raw ``content`` field (standard
+    analyzer keeps harakat); no stemmed clause there since the ``arabic``
+    analyzer strips diacritics and would contradict sensitivity.
+    """
+    if ignore_diacritics:
+        if phrase:
+            return (
+                Q('match_phrase', **{'content.exact': {'query': query}}),
+                ['content.exact'],
+            )
+        return (
+            Q(
+                'bool',
+                should=[
+                    Q('match', **{'content.arabic': {'query': query, 'operator': 'and'}}),
+                    Q('match', **{'content.exact': {'query': query, 'fuzziness': 'AUTO', 'operator': 'and'}}),
+                ],
+                minimum_should_match=1,
+            ),
+            ['content.arabic', 'content.exact'],
+        )
+    if phrase:
+        return Q('match_phrase', content={'query': query}), ['content']
+    return (
+        Q('match', content={'query': query, 'fuzziness': 'AUTO', 'operator': 'and'}),
+        ['content'],
+    )
+
+
+def _normalize_ws(text: str) -> str:
+    return _WS_RE.sub(' ', text).strip()
+
+
+def _fragment_plain(snippet_html: str) -> str:
+    return _normalize_ws(_MARK_RE.sub('', snippet_html))
+
+
+def _mark_count(snippet_html: str) -> int:
+    return len(_MARK_RE.findall(snippet_html)) // 2
+
+
+def _locate_fragment_page(snippet_html: str, norm_pages: List[Tuple[int, str]]) -> Optional[int]:
+    """Attribute an ES highlight fragment to a page; ``None`` → caller drops it.
+
+    ``norm_pages`` is ``[(page_number, whitespace-normalized content), ...]``.
+    Highlight fragments are verbatim slices of ``_source.content`` (the same
+    text the pages were split from), so whitespace normalization is the only
+    folding needed. Tried in order: whole-fragment containment; the page-break
+    piece containing the first ``<mark>`` (fragment spans a page split); the
+    single line containing the first ``<mark>`` (a fragment can cut a break's
+    newline run so it no longer matches the break pattern, but one line can
+    never cross a page break). Never defaults to page 1.
+    """
+    norm_plain = _fragment_plain(snippet_html)
+    if not norm_plain:
+        return None
+    for page_number, page_text in norm_pages:
+        if norm_plain in page_text:
+            return page_number
+    for splitter in (_PAGE_BREAK_RE.split, str.splitlines):
+        marked_piece = next(
+            (piece for piece in splitter(snippet_html) if '<mark>' in piece),
+            None,
+        )
+        if not marked_piece:
+            continue
+        norm_piece = _fragment_plain(marked_piece)
+        if not norm_piece or norm_piece == norm_plain:
+            continue
+        for page_number, page_text in norm_pages:
+            if norm_piece in page_text:
+                return page_number
+    return None
+
+
+def _absorb_duplicate_fragment(matches: List[Dict], candidate: Dict, *, replace_when_richer: bool = True) -> bool:
+    """If ``candidate`` duplicates a fragment already in ``matches`` (same page +
+    equality/containment of the mark-stripped normalized text), absorb it and
+    return ``True``. With ``replace_when_richer`` the existing snippet is swapped
+    for the candidate's when the candidate carries more ``<mark>`` tags (used
+    when merging multi-field highlights); without it the candidate is simply
+    dropped (used when fuzzy fragments duplicate exact ones in ``all`` mode)."""
+    cand_plain = _fragment_plain(candidate['snippet'])
+    for existing in matches:
+        if existing['page_number'] != candidate['page_number']:
+            continue
+        existing_plain = _fragment_plain(existing['snippet'])
+        if cand_plain == existing_plain or cand_plain in existing_plain or existing_plain in cand_plain:
+            if replace_when_richer and _mark_count(candidate['snippet']) > _mark_count(existing['snippet']):
+                existing['snippet'] = candidate['snippet']
+            return True
+    return False
+
+
+def _score_lexical_matches(lexical_matches: List[Dict]) -> List[Dict]:
+    """Attach ``lex_raw`` to each fragment: its own ``<mark>`` count plus a
+    per-page frequency boost. ES gives one doc-level score shared by every
+    fragment (the index has one document per book), so ranking on ``es_score``
+    made every match tie at 1.0 — mark density is the per-fragment signal."""
+    page_marks: Dict[int, int] = {}
+    for match in lexical_matches:
+        page_marks[match['page_number']] = page_marks.get(match['page_number'], 0) + _mark_count(match['snippet'])
+    for match in lexical_matches:
+        match['lex_raw'] = _mark_count(match['snippet']) + PAGE_FREQ_WEIGHT * page_marks[match['page_number']]
+    return lexical_matches
+
+
+def _es_lexical_stage(
+    document,
+    query: str,
+    pages: List[Dict],
+    *,
+    phrase: bool,
+    ignore_diacritics: bool = True,
+) -> List[Dict]:
     """Run the Elasticsearch lexical stage and return ``[{page_number, snippet,
     es_score}, ...]``.
 
-    ``phrase=True`` uses ``match_phrase`` (literal contiguous phrase → "exact"
-    mode); otherwise the fuzzy ``match`` query (``fuzziness:'AUTO'`` → "similar"
-    / "mix"). Returns an empty list if ES is unavailable so callers can degrade.
+    ``phrase=True`` uses ``match_phrase`` ("exact" mode); otherwise the
+    stemmed+fuzzy bool query ("similar"/"mix"/"all") — see
+    ``_build_lexical_query`` for the field selection incl. ``ignore_diacritics``.
+    Fragments that can't be attributed to a page are dropped; near-duplicate
+    fragments highlighted on several fields are merged, keeping the variant
+    with more ``<mark>`` tags. Returns an empty list if ES is unavailable so
+    callers can degrade.
     """
+    es_query, highlight_fields = _build_lexical_query(
+        query, phrase=phrase, ignore_diacritics=ignore_diacritics
+    )
     search = DocumentIndex.search()
     search = search.filter('ids', values=[str(document.id)])
-    # `content.exact` (arabic_exact analyzer) makes both stages tashkeel- and
-    # alef-variant-insensitive without stemming; highlight fragments still come
-    # from the original `_source.content` text.
-    if phrase:
-        search = search.query('match_phrase', **{'content.exact': {'query': query}})
-    else:
-        search = search.query(
-            'match',
-            **{'content.exact': {'query': query, 'fuzziness': 'AUTO', 'operator': 'and'}},
-        )
+    search = search.query(es_query)
     search = search.highlight(
-        'content.exact',
+        *highlight_fields,
         fragment_size=150,
         number_of_fragments=50,
         pre_tags=['<mark>'],
@@ -1296,24 +1566,25 @@ def _es_lexical_stage(document, query: str, pages: List[Dict], *, phrase: bool) 
         logger.warning('[DOC_SEARCH] ES lexical stage unavailable: %s', exc)
         return []
 
+    if response is None or not response.hits:
+        return []
+    hit = response.hits[0]
+    es_score = float(getattr(hit.meta, 'score', 0.0) or 0.0)
+    if 'highlight' not in hit.meta:
+        return []
+    # Dotted field names can't be attribute-accessed on the AttrDict.
+    highlight = hit.meta.highlight.to_dict()
+    norm_pages = [(p['page_number'], _normalize_ws(p['content'])) for p in pages]
+
     lexical_matches: List[Dict] = []
-    if response is not None and response.hits:
-        hit = response.hits[0]
-        es_score = float(getattr(hit.meta, 'score', 0.0) or 0.0)
-        if 'highlight' in hit.meta:
-            # Dotted field names can't be attribute-accessed on the AttrDict.
-            for snippet in hit.meta.highlight.to_dict().get('content.exact', []):
-                plain_snippet = re.sub(r'</?mark>', '', snippet)
-                page_number = 1
-                for page in pages:
-                    if plain_snippet and plain_snippet in page['content']:
-                        page_number = page['page_number']
-                        break
-                lexical_matches.append({
-                    'page_number': page_number,
-                    'snippet': snippet,
-                    'es_score': es_score,
-                })
+    for field in highlight_fields:
+        for snippet in highlight.get(field, []):
+            page_number = _locate_fragment_page(snippet, norm_pages)
+            if page_number is None:
+                continue
+            candidate = {'page_number': page_number, 'snippet': snippet, 'es_score': es_score}
+            if not _absorb_duplicate_fragment(lexical_matches, candidate):
+                lexical_matches.append(candidate)
     return lexical_matches
 
 
@@ -1340,8 +1611,8 @@ def _semantic_stage(document, query: str):
     return has_semantic, query_vector, page_semantic, chunks
 
 
-def _empty_result(query: str, has_semantic: bool = False) -> Dict:
-    return {'matches': [], 'total_matches': 0, 'query': query, 'has_semantic': has_semantic}
+def _empty_result(query: str, mode: str, has_semantic: bool = False) -> Dict:
+    return {'matches': [], 'total_matches': 0, 'query': query, 'mode': mode, 'has_semantic': has_semantic}
 
 
 def _best_semantic_pages(chunks: List[Dict], min_sim: float) -> List[Dict]:
@@ -1360,12 +1631,13 @@ def _best_semantic_pages(chunks: List[Dict], min_sim: float) -> List[Dict]:
             best_by_page[pn] = {
                 'page_number': pn,
                 'snippet': chunk['content'][:300].replace('\n', ' '),
+                'match_kind': 'semantic',
                 'score': sim,
                 'score_lexical': 0.0,
                 'score_semantic': round(sim, 4),
                 'score_final': round(sim, 4),
             }
-    return sorted(best_by_page.values(), key=lambda r: r['score_final'], reverse=True)
+    return sorted(best_by_page.values(), key=lambda r: (-r['score_final'], r['page_number']))
 
 
 def search_within_document(
@@ -1375,35 +1647,45 @@ def search_within_document(
     mode: str = 'mix',
     threshold: float | None = None,
     top_k: int | None = None,
+    ignore_diacritics: bool = True,
 ) -> Dict:
-    """In-document search with four selectable modes.
+    """In-document search with five selectable modes.
 
     - ``exact``    — ES ``match_phrase`` (literal contiguous phrase), lexical
       ranking only; ``score_semantic`` is ``None``.
-    - ``similar``  — ES fuzzy ``match`` (``fuzziness:'AUTO'``), lexical ranking
-      only; no semantic blend or fallback.
+    - ``similar``  — stemmed ``content.arabic`` match (root & derivatives) OR
+      fuzzy ``match`` (``fuzziness:'AUTO'``) on ``content.exact``; lexical
+      ranking only; no semantic blend or fallback.
     - ``semantic`` — per-chunk cosine only; pages with ``sim >= threshold`` are
       kept, ranked by semantic score.
-    - ``mix``      — hybrid ``0.60*lexical + 0.40*semantic`` over lexical hits,
-      with semantic-only pages above ``threshold`` merged in; pure-semantic
-      fallback when there are no lexical hits.
+    - ``mix``      — hybrid ``0.60*lexical + 0.40*semantic`` over lexical hits
+      (one fuzzy ES call), with semantic-only pages above ``threshold`` merged
+      in; pure-semantic fallback when there are no lexical hits.
+    - ``all``      — phrase AND stemmed/fuzzy ES calls plus the semantic stage,
+      merged into one set; each match's ``match_kind`` tells which signal found
+      it (``exact`` > ``lexical`` > ``semantic``). Blending/fallback as ``mix``.
+
+    ``ignore_diacritics=False`` runs the lexical queries against the raw
+    ``content`` field (harakat-sensitive) instead of the normalized subfields;
+    semantic scoring is embedding-based and unaffected.
 
     When ``threshold`` is ``None`` the strict paths (``semantic`` mode and the
-    ``mix`` semantic-merge) default to ``0.5`` and the ``mix`` no-lexical
+    ``mix``/``all`` semantic-merge) default to ``0.5`` and the no-lexical
     fallback to a lenient ``0.3``; an explicit ``threshold`` applies to all
     paths uniformly. When ``top_k`` is given the match list is capped.
 
     Returns ``{'matches': [...], 'total_matches': int, 'query': str,
-    'has_semantic': bool}``. Shared with the assistant's ``search_in_document``
-    tool (default ``mode='mix'``) so scoring never drifts between callers.
+    'mode': str, 'has_semantic': bool}``; every match carries ``match_kind``.
+    Shared with the assistant's ``search_in_document`` tool (default
+    ``mode='mix'``) so scoring never drifts between callers.
     """
     if mode not in VALID_SEARCH_MODES:
         mode = 'mix'
-    # The strict bar (semantic mode + the mix semantic-merge) defaults to 0.5;
-    # the no-lexical-hits fallback defaults to a more lenient 0.3 so users still
-    # get plausible pages when ES returns nothing. An explicit user-supplied
-    # threshold overrides BOTH, so the inclusion rule is identical whether or
-    # not a lexical hit happened.
+    # The strict bar (semantic mode + the mix/all semantic-merge) defaults to
+    # 0.5; the no-lexical-hits fallback defaults to a more lenient 0.3 so users
+    # still get plausible pages when ES returns nothing. An explicit
+    # user-supplied threshold overrides BOTH, so the inclusion rule is identical
+    # whether or not a lexical hit happened.
     strict_threshold = DEFAULT_SEMANTIC_THRESHOLD if threshold is None else threshold
     fallback_threshold = SEMANTIC_FALLBACK_THRESHOLD if threshold is None else threshold
 
@@ -1414,45 +1696,66 @@ def search_within_document(
     if mode == 'semantic':
         has_semantic, query_vector, _page_semantic, chunks = _semantic_stage(document, query)
         if not has_semantic or not query_vector:
-            return _empty_result(query, has_semantic)
+            return _empty_result(query, mode, has_semantic)
         results = _best_semantic_pages(chunks, strict_threshold)
         if top_k:
             results = results[:top_k]
-        return {'matches': results, 'total_matches': len(results), 'query': query, 'has_semantic': True}
+        return {'matches': results, 'total_matches': len(results), 'query': query, 'mode': mode, 'has_semantic': True}
 
-    # ---- Lexical stage (exact / similar / mix) ----
-    lexical_matches = _es_lexical_stage(document, query, pages, phrase=(mode == 'exact'))
+    # ---- Lexical stage(s) ----
+    if mode == 'all':
+        lexical_matches = _es_lexical_stage(
+            document, query, pages, phrase=True, ignore_diacritics=ignore_diacritics
+        )
+        for match in lexical_matches:
+            match['match_kind'] = 'exact'
+        fuzzy_matches = _es_lexical_stage(
+            document, query, pages, phrase=False, ignore_diacritics=ignore_diacritics
+        )
+        for match in fuzzy_matches:
+            match['match_kind'] = 'lexical'
+            # Fuzzy fragments duplicating an exact fragment stay 'exact'.
+            if not _absorb_duplicate_fragment(lexical_matches, match, replace_when_richer=False):
+                lexical_matches.append(match)
+    else:
+        lexical_matches = _es_lexical_stage(
+            document, query, pages, phrase=(mode == 'exact'), ignore_diacritics=ignore_diacritics
+        )
 
     # ---- Lexical-only modes: no semantic blend or fallback ----
     if mode in ('exact', 'similar'):
         if not lexical_matches:
-            return _empty_result(query, has_semantic=False)
-        max_lexical = max(m['es_score'] for m in lexical_matches) or 1.0
+            return _empty_result(query, mode, has_semantic=False)
+        _score_lexical_matches(lexical_matches)
+        max_lexical = max(m['lex_raw'] for m in lexical_matches) or 1.0
+        kind = 'exact' if mode == 'exact' else 'lexical'
         results = []
         for match in lexical_matches:
-            norm_lex = match['es_score'] / max_lexical
+            norm_lex = match['lex_raw'] / max_lexical
             results.append({
                 'page_number': match['page_number'],
                 'snippet': match['snippet'],
+                'match_kind': kind,
                 'score': match['es_score'],
                 'score_lexical': round(norm_lex, 4),
                 'score_semantic': None,
                 'score_final': round(norm_lex, 4),
             })
-        results.sort(key=lambda r: r['score_final'], reverse=True)
+        results.sort(key=lambda r: (-r['score_final'], r['page_number']))
         if top_k:
             results = results[:top_k]
-        return {'matches': results, 'total_matches': len(results), 'query': query, 'has_semantic': False}
+        return {'matches': results, 'total_matches': len(results), 'query': query, 'mode': mode, 'has_semantic': False}
 
-    # ---- mix: hybrid lexical + semantic ----
+    # ---- mix / all: hybrid lexical + semantic ----
     has_semantic, query_vector, page_semantic, chunks = _semantic_stage(document, query)
 
     if lexical_matches:
-        max_lexical = max(m['es_score'] for m in lexical_matches) or 1.0
+        _score_lexical_matches(lexical_matches)
+        max_lexical = max(m['lex_raw'] for m in lexical_matches) or 1.0
         results = []
         seen_pages = set()
         for match in lexical_matches:
-            norm_lex = match['es_score'] / max_lexical
+            norm_lex = match['lex_raw'] / max_lexical
             pn = match['page_number']
             sem = page_semantic.get(pn, 0.0)
             if has_semantic and query_vector:
@@ -1464,6 +1767,7 @@ def search_within_document(
             results.append({
                 'page_number': pn,
                 'snippet': match['snippet'],
+                'match_kind': match.get('match_kind', 'lexical'),
                 'score': match['es_score'],
                 'score_lexical': round(norm_lex, 4),
                 'score_semantic': round(sem, 4) if sem is not None else None,
@@ -1478,22 +1782,23 @@ def search_within_document(
                 results.append({
                     'page_number': pn,
                     'snippet': page_content.get(pn, '')[:300].replace('\n', ' '),
+                    'match_kind': 'semantic',
                     'score': sem,
                     'score_lexical': 0.0,
                     'score_semantic': round(sem, 4),
                     'score_final': round(SEMANTIC_WEIGHT * sem, 4),
                 })
-        results.sort(key=lambda r: r['score_final'], reverse=True)
+        results.sort(key=lambda r: (-r['score_final'], r['page_number']))
         if top_k:
             results = results[:top_k]
-        return {'matches': results, 'total_matches': len(results), 'query': query, 'has_semantic': has_semantic}
+        return {'matches': results, 'total_matches': len(results), 'query': query, 'mode': mode, 'has_semantic': has_semantic}
 
-    # ---- mix with no lexical hits → pure semantic fallback (lenient bar) ----
+    # ---- mix/all with no lexical hits → pure semantic fallback (lenient bar) ----
     if not has_semantic or not query_vector:
-        return _empty_result(query, has_semantic)
+        return _empty_result(query, mode, has_semantic)
     sem_results = _best_semantic_pages(chunks, fallback_threshold)
     sem_results = sem_results[:(top_k or SEMANTIC_FALLBACK_TOP_K)]
-    return {'matches': sem_results, 'total_matches': len(sem_results), 'query': query, 'has_semantic': True}
+    return {'matches': sem_results, 'total_matches': len(sem_results), 'query': query, 'mode': mode, 'has_semantic': True}
 
 
 class DocumentInDocumentSearchView(views.APIView):
@@ -1523,6 +1828,11 @@ class DocumentInDocumentSearchView(views.APIView):
             except (TypeError, ValueError):
                 threshold = None  # tolerate bad input → mode default
 
+        # Default ON (insensitive, today's behavior); only an explicit negative
+        # opts into harakat-sensitive matching. Garbage values → default.
+        raw_diacritics = request.query_params.get('ignore_diacritics', '1').strip().lower()
+        ignore_diacritics = raw_diacritics not in ('0', 'false', 'no')
+
         try:
             try:
                 document = Document.objects.get(id=pk)
@@ -1531,13 +1841,15 @@ class DocumentInDocumentSearchView(views.APIView):
                     {'error': f'Document with ID {pk} not found'},
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            result = search_within_document(document, query, mode=mode, threshold=threshold)
+            result = search_within_document(
+                document, query, mode=mode, threshold=threshold, ignore_diacritics=ignore_diacritics
+            )
             # Behavioral signal: search within a specific book.
             record_event(
                 user_id=request.user.id,
                 event_type=EventType.IN_DOC_SEARCH,
                 document_id=pk,
-                metadata={'q': query, 'mode': mode},
+                metadata={'q': query, 'mode': mode, 'ignore_diacritics': ignore_diacritics},
                 source='reader',
             )
             return Response(result, status=status.HTTP_200_OK)
@@ -1662,4 +1974,63 @@ class CountryDocumentStatsView(views.APIView):
             'country', 'document_count',
         )
         return Response(list(rows), status=status.HTTP_200_OK)
+
+
+_FACET_OPTIONS_CACHE_KEY = 'document_facet_options_v1'
+
+
+class DocumentFacetOptionsView(views.APIView):
+    """Option lists (with document counts) for the search console's static
+    facets, in one round-trip per popup-open:
+
+    ``{"languages": [{"value": "ar", "count": 812}, …],
+       "death_centuries": [{"value": 8, "count": 92}, …],
+       "countries": [{"value": "مصر", "count": 130}, …]}``
+
+    Values are raw (language codes, hijri century ints, nationality strings);
+    display labels (e.g. "القرن الثامن") are frontend formatting. Cheap cached
+    metadata, so it stays on the default user throttle rather than burning the
+    shared ``search`` scope budget.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        payload = cache.get(_FACET_OPTIONS_CACHE_KEY)
+        if payload is None:
+            from django.db.models import Count
+
+            from .models import CountryDocumentCount
+
+            languages = [
+                {'value': row['language'], 'count': row['count']}
+                for row in Document.objects.exclude(language__isnull=True)
+                .exclude(language='')
+                .values('language')
+                .annotate(count=Count('id'))
+                .order_by('-count')
+            ]
+            # Distinct-document counts across the author M2M so a book with
+            # two same-century authors counts once; 0-doc centuries excluded
+            # by the inner join.
+            death_centuries = [
+                {'value': row['death_century'], 'count': row['count']}
+                for row in Author.objects.exclude(death_century__isnull=True)
+                .values('death_century')
+                .annotate(count=Count('documents', distinct=True))
+                .filter(count__gt=0)
+                .order_by('death_century')
+            ]
+            countries = [
+                {'value': row['country'], 'count': row['document_count']}
+                for row in CountryDocumentCount.objects.all()
+                .order_by('-document_count')
+                .values('country', 'document_count')
+            ]
+            payload = {
+                'languages': languages,
+                'death_centuries': death_centuries,
+                'countries': countries,
+            }
+            cache.set(_FACET_OPTIONS_CACHE_KEY, payload, 300)
+        return Response(payload, status=status.HTTP_200_OK)
 

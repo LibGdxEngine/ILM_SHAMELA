@@ -142,7 +142,7 @@ export default function ReaderShell({
               state={search}
               docked={searchPinned}
               side="start"
-              width={374}
+              width={380}
               onClose={onCloseSearch}
               background="var(--rr-rail-2)"
             >

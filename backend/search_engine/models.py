@@ -19,6 +19,12 @@ class Author(models.Model):
         blank=True, null=True, help_text="Author biography/description")
     nationality = models.CharField(
         max_length=100, blank=True, null=True, help_text="Nationality of the author")
+    death_year_hijri = models.IntegerField(
+        null=True, blank=True,
+        help_text="Derived hijri death year parsed from date_of_death; null when unparseable")
+    death_century = models.IntegerField(
+        null=True, blank=True, db_index=True,
+        help_text="Derived hijri century of death (year 728 -> 8); null when unknown")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -27,6 +33,15 @@ class Author(models.Model):
         verbose_name = 'Author'
         verbose_name_plural = 'Authors'
         ordering = ['name']
+
+    def save(self, *args, **kwargs):
+        # Same-row derived data (cross-model sync lives in signals.py), so the
+        # derivation sits here next to the fields. Bulk paths (queryset
+        # .update()/bulk_create) bypass save(); the backfill_death_years
+        # command re-derives after any such write.
+        from .hijri_dates import derive_death_fields
+        self.death_year_hijri, self.death_century = derive_death_fields(self.date_of_death)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

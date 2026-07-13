@@ -32,7 +32,11 @@ The three-column reading workspace (ReaderShell) and all reader-specific UI for 
 | `HighlightTooltip.tsx` | Tooltip on highlight hover ("right-click to remove"). Portal'd into scroll container. Delegated mouseover/mouseout on `.highlight-mark` elements. |
 | `SearchFindBar.tsx` | Browser-style in-document search. Input + match counter ("3 of 12"), prev/next buttons, toggle result list, close. Sticky at top-end of reader. On match, calls onGoToPage. |
 | `SearchResultsList.tsx` | Expandable list of all search results below the find-bar. Click to jump to page + highlight match. |
-| `AdvancedSearchPanel.tsx` | In-document search panel with facets, date range, saved searches. Fires document-level searches on filter change. |
+| `AdvancedSearchPanel.tsx` | Reader & Search v2 panel: scope switch (this book / whole library), match-kind tabs (الكل/تام/لفظي/دلالي) with counts filtering ONE `mode=all` response client-side, options accordion (semantic threshold, diacritics toggle, sort), recent/pinned term chips, result cards with jump/copy-citation/save-note actions, CSV export, no-hits → widen-to-library CTA. Controlled by page.tsx. |
+| `SearchKindTabs.tsx` | Match-kind pill tabs with per-kind colors + Arabic-digit count chips; zero-count tabs dimmed. |
+| `SearchOptionsAccordion.tsx` | Collapsible "خيارات الباحث": threshold slider, "تجاهل التشكيل والهمزات" switch, sort segmented control, kind legend. Collapsed shows a summary line. |
+| `SearchEmptyState.tsx` | No-query panel body: hint + recents / pinned-terms / chapter-words chip sections. |
+| `SearchResultCardV2.tsx` | In-book result card (kind badge, snippet with backend `<mark>`s, score bar, action row) + `LibraryResultCard` for corpus hits. |
 | `AddNoteModal.tsx` | Modal to add/edit a note on a selection. Text area + highlight color picker. Save/cancel. |
 | `TagChipInput.tsx` | Tag input for note tags. Chips for current tags, auto-suggest from existing tags, add new. |
 | `SimilarWordsModal.tsx` | Glossary/thesaurus modal. Shows word definition + related terms. Triggered by "Define key terms" assistant action. |

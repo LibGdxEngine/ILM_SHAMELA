@@ -13,7 +13,9 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from search_engine.models import Author, Category, Document
+from django.core.cache import cache
+
+from search_engine.models import Author, Category, CountryDocumentCount, Document
 
 
 User = get_user_model()
@@ -37,18 +39,23 @@ def _fake_chat(tool_args):
 
 class SearchAssistTests(APITestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(
             username='assist', email='assist@example.com', password='AssistPass123!'
         )
-        self.author_one = Author.objects.create(name='المؤلف الأول')
+        self.author_one = Author.objects.create(name='المؤلف الأول', nationality='مصر')
         self.author_two = Author.objects.create(name='المؤلف الثاني')
         self.cat_fiqh = Category.objects.create(name='فقه')
 
         doc = Document.objects.create(title='كتاب', content='x', language='ar')
         doc.authors.add(self.author_one)
         doc.categories.add(self.cat_fiqh)
+        CountryDocumentCount.refresh_all()
 
         self.client.force_authenticate(user=self.user)
+
+    def tearDown(self):
+        cache.clear()
 
     def test_empty_query_is_rejected(self):
         resp = self.client.post(URL, {'q': '  '}, format='json')
@@ -83,6 +90,34 @@ class SearchAssistTests(APITestCase):
         self.assertIn('الطهارة', filters['q'])
         self.assertIn('ابن رشد', filters['q'])
         self.assertEqual(resp.json()['interpretation'], 'بحث عن الطهارة')
+
+    @mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'test-key'})
+    def test_resolves_countries_and_death_centuries(self):
+        args = {
+            'search_terms': 'الفقه',
+            # 'مصر' exists in CountryDocumentCount (case-insensitive canonical);
+            # 'أطلانتس' doesn't → folded into the free-text query.
+            'countries': ['مصر', 'أطلانتس'],
+            # 30 and 'x' are implausible/invalid → dropped, not folded.
+            'death_centuries': [8, 30, 'x', 8],
+        }
+        with mock.patch(MAKE_CHAT, return_value=_fake_chat(args)):
+            resp = self.client.post(URL, {'q': 'علماء مصر في القرن الثامن'}, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        filters = resp.json()['filters']
+        self.assertEqual(filters['countries'], ['مصر'])
+        self.assertEqual(filters['deathCenturies'], [8])
+        self.assertIn('أطلانتس', filters['q'])
+        self.assertNotIn('30', filters['q'])
+
+    def test_degraded_shape_includes_new_keys(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('OPENROUTER_API_KEY', None)
+            resp = self.client.post(URL, {'q': 'كتب'}, format='json')
+        filters = resp.json()['filters']
+        self.assertEqual(filters['countries'], [])
+        self.assertEqual(filters['deathCenturies'], [])
 
     @mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'test-key'})
     def test_invalid_mode_and_date_are_sanitised(self):

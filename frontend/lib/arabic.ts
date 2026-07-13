@@ -168,3 +168,80 @@ export function findArabicPhraseMatches(
   }
   return matches;
 }
+
+/**
+ * Levenshtein distance with an early exit: returns `maxDist + 1` as soon as the
+ * distance provably exceeds `maxDist`, so token classification stays cheap on
+ * long pages.
+ */
+export function boundedLevenshtein(a: string, b: string, maxDist: number): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > maxDist) return maxDist + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  let cur = new Array<number>(b.length + 1);
+  for (let i = 1; i <= a.length; i += 1) {
+    cur[0] = i;
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      if (cur[j] < rowMin) rowMin = cur[j];
+    }
+    if (rowMin > maxDist) return maxDist + 1;
+    [prev, cur] = [cur, prev];
+  }
+  return prev[b.length];
+}
+
+/** How a reading-sheet token relates to the active search query:
+ *  `exact` (gold — the searched phrase itself) or `near` (lighter — a token
+ *  within a small edit distance of a query token). */
+export type SheetTokenKind = 'exact' | 'near';
+
+/**
+ * Classify the tokens of `text` against `query` for in-sheet search marking
+ * (Reader & Search v2). Whole-phrase occurrences are `exact`; individual
+ * tokens within a bounded edit distance of a query token are `near` (edit
+ * budget: 1 for normalized length ≥ 4, 2 for ≥ 7; tokens shorter than 3 chars
+ * never fuzzy-match). For multi-word queries, lone occurrences of a single
+ * query word count as `near`, not `exact`. Semantic (meaning-level) relations
+ * can't be computed client-side and are deliberately out of scope. Returned
+ * ranges are offsets into the ORIGINAL text, sorted and non-overlapping.
+ */
+export function classifyArabicTokenMatches(
+  text: string,
+  query: string
+): Array<{ start: number; end: number; kind: SheetTokenKind }> {
+  const queryTokens = tokenizeArabicForSearch(query).tokens;
+  if (queryTokens.length === 0) return [];
+
+  const results: Array<{ start: number; end: number; kind: SheetTokenKind }> = findArabicPhraseMatches(
+    text,
+    query
+  ).map((r) => ({ ...r, kind: 'exact' as SheetTokenKind }));
+
+  const { tokens, ranges } = tokenizeArabicForSearch(text);
+  for (let i = 0; i < tokens.length; i += 1) {
+    const range = ranges[i];
+    if (results.some((r) => range.start < r.end && r.start < range.end)) continue;
+    const token = tokens[i];
+    if (token.length < 3) continue;
+    for (const queryToken of queryTokens) {
+      if (queryToken.length < 3) continue;
+      if (token === queryToken) {
+        // Only reachable for multi-word queries (a single-token query's
+        // equality hits are already exact phrase ranges above).
+        results.push({ ...range, kind: 'near' });
+        break;
+      }
+      const maxLen = Math.max(token.length, queryToken.length);
+      const budget = maxLen >= 7 ? 2 : maxLen >= 4 ? 1 : 0;
+      if (budget > 0 && boundedLevenshtein(token, queryToken, budget) <= budget) {
+        results.push({ ...range, kind: 'near' });
+        break;
+      }
+    }
+  }
+  results.sort((a, b) => a.start - b.start);
+  return results;
+}

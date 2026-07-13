@@ -30,6 +30,8 @@ def search_library(
     authors: str = "",
     categories: str = "",
     language: str = "",
+    countries: str = "",
+    death_centuries: str = "",
 ) -> str:
     """Search the whole ILM Shamela library for books/manuscripts matching a query.
 
@@ -44,7 +46,11 @@ def search_library(
         query: The word, phrase, author, or topic to search for (Arabic or otherwise).
         authors: Optional comma-separated author names to filter by.
         categories: Optional comma-separated category names to filter by.
-        language: Optional language code filter (e.g. "ar").
+        language: Optional comma-separated language code filter (e.g. "ar" or "ar,en").
+        countries: Optional comma-separated author nationality/country names
+            (e.g. "مصر") — filters by where the authors are from.
+        death_centuries: Optional comma-separated hijri centuries of author
+            death (e.g. "8" for القرن الثامن الهجري, year 728 AH → century 8).
     """
     from search_engine.views import execute_corpus_search
 
@@ -59,6 +65,10 @@ def search_library(
         filters["categories"] = categories.strip()
     if language.strip():
         filters["language"] = language.strip()
+    if countries.strip():
+        filters["countries"] = countries.strip()
+    if death_centuries.strip():
+        filters["death_centuries"] = death_centuries.strip()
 
     try:
         ordered_docs, metadata = execute_corpus_search(

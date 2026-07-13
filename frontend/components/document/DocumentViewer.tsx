@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { DocumentPage as DocumentPageType, InDocSearchMode } from '@/lib/api';
+import { DocumentPage as DocumentPageType } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
 import DocumentPage from './DocumentPage';
 import DocumentPageSkeleton from './DocumentPageSkeleton';
@@ -15,8 +15,6 @@ interface DocumentViewerProps {
   isLoading: boolean;
   hasMore: boolean;
   searchQuery: string;
-  /** Mode the current search results were produced with; drives on-page match strictness. */
-  searchMode?: InDocSearchMode;
   onLoadMore: () => void;
   onPageVisible: (pageNumber: number) => void;
   onLoadFirstPage?: () => void;
@@ -72,7 +70,6 @@ export default function DocumentViewer({
   isLoading,
   hasMore,
   searchQuery,
-  searchMode = 'mix',
   onLoadMore,
   onPageVisible,
   onLoadFirstPage,
@@ -521,7 +518,6 @@ export default function DocumentViewer({
               pageNumber={page.page_number}
               content={page.content}
               searchQuery={searchQuery}
-              searchMode={searchMode}
               language={language}
               tashkeelEnabled={tashkeelEnabled}
               highlights={highlights.filter((h) => h.page_number === page.page_number)}

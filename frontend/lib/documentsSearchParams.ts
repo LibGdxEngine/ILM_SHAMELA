@@ -16,6 +16,10 @@ export interface DocumentsSearchState {
   authors?: string[];
   categories?: string[];
   languages?: string[];
+  /** Author nationality names (researcher facet). */
+  countries?: string[];
+  /** Hijri centuries of author death (researcher facet). */
+  deathCenturies?: number[];
   dateFrom?: string;
   dateTo?: string;
   sort?: string;
@@ -25,9 +29,11 @@ export interface DocumentsSearchState {
 
 /** The subset of DocumentsSearchState that represents actual filters (not
  *  sort/status/view, which stay purely display prefs) — the shape persisted
- *  as the user's auto-saved filter state and as named saved presets. */
+ *  as the user's auto-saved filter state and as named saved presets. Old
+ *  persisted blobs may lack newer keys: always read with defaults. */
 export type DocumentFilterValues = Pick<DocumentsSearchState,
-  'q' | 'refine' | 'mode' | 'documents' | 'authors' | 'categories' | 'languages' | 'dateFrom' | 'dateTo'>;
+  'q' | 'refine' | 'mode' | 'documents' | 'authors' | 'categories' | 'languages'
+  | 'countries' | 'deathCenturies' | 'dateFrom' | 'dateTo'>;
 
 /**
  * Serialize `DocumentsSearchState` into a `/documents` query string. Empty,
@@ -59,6 +65,12 @@ export function buildDocumentsSearchParams(state: DocumentsSearchState): URLSear
   }
   if (state.languages && state.languages.length > 0) {
     params.set('languages', state.languages.join(','));
+  }
+  if (state.countries && state.countries.length > 0) {
+    params.set('countries', state.countries.join(','));
+  }
+  if (state.deathCenturies && state.deathCenturies.length > 0) {
+    params.set('death_centuries', state.deathCenturies.join(','));
   }
 
   const dateFrom = state.dateFrom?.trim();

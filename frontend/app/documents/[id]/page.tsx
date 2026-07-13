@@ -1,16 +1,18 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useLayoutEffect, useMemo, type CSSProperties } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   getDocument,
   getDocumentPages,
+  getDocumentsSearch,
   searchInDocument,
   QuotaExceededError,
   Document,
   DocumentPage as DocumentPageType,
+  DocumentSearchMatch,
   DocumentSearchResponse,
-  InDocSearchMode,
+  DocumentsListResponse,
 } from '@/lib/api';
 import DocumentViewer from '@/components/document/DocumentViewer';
 import DocumentPdfViewer from '@/components/document/DocumentPdfViewer';
@@ -48,6 +50,8 @@ import { useReaderPreferences } from '@/lib/reader/useReaderPreferences';
 import { useReadingProgress } from '@/lib/reader/useReadingProgress';
 import { migrateReaderLocalStorageForDocument } from '@/lib/reader/migrate';
 import { computeSelectionPayload, type SelectionPayload } from '@/lib/reader/selection';
+import { resultKey, type SearchKindTab, type SearchScope, type SearchSort } from '@/lib/reader/searchPanelUtils';
+import { useSearchTermStore } from '@/lib/reader/useSearchTermStore';
 import { createCorrection, type HighlightColor } from '@/lib/api/reader';
 
 const PAGE_BATCH_SIZE = 5;
@@ -68,6 +72,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
 export default function DocumentDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useI18n();
   const documentId = parseInt(params.id as string, 10);
@@ -100,12 +105,22 @@ export default function DocumentDetailPage() {
 
   const [visiblePageNum, setVisiblePageNum] = useState(1);
 
+  // Search v2: one `mode=all` request per query in book scope; the kind tab
+  // and sort order slice that single result set client-side (no re-fetch).
+  // Library scope swaps in the corpus endpoint instead.
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<DocumentSearchResponse | null>(null);
+  const [libraryResults, setLibraryResults] = useState<DocumentsListResponse | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchMode, setSearchMode] = useState<InDocSearchMode>('mix');
+  const [searchScope, setSearchScope] = useState<SearchScope>('book');
+  const [searchTab, setSearchTab] = useState<SearchKindTab>('all');
+  const [searchSort, setSearchSort] = useState<SearchSort>('relevance');
   const [threshold, setThreshold] = useState(0.5);
+  const [ignoreDiacritics, setIgnoreDiacritics] = useState(true);
   const [searchError, setSearchError] = useState<string | null>(null);
+  /** The query whose results are on screen — drives in-sheet token marking. */
+  const [executedQuery, setExecutedQuery] = useState('');
+  const [searchFocusToken, setSearchFocusToken] = useState(0);
   const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
 
   // Right-click selection context menu + its action modals.
@@ -113,7 +128,19 @@ export default function DocumentDetailPage() {
   const [similarWordsQuery, setSimilarWordsQuery] = useState<string | null>(null);
   const [noteTarget, setNoteTarget] = useState<SelectionPayload | null>(null);
   const [correctionTarget, setCorrectionTarget] = useState<SelectionPayload | null>(null);
-  const [copyToast, setCopyToast] = useState(false);
+
+  // One dark toast pill (bottom of the reading area) for copy/save/pin/export
+  // feedback, auto-dismissed after ~1.9s.
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((message: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(message);
+    toastTimerRef.current = setTimeout(() => setToast(null), 1900);
+  }, []);
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  }, []);
 
   // Side-panel layout: each panel is open/closable and pinned (docked) or
   // floating. Both panels start closed; the reader opens on the text alone and
@@ -218,6 +245,45 @@ export default function DocumentDetailPage() {
   const preferencesHook = useReaderPreferences();
   const progressHook = useReadingProgress(documentId);
   const chaptersHook = useChapters(documentId);
+  // Search-panel term memory: recents in localStorage, pins in
+  // ReaderPreference.extra (cross-device).
+  const termStore = useSearchTermStore(documentId, preferencesHook);
+
+  // «حفظ» on a result card creates a real Note (visible in the Notes tab);
+  // toggling it off deletes that note. Session-scoped map resultKey → note id
+  // (matching notes by body across reloads would be fragile).
+  const [savedResultNotes, setSavedResultNotes] = useState<ReadonlyMap<string, number>>(new Map());
+  const savedResultKeys = useMemo(() => new Set(savedResultNotes.keys()), [savedResultNotes]);
+  const handleToggleSaveResult = useCallback(
+    async (match: DocumentSearchMatch, citation: string) => {
+      const key = resultKey(match);
+      const existingNoteId = savedResultNotes.get(key);
+      if (existingNoteId != null) {
+        setSavedResultNotes((prev) => {
+          const next = new Map(prev);
+          next.delete(key);
+          return next;
+        });
+        void notesHook.remove(existingNoteId);
+        showToast(t('reader.search.unsavedToast', 'أُزيل من ملاحظاتك'));
+        return;
+      }
+      try {
+        const note = await notesHook.add({
+          document: documentId,
+          page_number: match.page_number,
+          paragraph_id: '',
+          body: citation,
+          tags: ['بحث'],
+        });
+        setSavedResultNotes((prev) => new Map(prev).set(key, note.id));
+        showToast(t('reader.search.savedToast', 'حُفظ في ملاحظاتك'));
+      } catch {
+        showToast(t('reader.search.saveFailed', 'تعذّر الحفظ'));
+      }
+    },
+    [savedResultNotes, notesHook, documentId, showToast, t]
+  );
   // Behavioral telemetry: measure active reading time / dwell for this book and
   // flush `reading_session` events to the backend (opens/searches/annotations
   // are captured server-side). Runs for the whole reading lifetime.
@@ -490,13 +556,15 @@ export default function DocumentDetailPage() {
   const searchAbortControllerRef = useRef<AbortController | null>(null);
 
   const performSearch = useCallback(
-    async (query: string, mode: InDocSearchMode, thresh: number) => {
+    async (query: string, scope: SearchScope, thresh: number, diacritics: boolean) => {
       if (searchAbortControllerRef.current) {
         searchAbortControllerRef.current.abort();
       }
 
       if (!query.trim()) {
         setSearchResults(null);
+        setLibraryResults(null);
+        setExecutedQuery('');
         setSearchError(null);
         setIsSearching(false);
         return;
@@ -508,19 +576,33 @@ export default function DocumentDetailPage() {
       setIsSearching(true);
       setSearchError(null);
       try {
-        const results = await searchInDocument(documentId, query, {
-          mode,
-          threshold: thresh,
-          signal: abortController.signal,
-        });
-        if (!abortController.signal.aborted) {
-          setSearchResults(results);
+        if (scope === 'book') {
+          const results = await searchInDocument(documentId, query, {
+            mode: 'all',
+            threshold: thresh,
+            ignoreDiacritics: diacritics,
+            signal: abortController.signal,
+          });
+          if (!abortController.signal.aborted) {
+            setSearchResults(results);
+            setExecutedQuery(query.trim());
+          }
+        } else {
+          const results = await getDocumentsSearch({ q: query.trim() }, { signal: abortController.signal });
+          if (!abortController.signal.aborted) {
+            setLibraryResults(results);
+            setExecutedQuery(query.trim());
+          }
         }
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
         if (abortController.signal.aborted) return;
         console.error('Search error:', err);
-        setSearchResults({ matches: [], total_matches: 0, query, mode });
+        if (scope === 'book') {
+          setSearchResults({ matches: [], total_matches: 0, query, mode: 'all' });
+        } else {
+          setLibraryResults({ count: 0, next: null, previous: null, results: [] });
+        }
         setSearchError(err instanceof Error ? err.message : t('reader.search.error', 'تعذّر البحث'));
       } finally {
         if (!abortController.signal.aborted) {
@@ -533,14 +615,20 @@ export default function DocumentDetailPage() {
 
   useEffect(() => {
     if (!searchQuery.trim()) {
-      performSearch('', searchMode, threshold);
+      performSearch('', searchScope, threshold, ignoreDiacritics);
       return;
     }
     const timeout = window.setTimeout(() => {
-      performSearch(searchQuery, searchMode, threshold);
+      performSearch(searchQuery, searchScope, threshold, ignoreDiacritics);
     }, 350);
     return () => window.clearTimeout(timeout);
-  }, [searchQuery, searchMode, threshold, performSearch]);
+    // Tab and sort are deliberately NOT deps — they slice client-side.
+  }, [searchQuery, searchScope, threshold, ignoreDiacritics, performSearch]);
+
+  // A new query text starts back on the الكل tab.
+  useEffect(() => {
+    setSearchTab('all');
+  }, [searchQuery]);
 
   useEffect(() => {
     return () => {
@@ -611,12 +699,14 @@ export default function DocumentDetailPage() {
   }, [fetchPagesBatch, currentBatchPage]);
 
   // Search-from-text: clicking a word or searching a selection sets the query.
+  // These are deliberate searches, so they also enter the recents MRU.
   const searchFor = useCallback((text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     setSearchQuery(trimmed);
+    termStore.addRecent(trimmed);
     openSearch(); // reveal the panel so results are visible
-  }, [openSearch]);
+  }, [openSearch, termStore]);
 
   // --- Selection context-menu actions ---------------------------------------
   // Side effects stay OUT of the setCtxMenu updater (updaters must be pure —
@@ -645,12 +735,9 @@ export default function DocumentDetailPage() {
     if (!text) return;
     void navigator.clipboard
       ?.writeText(text)
-      .then(() => {
-        setCopyToast(true);
-        window.setTimeout(() => setCopyToast(false), 1500);
-      })
+      .then(() => showToast(t('reader.menu.copied', 'تم نسخ النص')))
       .catch(() => {});
-  }, [ctxMenu]);
+  }, [ctxMenu, showToast, t]);
 
   const handleCtxTranslate = useCallback(
     (langLabel: string) => {
@@ -858,16 +945,17 @@ export default function DocumentDetailPage() {
     }
   }, [pages, handleGoToPage]);
 
-  // Keyboard shortcuts: `t` cycles theme; Ctrl/Cmd+F opens the in-document
-  // search panel instead of the browser's native find (which only sees the
-  // lazily-rendered pages and can't search the whole book).
+  // Keyboard shortcuts: `t` cycles theme; Ctrl/Cmd+F and Ctrl/Cmd+K open the
+  // in-document search panel (instead of the browser's native find, which only
+  // sees the lazily-rendered pages) and focus its input.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
 
-      if ((event.ctrlKey || event.metaKey) && key === 'f') {
+      if ((event.ctrlKey || event.metaKey) && (key === 'f' || key === 'k')) {
         event.preventDefault();
         openSearch();
+        setSearchFocusToken((token) => token + 1);
         return;
       }
 
@@ -1111,17 +1199,39 @@ export default function DocumentDetailPage() {
         searchColumn={
           <AdvancedSearchPanel
             query={searchQuery}
-            mode={searchMode}
+            scope={searchScope}
+            tab={searchTab}
+            sort={searchSort}
             threshold={threshold}
+            ignoreDiacritics={ignoreDiacritics}
             results={searchResults}
+            libraryResults={libraryResults}
             isSearching={isSearching}
             error={searchError}
             suggestions={suggestions}
+            recentTerms={termStore.recents}
+            pinnedTerms={termStore.pinned}
+            bookTitle={document.title}
+            savedKeys={savedResultKeys}
+            focusToken={searchFocusToken}
             onQueryChange={setSearchQuery}
-            onModeChange={setSearchMode}
+            onCommitQuery={termStore.addRecent}
+            onScopeChange={setSearchScope}
+            onTabChange={setSearchTab}
+            onSortChange={setSearchSort}
             onThresholdChange={setThreshold}
+            onDiacriticsChange={setIgnoreDiacritics}
             onClear={() => setSearchQuery('')}
-            onGoToPage={handleGoToPage}
+            onGoToPage={(page) => {
+              termStore.addRecent(searchQuery);
+              void handleGoToPage(page);
+            }}
+            onOpenLibraryResult={(docId) =>
+              router.push(`/documents/${docId}?q=${encodeURIComponent(searchQuery.trim())}`)
+            }
+            onPinTerm={termStore.pinTerm}
+            onToggleSaveResult={(match, citation) => void handleToggleSaveResult(match, citation)}
+            onToast={showToast}
             chapterTitleForPage={chapterTitleForPage}
             pinned={searchPinned}
             onTogglePin={() => setSearchPinned((v) => !v)}
@@ -1147,8 +1257,7 @@ export default function DocumentDetailPage() {
               pages={pages}
               isLoading={isLoadingMore}
               hasMore={hasMore}
-              searchQuery={searchResults?.query || ''}
-              searchMode={searchResults?.mode ?? 'mix'}
+              searchQuery={executedQuery}
               onLoadMore={handleLoadMore}
               onPageVisible={setVisiblePageNum}
               onLoadFirstPage={fetchPreviousBatch}
@@ -1167,8 +1276,7 @@ export default function DocumentDetailPage() {
               pages={pages}
               isLoading={isLoadingMore}
               hasMore={hasMore}
-              searchQuery={searchResults?.query || ''}
-              searchMode={searchResults?.mode ?? 'mix'}
+              searchQuery={executedQuery}
               onLoadMore={handleLoadMore}
               onPageVisible={setVisiblePageNum}
               onLoadFirstPage={fetchPreviousBatch}
@@ -1277,9 +1385,16 @@ export default function DocumentDetailPage() {
               onClose={() => setCorrectionTarget(null)}
             />
           )}
-          {copyToast && (
-            <div className="fixed bottom-24 start-1/2 z-[80] -translate-x-1/2 rounded-full border border-accent/40 bg-bg/90 px-4 py-2 text-[13px] text-text shadow-[0_10px_30px_-10px_rgba(0,0,0,0.55)] backdrop-blur-md rtl:translate-x-1/2">
-              {t('reader.menu.copied', 'تم نسخ النص')}
+          {toast && (
+            <div
+              className="fixed bottom-24 start-1/2 z-[80] inline-flex -translate-x-1/2 items-center gap-[9px] whitespace-nowrap rounded-xl px-[18px] py-[11px] text-[13px] font-semibold rtl:translate-x-1/2"
+              style={{ background: '#2c2620', color: '#f4ecda', boxShadow: '0 12px 30px rgba(44,38,32,.4)' }}
+              role="status"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e9c77a" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+              {toast}
             </div>
           )}
         </div>

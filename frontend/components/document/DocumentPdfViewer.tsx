@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { DocumentPage as DocumentPageType, InDocSearchMode, LayoutBlock, PageLayout, normalizeMediaUrl } from '@/lib/api';
+import { DocumentPage as DocumentPageType, LayoutBlock, PageLayout, normalizeMediaUrl } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
 import DocumentPage from './DocumentPage';
 import DocumentPageSkeleton from './DocumentPageSkeleton';
@@ -8,7 +8,7 @@ import ErrorDisplay from '@/components/ErrorDisplay';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { toLocaleDigits } from '@/lib/utils';
-import { findArabicMatches, findArabicPhraseMatches } from '@/lib/arabic';
+import { findArabicMatches } from '@/lib/arabic';
 import { blockOverlayMetrics } from '@/lib/reader/overlayMetrics';
 import { suppressSelectionPopover, releaseSelectionPopoverSuppression } from '@/lib/reader/selection';
 
@@ -28,7 +28,6 @@ interface DocumentPdfViewerProps {
   hasMore: boolean;
   searchQuery: string;
   /** Mode the current search results were produced with; drives on-page match strictness. */
-  searchMode?: InDocSearchMode;
   onLoadMore: () => void;
   onPageVisible: (pageNumber: number) => void;
   onLoadFirstPage?: () => void;
@@ -102,7 +101,6 @@ interface OverlayRange {
 function renderBlockHtml(
   block: LayoutBlock,
   searchQuery: string,
-  searchMode: InDocSearchMode,
   highlights: ApiHighlight[]
 ): string {
   const text = block.text;
@@ -128,12 +126,7 @@ function renderBlockHtml(
   if (searchQuery.trim()) {
     // Tashkeel/variant-insensitive matching, mirroring the backend's
     // `content.exact` analyzer, with ranges mapped back to original offsets.
-    // Exact mode additionally restricts marks to whole-token phrase matches.
-    const matches =
-      searchMode === 'exact'
-        ? findArabicPhraseMatches(text, searchQuery)
-        : findArabicMatches(text, searchQuery);
-    for (const m of matches) {
+    for (const m of findArabicMatches(text, searchQuery)) {
       ranges.push({ start: m.start, end: m.end, type: 'search' });
     }
   }
@@ -180,7 +173,6 @@ interface PdfOverlayPageProps {
   layout: PageLayout;
   imageUrl: string | null;
   searchQuery: string;
-  searchMode: InDocSearchMode;
   highlights: ApiHighlight[];
   textDirection: 'rtl' | 'ltr';
   pageLabel: string;
@@ -191,7 +183,6 @@ function PdfOverlayPage({
   layout,
   imageUrl,
   searchQuery,
-  searchMode,
   highlights,
   textDirection,
   pageLabel,
@@ -223,7 +214,7 @@ function PdfOverlayPage({
         )}
         <div className="ilm-pdf-overlay" dir={textDirection}>
           {layout.blocks.map((block) => {
-            const html = renderBlockHtml(block, searchQuery, searchMode, highlights);
+            const html = renderBlockHtml(block, searchQuery, highlights);
             const metrics = blockOverlayMetrics(block, height);
             return (
               <div
@@ -254,7 +245,6 @@ export default function DocumentPdfViewer({
   isLoading,
   hasMore,
   searchQuery,
-  searchMode = 'mix',
   onLoadMore,
   onPageVisible,
   onLoadFirstPage,
@@ -608,7 +598,6 @@ export default function DocumentPdfViewer({
                   layout={page.layout}
                   imageUrl={normalizeMediaUrl(page.image_url ?? null)}
                   searchQuery={searchQuery}
-                  searchMode={searchMode}
                   highlights={highlights.filter((h) => h.page_number === page.page_number)}
                   textDirection={textDirection}
                   pageLabel={pageLabel}
@@ -619,7 +608,6 @@ export default function DocumentPdfViewer({
                   pageNumber={page.page_number}
                   content={page.content}
                   searchQuery={searchQuery}
-                  searchMode={searchMode}
                   language={language}
                   highlights={highlights.filter((h) => h.page_number === page.page_number)}
                 />

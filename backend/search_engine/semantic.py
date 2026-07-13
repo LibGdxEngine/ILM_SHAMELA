@@ -152,8 +152,16 @@ def normalize_vector(vector: List[float]) -> List[float]:
 
 
 def cosine_similarity(left: List[float], right: List[float]) -> float:
+    """True cosine (scale-invariant): dot product divided by the L2 norms of
+    both vectors, computed over the same min-length slice so truncation stays
+    self-consistent. Provider embeddings are stored un-normalized, so dividing
+    here is what makes the fixed 0.5/0.3 semantic thresholds meaningful."""
     if not left or not right:
         return 0.0
     size = min(len(left), len(right))
     dot = sum(left[i] * right[i] for i in range(size))
-    return max(-1.0, min(1.0, dot))
+    norm_left = math.sqrt(sum(left[i] * left[i] for i in range(size)))
+    norm_right = math.sqrt(sum(right[i] * right[i] for i in range(size)))
+    if norm_left == 0.0 or norm_right == 0.0:
+        return 0.0
+    return max(-1.0, min(1.0, dot / (norm_left * norm_right)))

@@ -17,7 +17,9 @@ type AddPayload = Omit<ApiNote, 'id' | 'created_at' | 'updated_at'>;
 export interface UseNotesResult {
   data: ApiNote[];
   isLoading: boolean;
-  add: (payload: AddPayload) => Promise<void>;
+  /** Resolves with the created note so callers can track its id (e.g. the
+   *  search panel's save-toggle deletes it again on «محفوظ» un-toggle). */
+  add: (payload: AddPayload) => Promise<ApiNote>;
   remove: (id: number) => Promise<void>;
   update: (id: number, patch: Partial<ApiNote>) => Promise<void>;
 }
@@ -134,9 +136,7 @@ export function useNotes(documentId: number): UseNotesResult {
   return {
     data: query.data ?? [],
     isLoading: enabled && query.isLoading,
-    add: async (payload) => {
-      await addMutation.mutateAsync(payload);
-    },
+    add: (payload) => addMutation.mutateAsync(payload),
     remove: async (id) => {
       await removeMutation.mutateAsync(id);
     },

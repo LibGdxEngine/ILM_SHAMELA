@@ -5,12 +5,23 @@ import type { RefObject } from 'react';
 
 import { useI18n } from '@/components/i18n/I18nProvider';
 import ReaderPanel from '@/components/document/ReaderPanel';
-import SearchFacetControls from '@/components/search/SearchFacetControls';
-import type { SelectedBook } from '@/components/search/SearchFacetControls';
-import type { CorpusSearchMode } from '@/lib/api';
+import SearchSectionsAccordion from '@/components/search/console/SearchSectionsAccordion';
+import ActiveFilterChips from '@/components/search/console/ActiveFilterChips';
+import PresetsPane from '@/components/search/console/PresetsPane';
+import useSearchSections from '@/components/search/console/useSearchSections';
+import { PARCHMENT_SHELL_VARS } from '@/components/search/console/consoleTheme';
+import type { SelectedBook } from '@/components/search/console/types';
+import type { PalettePresetsBundle } from '@/components/documents/SearchCommandPalette';
+import {
+  corpusFiltersToValues,
+  countActiveFilters,
+  type CorpusFilterHandlers,
+  type CorpusFilterState,
+} from '@/lib/search/useCorpusSearchState';
 import useMediaQuery from '@/hooks/useMediaQuery';
+import { trackEvent } from '@/lib/api/tracking';
 
-// `SelectedBook` now lives with the shared facet controls; re-export it so
+// `SelectedBook`'s canonical home is the console types module; re-export so
 // existing importers of this module keep working.
 export type { SelectedBook };
 
@@ -33,30 +44,29 @@ export interface NavSearchPopoverProps {
   onQueryChange: (value: string) => void;
   /** Fired by the submit button and Enter; the popover then closes itself. */
   onSubmit: () => void;
-  mode: CorpusSearchMode;
-  onModeChange: (mode: CorpusSearchMode) => void;
-  selectedCategories: string[];
-  onToggleCategory: (name: string) => void;
-  selectedAuthors: string[];
-  onToggleAuthor: (name: string) => void;
-  selectedBooks: SelectedBook[];
-  onToggleBook: (book: SelectedBook) => void;
+  /** The full corpus filter state + mutation handlers (fully controlled). */
+  filters: CorpusFilterState;
+  handlers: CorpusFilterHandlers;
   isAuthenticated: boolean;
+  /** Preset wiring (apply navigates on these surfaces); omit to hide. */
+  presets?: PalettePresetsBundle;
+  /** Which surface hosts this popover — stamped on telemetry events. */
+  analyticsSurface?: string;
 }
 
 /**
- * The shared navbar search-filter popup. Fully controlled: query, mode and the
- * three selection sets are owned by the caller. It themes itself entirely from
- * the ambient shell CSS variables (`--accent`, `--shell-surface`, `--shell-line`,
- * `--shell-muted`, `--shell-ink`, `--shell-on-accent`) — with gold/parchment
- * fallbacks — so it renders correctly on the gold Reading Room / landing / auth
- * shells, the blue Atlas shell, and inside the reader room (which does not define
- * the full `--shell-*` set).
+ * The shared navbar search-filter popup, presenting the same filter-section
+ * model as the `/documents` research console in a compact single column:
+ * collapsible sections with selected-count badges, browsable multi-select
+ * option lists, saved presets, and the active selections as removable chips
+ * above the submit button.
  *
  * Presentation:
  *  - anchored dropdown on desktop (`'auto'`), mirroring `DatePickerField`'s
  *    outside-click + Escape idiom (no new dependency);
- *  - `ReaderPanel` slide-over on mobile, and always when `presentation='panel'`.
+ *  - `ReaderPanel` slide-over on mobile, and always when `presentation='panel'`
+ *    (the accordion gets an explicit parchment surface there — ReaderPanel
+ *    itself styles from the dark app tokens).
  */
 export default function NavSearchPopover({
   open,
@@ -67,15 +77,11 @@ export default function NavSearchPopover({
   queryValue,
   onQueryChange,
   onSubmit,
-  mode,
-  onModeChange,
-  selectedCategories,
-  onToggleCategory,
-  selectedAuthors,
-  onToggleAuthor,
-  selectedBooks,
-  onToggleBook,
+  filters,
+  handlers,
   isAuthenticated,
+  presets,
+  analyticsSurface = 'nav-popover',
 }: NavSearchPopoverProps) {
   const { t, direction } = useI18n();
   const isDesktop = useMediaQuery('(min-width: 768px)', true);
@@ -85,7 +91,8 @@ export default function NavSearchPopover({
   const usePanel = presentation === 'panel' || !isDesktop;
 
   // Outside-click + Escape close for the anchored dropdown (ReaderPanel handles
-  // its own dismissal in the panel branch). Mirrors DatePickerField.
+  // its own dismissal in the panel branch). Mirrors DatePickerField, with the
+  // console's deferred defaultPrevented check so inner popovers claim Esc first.
   useEffect(() => {
     if (usePanel || !open) return;
     const onDown = (e: MouseEvent) => {
@@ -95,10 +102,12 @@ export default function NavSearchPopover({
       onOpenChange(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key !== 'Escape') return;
+      window.setTimeout(() => {
+        if (e.defaultPrevented) return;
         onOpenChange(false);
         anchorRef.current?.focus?.();
-      }
+      }, 0);
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
@@ -110,9 +119,50 @@ export default function NavSearchPopover({
 
   const handleSubmit = () => {
     onSubmit();
+    trackEvent('filter_apply', {
+      metadata: {
+        surface: analyticsSurface,
+        ai: false,
+        mode: filters.mode,
+        categories: filters.categories.length,
+        authors: filters.authors.length,
+        books: filters.books.length,
+        languages: filters.languages.length,
+        countries: filters.countries.length,
+        death_centuries: filters.deathCenturies.length,
+      },
+    });
     onOpenChange(false);
   };
 
+  const sections = useSearchSections({
+    filters,
+    handlers,
+    isAuthenticated,
+    presetCount: presets ? presets.list.length : null,
+  });
+
+  const canSaveCurrent = queryValue.trim().length > 0 || countActiveFilters(filters) > 0;
+
+  const presetsPane = presets ? (
+    <PresetsPane
+      presets={presets.list}
+      onApply={(preset) => {
+        presets.onApply(preset);
+        trackEvent('preset_apply', {
+          metadata: { surface: analyticsSurface, preset_id: preset.id },
+        });
+        onOpenChange(false);
+      }}
+      onDelete={presets.onDelete}
+      onSave={(name) => presets.onSave(name, corpusFiltersToValues(filters, queryValue.trim()))}
+      canSaveCurrent={canSaveCurrent}
+    />
+  ) : undefined;
+
+  // NOTE: no explicit vars here — the anchored dropdown inherits whichever
+  // shell hosts it (gold reading-room, blue atlas, …); only the ReaderPanel
+  // branch stamps the parchment contract because it sits on dark app tokens.
   const inner = (
     <div className="flex flex-col gap-4" dir={direction}>
       {showQueryField && (
@@ -144,17 +194,19 @@ export default function NavSearchPopover({
         />
       )}
 
-      <SearchFacetControls
-        mode={mode}
-        onModeChange={onModeChange}
-        selectedCategories={selectedCategories}
-        onToggleCategory={onToggleCategory}
-        selectedAuthors={selectedAuthors}
-        onToggleAuthor={onToggleAuthor}
-        selectedBooks={selectedBooks}
-        onToggleBook={onToggleBook}
-        isAuthenticated={isAuthenticated}
+      <SearchSectionsAccordion
+        sections={sections}
+        presetsPane={presetsPane}
+        signInHint={
+          !isAuthenticated
+            ? t('nav.search.signInHint', 'سجّل الدخول للتصفية حسب العلم أو المؤلف أو الكتاب.')
+            : undefined
+        }
+        defaultOpenKey="mode"
       />
+
+      <ActiveFilterChips filters={filters} handlers={handlers} />
+
       {isAuthenticated && (
         <button
           type="button"
@@ -171,7 +223,14 @@ export default function NavSearchPopover({
   if (usePanel) {
     return (
       <ReaderPanel isOpen={open} onClose={() => onOpenChange(false)} title={t('nav.search.title', 'البحث والتصفية')}>
-        {inner}
+        {/* Explicit parchment card — ReaderPanel's own surface uses the dark
+            app tokens, which would swallow the parchment-themed controls. */}
+        <div
+          className="rounded-[12px] p-3"
+          style={{ background: 'var(--shell-surface, #fcf8ee)', ...PARCHMENT_SHELL_VARS }}
+        >
+          {inner}
+        </div>
       </ReaderPanel>
     );
   }
@@ -184,7 +243,7 @@ export default function NavSearchPopover({
       role="dialog"
       aria-label={t('nav.search.title', 'البحث والتصفية')}
       dir={direction}
-      className="absolute top-full z-40 mt-2 start-0 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[14px] border shadow-[0_18px_42px_-12px_rgba(44,38,32,0.28)]"
+      className="absolute top-full z-40 mt-2 start-0 w-[26rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[14px] border shadow-[0_18px_42px_-12px_rgba(44,38,32,0.28)]"
       style={{
         background: 'var(--shell-surface, #fcf8ee)',
         borderColor: 'var(--shell-line, #e2d5ba)',

@@ -1317,6 +1317,31 @@ html[lang="en"] .reader-room {
   color: #f8ebcf;
 }
 
+/* In-sheet search-token marks (Reader & Search v2): the searched phrase itself
+   is gold (`exact`), tokens within a small edit distance are lighter (`near`).
+   Injected by DocumentPage via dangerouslySetInnerHTML, so they must live in a
+   global stylesheet; keyed on the sheet's data-reader-theme for night mode. */
+.rr-tok-exact {
+  background: #f3dca4;
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 4px;
+}
+.rr-tok-near {
+  background: #f7ebcb;
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 4px;
+}
+[data-reader-theme="dark"] .rr-tok-exact {
+  background: rgba(217, 164, 65, 0.34);
+  color: #f8ebcf;
+}
+[data-reader-theme="dark"] .rr-tok-near {
+  background: rgba(217, 164, 65, 0.16);
+  color: inherit;
+}
+
 /* Reskin layer: the reader reuses components (TOC, chapter tree, bookmarks /
    notes / stats panels, assistant, selection popover) authored with the app's
    cream/terracotta semantic Tailwind tokens (hard-coded hex). Remap those
@@ -1500,6 +1525,10 @@ html[lang="en"] .atlas {
   --shell-on-accent: var(--rr-brand-ink);
   --shell-surface: var(--rr-surface-2);
   --shell-ink: var(--rr-ink);
+  /* Optional extras (consumers must keep literal fallbacks — other shells
+     don't define the underlying tokens): */
+  --shell-ink-2: var(--rr-ink-2);
+  --shell-rail: var(--rr-rail);
 }
 .catalog {
   --shell-line: var(--cat-line);

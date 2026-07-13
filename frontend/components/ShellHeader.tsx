@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 
 import AppHeaderAvatarMenu from '@/components/AppHeaderAvatarMenu';
 import ShellLanguagePills from '@/components/ShellLanguagePills';
-import StarMark from '@/components/landing/StarMark';
+import Logo from '@/components/brand/Logo';
 import { useAuth } from '@/lib/AuthContext';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
@@ -71,21 +71,8 @@ export default function ShellHeader({
         }`}
       >
       {/* Brand */}
-      <Link href={localizedPath('/documents')} className="flex shrink-0 items-center gap-[11px]" aria-label="ILM Shamela">
-        <span style={{ color: 'var(--accent)', display: 'inline-flex' }}>
-          <StarMark size={logoSize} holeColor="var(--shell-surface)" />
-        </span>
-        <span className="leading-none">
-          <span className="block font-reem-kufi text-[22px] font-semibold" style={{ color: 'var(--shell-ink)' }}>
-            {t('brand.name', 'مكتبة عِلم')}
-          </span>
-          <span
-            className="mt-1 block text-[9.5px] tracking-[0.24em]"
-            style={{ color: 'var(--shell-muted)' }}
-          >
-            ILM SHAMELA
-          </span>
-        </span>
+      <Link href={localizedPath('/documents')} className="flex shrink-0 items-center" aria-label="ILM Shamela">
+        <Logo className="w-auto" style={{ height: logoSize + 14 }} />
       </Link>
 
       {/* Center: search and/or nav */}

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import AppHeaderAvatarMenu from '@/components/AppHeaderAvatarMenu';
-import StarMark from '@/components/landing/StarMark';
+import Logo from '@/components/brand/Logo';
 import LanguageSwitcher from '@/components/i18n/LanguageSwitcher';
 import { useAuth } from '@/lib/AuthContext';
 import { useI18n } from '@/components/i18n/I18nProvider';
@@ -87,16 +87,8 @@ export default function Navbar() {
     >
       <div className="mx-auto flex h-16 max-w-[1280px] items-center gap-4 px-4 sm:px-6 lg:px-8">
         <div className="flex flex-1 items-center">
-          <Link href={homeHref} className="flex items-center gap-2.5 shrink-0" aria-label="ILM Shamela">
-            <StarMark size={30} className="text-gold" holeColor="#efe5ce" />
-            <span className="leading-none">
-              <span className="block font-reem-kufi font-semibold text-[17px] text-ink-deep">
-                {t('brand.name', 'مكتبة عِلم')}
-              </span>
-              <span className="hidden sm:block text-[8px] tracking-[0.22em] text-ink-mute mt-1">
-                ILM SHAMELA
-              </span>
-            </span>
+          <Link href={homeHref} className="flex items-center shrink-0" aria-label="ILM Shamela">
+            <Logo className="h-12 w-auto" priority />
           </Link>
         </div>
 

@@ -24,15 +24,15 @@ import { buildDocumentsSearchParams, type DocumentFilterValues } from '@/lib/doc
 import {
   getDocumentFilterPreference,
   updateDocumentFilterPreference,
-  listSavedFilterPresets,
-  createSavedFilterPreset,
-  deleteSavedFilterPreset,
   type SavedFilterPreset,
 } from '@/lib/api/documentFilters';
+import useFilterPresets from '@/hooks/useFilterPresets';
+import type { CorpusFilterHandlers, CorpusFilterState } from '@/lib/search/useCorpusSearchState';
 import useMediaQuery from '@/hooks/useMediaQuery';
 import useDebounce from '@/hooks/useDebounce';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLanguageName } from '@/lib/i18n/languageName';
+import { formatHijriCentury } from '@/lib/i18n/hijriCentury';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { useContinueReading } from '@/lib/reader/useContinueReading';
 import { legendForDocuments } from '@/lib/coverPalettes';
@@ -107,6 +107,8 @@ export default function DocumentsPage() {
   const [selectedAuthors, setSelectedAuthors] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [selectedDeathCenturies, setSelectedDeathCenturies] = useState<number[]>([]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -158,6 +160,11 @@ export default function DocumentsPage() {
     setSelectedAuthors(state.authors ?? []);
     setSelectedCategories(state.categories ?? []);
     setSelectedLanguages(state.languages ?? []);
+    // Newer keys — old presets/preferences/URLs may lack them entirely.
+    setSelectedCountries(state.countries ?? []);
+    setSelectedDeathCenturies(
+      (state.deathCenturies ?? []).filter((c) => Number.isInteger(c) && c > 0),
+    );
     setDateFrom(state.dateFrom ?? '');
     setDateTo(state.dateTo ?? '');
     const m = state.mode;
@@ -220,6 +227,8 @@ export default function DocumentsPage() {
       authors: parseList('authors'),
       categories: parseList('categories'),
       languages: parseList('languages'),
+      countries: parseList('countries'),
+      deathCenturies: parseList('death_centuries').map((s) => Number(s)),
       dateFrom: p.get('date_from') ?? '',
       dateTo: p.get('date_to') ?? '',
     });
@@ -245,7 +254,7 @@ export default function DocumentsPage() {
     // Record whether the URL specified any *filter* param (sort/status/view
     // don't count) — if so it takes precedence over the saved preference.
     const p = new URLSearchParams(window.location.search);
-    const FILTER_PARAMS = ['q', 'refine', 'authors', 'categories', 'languages', 'date_from', 'date_to', 'documents', 'mode'];
+    const FILTER_PARAMS = ['q', 'refine', 'authors', 'categories', 'languages', 'countries', 'death_centuries', 'date_from', 'date_to', 'documents', 'mode'];
     hadUrlFiltersRef.current = FILTER_PARAMS.some((key) => p.has(key));
     applyFromUrl(window.location.search);
   }, [applyFromUrl]);
@@ -291,6 +300,8 @@ export default function DocumentsPage() {
       authors: selectedAuthors,
       categories: selectedCategories,
       languages: selectedLanguages,
+      countries: selectedCountries,
+      deathCenturies: selectedDeathCenturies,
       dateFrom,
       dateTo,
       sort,
@@ -312,6 +323,8 @@ export default function DocumentsPage() {
       authors: selectedAuthors,
       categories: selectedCategories,
       languages: selectedLanguages,
+      countries: selectedCountries,
+      deathCenturies: selectedDeathCenturies,
       dateFrom,
       dateTo,
     };
@@ -327,6 +340,8 @@ export default function DocumentsPage() {
     selectedAuthors,
     selectedCategories,
     selectedLanguages,
+    selectedCountries,
+    selectedDeathCenturies,
     dateFrom,
     dateTo,
     sort,
@@ -357,6 +372,8 @@ export default function DocumentsPage() {
     selectedAuthors,
     selectedCategories,
     selectedLanguages,
+    selectedCountries,
+    selectedDeathCenturies,
     dateFrom,
     dateTo,
   });
@@ -379,7 +396,9 @@ export default function DocumentsPage() {
         documents: selectedBooks.map((b) => b.id),
         authors: selectedAuthors,
         categories: selectedCategories,
-        language: selectedLanguages[0],
+        languages: selectedLanguages,
+        countries: selectedCountries,
+        death_centuries: selectedDeathCenturies,
         date_from: dateFrom,
         date_to: dateTo,
         page: currentPage,
@@ -389,7 +408,9 @@ export default function DocumentsPage() {
       if (selectedAuthors.length > 0) params.authors = selectedAuthors;
       if (selectedCategories.length > 0) params.categories = selectedCategories;
       if (selectedBooks.length > 0) params.documents = selectedBooks.map((b) => b.id);
-      if (selectedLanguages.length > 0) params.language = selectedLanguages[0];
+      if (selectedLanguages.length > 0) params.languages = selectedLanguages;
+      if (selectedCountries.length > 0) params.countries = selectedCountries;
+      if (selectedDeathCenturies.length > 0) params.death_centuries = selectedDeathCenturies;
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
       request = getDocuments(params);
@@ -412,7 +433,7 @@ export default function DocumentsPage() {
         setIsLoading(false);
         setIsLoadingMore(false);
       });
-  }, [currentPage, debouncedEffective, searchMode, selectedBooks, selectedAuthors, selectedCategories, selectedLanguages, dateFrom, dateTo, t]);
+  }, [currentPage, debouncedEffective, searchMode, selectedBooks, selectedAuthors, selectedCategories, selectedLanguages, selectedCountries, selectedDeathCenturies, dateFrom, dateTo, t]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -511,17 +532,53 @@ export default function DocumentsPage() {
     setSelectedAuthors([]);
     setSelectedCategories([]);
     setSelectedLanguages([]);
+    setSelectedCountries([]);
+    setSelectedDeathCenturies([]);
     setDateFrom('');
     setDateTo('');
     setAssistInterpretation(null);
   };
 
+  // Adapt this page's lifted filter state onto the search console's
+  // `{filters, handlers}` contract — the page stays the single state owner
+  // (URL mirror / preference PATCH / popstate all untouched).
+  const consoleFilters = useMemo<CorpusFilterState>(() => ({
+    mode: searchMode,
+    categories: selectedCategories,
+    authors: selectedAuthors,
+    books: selectedBooks,
+    languages: selectedLanguages,
+    countries: selectedCountries,
+    deathCenturies: selectedDeathCenturies,
+    dateFrom,
+    dateTo,
+  }), [searchMode, selectedCategories, selectedAuthors, selectedBooks, selectedLanguages, selectedCountries, selectedDeathCenturies, dateFrom, dateTo]);
+
+  const consoleHandlers = useMemo<CorpusFilterHandlers>(() => ({
+    setMode: setSearchMode,
+    toggleCategory: (v) => setSelectedCategories((prev) => toggleIn(prev, v)),
+    toggleAuthor: (v) => setSelectedAuthors((prev) => toggleIn(prev, v)),
+    toggleBook: (book) =>
+      setSelectedBooks((prev) =>
+        prev.some((b) => b.id === book.id) ? prev.filter((b) => b.id !== book.id) : [...prev, book],
+      ),
+    toggleLanguage: (v) => setSelectedLanguages((prev) => toggleIn(prev, v)),
+    toggleCountry: (v) => setSelectedCountries((prev) => toggleIn(prev, v)),
+    toggleDeathCentury: (c) =>
+      setSelectedDeathCenturies((prev) =>
+        prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
+      ),
+    setDateFrom,
+    setDateTo,
+    clearAll: clearFilters,
+    applyFilterValues: (values) => applyFilterState(values),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setters are stable; clearFilters/applyFilterState identities are stable enough for the console
+  }), [applyFilterState]);
+
   /* ─── Named saved filter presets + the current-filters snapshot ─── */
-  const [presets, setPresets] = useState<SavedFilterPreset[]>([]);
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    listSavedFilterPresets().then(setPresets).catch(() => {});
-  }, [isAuthenticated]);
+  // Shared TanStack Query cache: the sidebar and the search console (on every
+  // surface) see the same preset list and stay in sync through mutations.
+  const { presets, savePreset, deletePreset } = useFilterPresets(isAuthenticated);
 
   const currentFilterValues = useMemo((): DocumentFilterValues => ({
     q: searchQuery,
@@ -531,9 +588,11 @@ export default function DocumentsPage() {
     authors: selectedAuthors,
     categories: selectedCategories,
     languages: selectedLanguages,
+    countries: selectedCountries,
+    deathCenturies: selectedDeathCenturies,
     dateFrom,
     dateTo,
-  }), [searchQuery, refineText, searchMode, selectedBooks, selectedAuthors, selectedCategories, selectedLanguages, dateFrom, dateTo]);
+  }), [searchQuery, refineText, searchMode, selectedBooks, selectedAuthors, selectedCategories, selectedLanguages, selectedCountries, selectedDeathCenturies, dateFrom, dateTo]);
 
   // Drop the AI "Interpreted as" chip whenever the filters change through any
   // path other than the AI apply itself (manual search, sidebar toggle, chip
@@ -549,14 +608,12 @@ export default function DocumentsPage() {
   }, [currentFilterValues]);
 
   const handleSavePreset = async (name: string) => {
-    // Let a duplicate-name (400) rejection propagate so the sidebar can show it.
-    const created = await createSavedFilterPreset(name, currentFilterValues);
-    setPresets((prev) => [created, ...prev]);
+    // Let a duplicate-name (400) rejection propagate so the caller can show it.
+    await savePreset(name, currentFilterValues);
   };
   const handleApplyPreset = (preset: SavedFilterPreset) => applyFilterState(preset.filters);
   const handleDeletePreset = async (id: number) => {
-    await deleteSavedFilterPreset(id);
-    setPresets((prev) => prev.filter((p) => p.id !== id));
+    await deletePreset(id);
   };
 
   const hasActiveFilters =
@@ -567,6 +624,8 @@ export default function DocumentsPage() {
     selectedAuthors.length > 0 ||
     selectedCategories.length > 0 ||
     selectedLanguages.length > 0 ||
+    selectedCountries.length > 0 ||
+    selectedDeathCenturies.length > 0 ||
     Boolean(dateFrom) ||
     Boolean(dateTo);
 
@@ -579,6 +638,8 @@ export default function DocumentsPage() {
     (selectedAuthors.length ? 1 : 0) +
     (selectedCategories.length ? 1 : 0) +
     (selectedLanguages.length ? 1 : 0) +
+    (selectedCountries.length ? 1 : 0) +
+    (selectedDeathCenturies.length ? 1 : 0) +
     (dateFrom || dateTo ? 1 : 0);
 
   const submitSearch = (e: React.FormEvent) => {
@@ -775,6 +836,17 @@ export default function DocumentsPage() {
         ))}
         {selectedAuthors.map((a) => (
           <ActiveChip key={a} label={t('docs.filter.author', 'مؤلف')} value={a} onRemove={() => setSelectedAuthors((prev) => prev.filter((x) => x !== a))} />
+        ))}
+        {selectedCountries.map((c) => (
+          <ActiveChip key={c} label={t('docs.country', 'البلد')} value={c} onRemove={() => setSelectedCountries((prev) => prev.filter((x) => x !== c))} />
+        ))}
+        {selectedDeathCenturies.map((c) => (
+          <ActiveChip
+            key={c}
+            label={t('docs.deathCentury', 'قرن الوفاة')}
+            value={formatHijriCentury(c, locale)}
+            onRemove={() => setSelectedDeathCenturies((prev) => prev.filter((x) => x !== c))}
+          />
         ))}
         {selectedBooks.map((b) => (
           <ActiveChip
@@ -999,21 +1071,26 @@ export default function DocumentsPage() {
         open={popoverOpen}
         onOpenChange={setPopoverOpen}
         initialQuery={searchDraft}
-        mode={searchMode}
-        onModeChange={setSearchMode}
-        selectedCategories={selectedCategories}
-        onToggleCategory={handleToggleCategory}
-        selectedAuthors={selectedAuthors}
-        onToggleAuthor={handleToggleAuthor}
-        selectedBooks={selectedBooks}
-        onToggleBook={handleToggleBook}
+        filters={consoleFilters}
+        handlers={consoleHandlers}
         isAuthenticated={isAuthenticated}
+        analyticsSurface="documents"
         onAssistApply={applyAssistFilters}
         onPlainSubmit={(q) => {
           setSearchDraft(q);
           setSearchQuery(q);
           setAssistInterpretation(null);
         }}
+        presets={
+          isAuthenticated
+            ? {
+                list: presets,
+                onApply: handleApplyPreset,
+                onSave: (name, values) => savePreset(name, values),
+                onDelete: handleDeletePreset,
+              }
+            : undefined
+        }
       />
     </div>
   );

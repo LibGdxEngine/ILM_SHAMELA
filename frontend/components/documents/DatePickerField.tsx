@@ -183,6 +183,9 @@ export default function DatePickerField({
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // Claim this Esc so enclosing dialogs (the search console) that skip
+        // defaultPrevented events don't close on the same keypress.
+        e.preventDefault();
         setOpen(false);
         triggerRef.current?.focus();
       }

@@ -223,7 +223,14 @@ export interface DocumentsListParams {
   authors?: string[];
   categories?: string[];
   documents?: number[];
+  /** @deprecated single-value legacy — prefer `languages`. */
   language?: string;
+  /** Multi-select language codes (CSV `languages` param). */
+  languages?: string[];
+  /** Author nationality names, as served by the facet-options endpoint. */
+  countries?: string[];
+  /** Hijri centuries of author death (CSV `death_centuries` param). */
+  death_centuries?: number[];
   date_from?: string;
   date_to?: string;
   search?: string;
@@ -282,9 +289,15 @@ export interface DocumentPagesResponse {
   pages: DocumentPage[];
 }
 
+/** Which signal produced a match (backend `match_kind`): literal phrase,
+ *  stemmed/fuzzy lexical, or embedding similarity. */
+export type InDocMatchKind = 'exact' | 'lexical' | 'semantic';
+
 export interface DocumentSearchMatch {
   page_number: number;
   snippet: string;
+  /** Optional for rollout safety — `resolveMatchKind()` falls back on scores. */
+  match_kind?: InDocMatchKind;
   score?: number;
   score_lexical?: number;
   score_semantic?: number | null;  // null = no chunks for this doc (hide badge)
@@ -296,17 +309,21 @@ export interface DocumentSearchResponse {
   total_matches: number;
   query: string;
   has_semantic?: boolean;
-  /** Mode these results were produced with — stamped client-side (the backend does not echo it). */
+  /** Mode these results were produced with (backend echoes it; also stamped client-side). */
   mode?: InDocSearchMode;
 }
 
-/** In-document search modes (mirror of the backend `VALID_SEARCH_MODES`). */
-export type InDocSearchMode = 'exact' | 'similar' | 'semantic' | 'mix';
+/** In-document search modes (mirror of the backend `VALID_SEARCH_MODES`).
+ *  `all` runs phrase + stemmed/fuzzy + semantic and tags each match with
+ *  `match_kind` — the v2 reader panel's single-request mode. */
+export type InDocSearchMode = 'exact' | 'similar' | 'semantic' | 'mix' | 'all';
 
 export interface SearchInDocumentOptions {
   mode?: InDocSearchMode;
-  /** Vector-similarity threshold (0–1); applies to `semantic` and `mix`. */
+  /** Vector-similarity threshold (0–1); applies to `semantic`, `mix` and `all`. */
   threshold?: number;
+  /** false → harakat-sensitive lexical matching (`ignore_diacritics=0`). Default true. */
+  ignoreDiacritics?: boolean;
   signal?: AbortSignal;
 }
 
@@ -323,6 +340,9 @@ export interface AssistFilters {
   authors: string[];
   categories: string[];
   languages: string[];
+  /** Optional until the assist backend emits them (missing = empty). */
+  countries?: string[];
+  deathCenturies?: number[];
   dateFrom: string | null;
   dateTo: string | null;
 }
@@ -592,8 +612,16 @@ export async function getDocuments(params: DocumentsListParams = {}): Promise<Do
   if (params.documents && params.documents.length > 0) {
     url.searchParams.append('documents', params.documents.join(','));
   }
-  if (params.language) {
+  if (params.languages && params.languages.length > 0) {
+    url.searchParams.append('languages', params.languages.join(','));
+  } else if (params.language) {
     url.searchParams.append('language', params.language);
+  }
+  if (params.countries && params.countries.length > 0) {
+    url.searchParams.append('countries', params.countries.join(','));
+  }
+  if (params.death_centuries && params.death_centuries.length > 0) {
+    url.searchParams.append('death_centuries', params.death_centuries.join(','));
   }
   if (params.date_from) {
     url.searchParams.append('date_from', params.date_from);
@@ -631,7 +659,14 @@ export interface DocumentsSearchParams {
   page?: number;
   authors?: string[];
   categories?: string[];
+  /** @deprecated single-value legacy — prefer `languages`. */
   language?: string;
+  /** Multi-select language codes (CSV `languages` param). */
+  languages?: string[];
+  /** Author nationality names, as served by the facet-options endpoint. */
+  countries?: string[];
+  /** Hijri centuries of author death (CSV `death_centuries` param). */
+  death_centuries?: number[];
   date_from?: string;
   date_to?: string;
 }
@@ -642,7 +677,10 @@ export interface DocumentsSearchParams {
  * book-scoping. Distinct from the dead `searchDocuments()` helper; this is the
  * function the navbar search flow uses whenever a query is active.
  */
-export async function getDocumentsSearch(params: DocumentsSearchParams): Promise<DocumentsListResponse> {
+export async function getDocumentsSearch(
+  params: DocumentsSearchParams,
+  opts: { signal?: AbortSignal } = {}
+): Promise<DocumentsListResponse> {
   const basePath = '/api/search_engine/documents/search/';
   const url = API_BASE_URL
     ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
@@ -662,8 +700,16 @@ export async function getDocumentsSearch(params: DocumentsSearchParams): Promise
   if (params.categories && params.categories.length > 0) {
     url.searchParams.append('categories', params.categories.join(','));
   }
-  if (params.language) {
+  if (params.languages && params.languages.length > 0) {
+    url.searchParams.append('languages', params.languages.join(','));
+  } else if (params.language) {
     url.searchParams.append('language', params.language);
+  }
+  if (params.countries && params.countries.length > 0) {
+    url.searchParams.append('countries', params.countries.join(','));
+  }
+  if (params.death_centuries && params.death_centuries.length > 0) {
+    url.searchParams.append('death_centuries', params.death_centuries.join(','));
   }
   if (params.date_from) {
     url.searchParams.append('date_from', params.date_from);
@@ -681,6 +727,7 @@ export async function getDocumentsSearch(params: DocumentsSearchParams): Promise
       'Content-Type': 'application/json',
     },
     credentials: 'include',
+    signal: opts.signal,
   });
 
   if (!response.ok) {
@@ -778,7 +825,7 @@ export async function searchInDocument(
   query: string,
   opts: SearchInDocumentOptions = {}
 ): Promise<DocumentSearchResponse> {
-  const { mode = 'mix', threshold, signal } = opts;
+  const { mode = 'mix', threshold, ignoreDiacritics, signal } = opts;
   if (!query.trim()) {
     return {
       matches: [],
@@ -795,8 +842,12 @@ export async function searchInDocument(
   url.searchParams.append('q', query);
   url.searchParams.append('mode', mode);
   // Threshold only matters for the vector-bearing modes.
-  if (threshold != null && (mode === 'semantic' || mode === 'mix')) {
+  if (threshold != null && (mode === 'semantic' || mode === 'mix' || mode === 'all')) {
     url.searchParams.append('threshold', String(threshold));
+  }
+  // Only an explicit opt-out is sent; the backend default is insensitive.
+  if (ignoreDiacritics === false) {
+    url.searchParams.append('ignore_diacritics', '0');
   }
 
   const response = await fetch(url.toString(), {

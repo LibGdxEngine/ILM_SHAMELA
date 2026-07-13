@@ -6,10 +6,15 @@ import { useRouter } from 'next/navigation';
 import InteractiveWorldMap from '@/components/InteractiveWorldMap';
 import AtlasRail from '@/components/AtlasRail';
 import ShellHeader from '@/components/ShellHeader';
-import NavSearchPopover, { SelectedBook } from '@/components/search/NavSearchPopover';
+import NavSearchPopover from '@/components/search/NavSearchPopover';
+import useLocalCorpusSearchState, {
+    corpusFiltersToValues,
+    countActiveFilters,
+} from '@/lib/search/useCorpusSearchState';
+import useFilterPresets from '@/hooks/useFilterPresets';
 import { getCountryDocumentStats, CountryDocumentStat } from '@/lib/api';
-import type { CorpusSearchMode } from '@/lib/api';
 import { buildDocumentsSearchParams } from '@/lib/documentsSearchParams';
+import type { DocumentFilterValues } from '@/lib/documentsSearchParams';
 import { useAuth } from '@/lib/AuthContext';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
@@ -31,10 +36,8 @@ export default function MapPage() {
     const [countryMap, setCountryMap] = useState<Record<string, CountryInfo>>({});
     const [, setIsLoading] = useState(true);
     const [queryValue, setQueryValue] = useState('');
-    const [searchMode, setSearchMode] = useState<CorpusSearchMode>('hybrid');
-    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-    const [selectedAuthors, setSelectedAuthors] = useState<string[]>([]);
-    const [selectedBooks, setSelectedBooks] = useState<SelectedBook[]>([]);
+    const { filters, handlers } = useLocalCorpusSearchState();
+    const { presets, savePreset, deletePreset } = useFilterPresets(isAuthenticated);
     const [popoverOpen, setPopoverOpen] = useState(false);
     const searchTriggerRef = useRef<HTMLDivElement>(null);
 
@@ -59,14 +62,10 @@ export default function MapPage() {
 
     // Navigate to the catalog with the current query + popup filters applied,
     // serialized identically to every other surface that links into /documents.
-    const goToDocuments = () => {
-        const params = buildDocumentsSearchParams({
-            q: queryValue,
-            mode: searchMode,
-            documents: selectedBooks.map((b) => b.id),
-            authors: selectedAuthors,
-            categories: selectedCategories,
-        });
+    const goToDocuments = (state?: DocumentFilterValues) => {
+        const params = buildDocumentsSearchParams(
+            state ?? corpusFiltersToValues(filters, queryValue),
+        );
         router.push(localizedPath(`/documents?${params.toString()}`));
     };
 
@@ -78,11 +77,7 @@ export default function MapPage() {
         const q = queryValue.trim();
         if (!q) return;
 
-        const hasPopupFilter =
-            searchMode !== 'hybrid' ||
-            selectedCategories.length > 0 ||
-            selectedAuthors.length > 0 ||
-            selectedBooks.length > 0;
+        const hasPopupFilter = countActiveFilters(filters) > 0;
         if (hasPopupFilter) {
             goToDocuments();
             return;
@@ -150,29 +145,22 @@ export default function MapPage() {
                 queryValue={queryValue}
                 onQueryChange={setQueryValue}
                 onSubmit={onSearch}
-                mode={searchMode}
-                onModeChange={setSearchMode}
-                selectedCategories={selectedCategories}
-                onToggleCategory={(name) =>
-                    setSelectedCategories((prev) =>
-                        prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name],
-                    )
-                }
-                selectedAuthors={selectedAuthors}
-                onToggleAuthor={(name) =>
-                    setSelectedAuthors((prev) =>
-                        prev.includes(name) ? prev.filter((a) => a !== name) : [...prev, name],
-                    )
-                }
-                selectedBooks={selectedBooks}
-                onToggleBook={(book) =>
-                    setSelectedBooks((prev) =>
-                        prev.some((b) => b.id === book.id)
-                            ? prev.filter((b) => b.id !== book.id)
-                            : [...prev, book],
-                    )
-                }
+                filters={filters}
+                handlers={handlers}
                 isAuthenticated={isAuthenticated}
+                analyticsSurface="map"
+                presets={
+                    isAuthenticated
+                        ? {
+                              list: presets,
+                              // The atlas has no in-place library results —
+                              // applying a preset navigates to /documents.
+                              onApply: (preset) => goToDocuments(preset.filters),
+                              onSave: (name, values) => savePreset(name, values),
+                              onDelete: (id) => deletePreset(id),
+                          }
+                        : undefined
+                }
             />
         </div>
     );

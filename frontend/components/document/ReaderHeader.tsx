@@ -1,15 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useI18n } from '@/components/i18n/I18nProvider';
 import StarMark from '@/components/landing/StarMark';
-import NavSearchPopover, { type SelectedBook } from '@/components/search/NavSearchPopover';
-import { useAuth } from '@/lib/AuthContext';
-import { Document, type CorpusSearchMode } from '@/lib/api';
-import { buildDocumentsSearchParams } from '@/lib/documentsSearchParams';
+import { Document } from '@/lib/api';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import type { ReaderTheme } from './FontThemeControls';
 
@@ -89,8 +85,6 @@ export default function ReaderHeader({
 }: ReaderHeaderProps) {
   const { t } = useI18n();
   const localizedPath = useLocalizedPath();
-  const router = useRouter();
-  const { isAuthenticated } = useAuth();
   const [typoOpen, setTypoOpen] = useState(false);
 
   // Close the typography popover on Escape, matching the backdrop click-out.
@@ -102,43 +96,6 @@ export default function ReaderHeader({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [typoOpen]);
-
-  // Compact library-wide corpus search (a separate feature from the in-book
-  // search toggle further down): a magnifier button opens the shared
-  // NavSearchPopover as a slide-over panel, and submitting navigates away to
-  // /documents rather than filtering the open book in place. Self-contained
-  // local state, mirroring the `typoOpen` popover pattern above.
-  const librarySearchBtnRef = useRef<HTMLButtonElement>(null);
-  const [librarySearchOpen, setLibrarySearchOpen] = useState(false);
-  const [libraryQuery, setLibraryQuery] = useState('');
-  const [libraryMode, setLibraryMode] = useState<CorpusSearchMode>('hybrid');
-  const [libraryCategories, setLibraryCategories] = useState<string[]>([]);
-  const [libraryAuthors, setLibraryAuthors] = useState<string[]>([]);
-  const [libraryBooks, setLibraryBooks] = useState<SelectedBook[]>([]);
-
-  const toggleLibraryCategory = (name: string) =>
-    setLibraryCategories((prev) =>
-      prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name],
-    );
-  const toggleLibraryAuthor = (name: string) =>
-    setLibraryAuthors((prev) =>
-      prev.includes(name) ? prev.filter((a) => a !== name) : [...prev, name],
-    );
-  const toggleLibraryBook = (book: SelectedBook) =>
-    setLibraryBooks((prev) =>
-      prev.some((b) => b.id === book.id) ? prev.filter((b) => b.id !== book.id) : [...prev, book],
-    );
-
-  const handleLibrarySubmit = () => {
-    const params = buildDocumentsSearchParams({
-      q: libraryQuery,
-      mode: libraryMode,
-      documents: libraryBooks.map((b) => b.id),
-      authors: libraryAuthors,
-      categories: libraryCategories,
-    });
-    router.push(localizedPath(`/documents?${params.toString()}`));
-  };
 
   const authorLine = useMemo(
     () => (document.authors ?? []).map((a) => a.name).filter(Boolean).join('، '),
@@ -199,44 +156,6 @@ export default function ReaderHeader({
           )}
         </div>
       </div>
-
-      {/* Compact library-wide search — grouped with brand/identity, not the reading-tool
-          cluster. Opens the shared popup as a slide-over panel (never an anchored dropdown,
-          which the reader shell's overflow-hidden wrapper would clip). */}
-      <button
-        ref={librarySearchBtnRef}
-        type="button"
-        onClick={() => setLibrarySearchOpen((v) => !v)}
-        aria-expanded={librarySearchOpen}
-        aria-label={t('nav.search.openLabel', 'Search the library')}
-        title={t('nav.search.openLabel', 'Search the library')}
-        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px] transition-colors"
-        style={{ background: 'var(--rr-rail)', border: '1px solid var(--rr-line)', color: 'var(--rr-ink-2)' }}
-      >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-          <circle cx="11" cy="11" r="7" />
-          <line x1="21" y1="21" x2="16.5" y2="16.5" />
-        </svg>
-      </button>
-      <NavSearchPopover
-        presentation="panel"
-        open={librarySearchOpen}
-        onOpenChange={setLibrarySearchOpen}
-        anchorRef={librarySearchBtnRef}
-        showQueryField
-        mode={libraryMode}
-        onModeChange={setLibraryMode}
-        queryValue={libraryQuery}
-        onQueryChange={setLibraryQuery}
-        onSubmit={handleLibrarySubmit}
-        selectedCategories={libraryCategories}
-        onToggleCategory={toggleLibraryCategory}
-        selectedAuthors={libraryAuthors}
-        onToggleAuthor={toggleLibraryAuthor}
-        selectedBooks={libraryBooks}
-        onToggleBook={toggleLibraryBook}
-        isAuthenticated={isAuthenticated}
-      />
 
       <div className="flex-1" />
 

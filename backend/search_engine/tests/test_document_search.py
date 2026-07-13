@@ -271,7 +271,7 @@ class CorpusSearchTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         filters = self._body_of(get_conn)['query']['bool']['filter']
         self.assertIn({'terms': {'categories': ['فقه']}}, filters)
-        self.assertIn({'term': {'language': 'ar'}}, filters)
+        self.assertIn({'terms': {'language': ['ar']}}, filters)
         self.assertIn({'range': {'uploaded_at': {'gte': '2000-01-01'}}}, filters)
 
     @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
@@ -294,7 +294,7 @@ class CorpusSearchTests(APITestCase):
         ))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         filters = self._body_of(get_conn)['query']['bool']['filter']
-        self.assertIn({'term': {'language': 'en'}}, filters)
+        self.assertIn({'terms': {'language': ['en']}}, filters)
         self.assertFalse(
             any('authors' in json.dumps(clause) for clause in filters),
             'authors must never be pushed into the ES filter clauses',
@@ -313,12 +313,119 @@ class CorpusSearchTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         filters = self._body_of(get_conn)['query']['bool']['filter']
         self.assertIn({'terms': {'categories': ['فقه']}}, filters)
-        self.assertIn({'term': {'language': 'ar'}}, filters)
+        self.assertIn({'terms': {'language': ['ar']}}, filters)
         # Arabic + فقه → doc_a and doc_c (doc_b is English/تاريخ).
         self.assertEqual(
             sorted(r['id'] for r in resp.data['results']),
             sorted([self.doc_a.id, self.doc_c.id]),
         )
+
+    # --- researcher filters (languages / countries / death centuries) ------
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_languages_csv_pushed_as_terms(self, get_conn, _embed):
+        get_conn.return_value = self._conn(self._all_hits())
+        resp = self.client.get(self._url(q='كتاب', mode='exact', languages='ar,en'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        filters = self._body_of(get_conn)['query']['bool']['filter']
+        self.assertIn({'terms': {'language': ['ar', 'en']}}, filters)
+        self.assertEqual(resp.data['count'], 3)
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_languages_narrow_django_side_too(self, get_conn, _embed):
+        get_conn.return_value = self._conn(self._all_hits())
+        resp = self.client.get(self._url(q='كتاب', mode='exact', languages='en'))
+        self.assertEqual([r['id'] for r in resp.data['results']], [self.doc_b.id])
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_legacy_language_param_still_filters(self, get_conn, _embed):
+        get_conn.return_value = self._conn(self._all_hits())
+        resp = self.client.get(self._url(q='كتاب', mode='exact', language='ar'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        filters = self._body_of(get_conn)['query']['bool']['filter']
+        self.assertIn({'terms': {'language': ['ar']}}, filters)
+        self.assertEqual(
+            sorted(r['id'] for r in resp.data['results']),
+            sorted([self.doc_a.id, self.doc_c.id]),
+        )
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_countries_filter_is_django_side_and_case_insensitive(self, get_conn, _embed):
+        self.author_one.nationality = 'Egypt'
+        self.author_one.save()
+        self.author_two.nationality = 'Syria'
+        self.author_two.save()
+        get_conn.return_value = self._conn(self._all_hits())
+        # Lowercase value + an unknown country: iexact matches Egypt, Atlantis
+        # matches nothing but must not zero the whole set.
+        resp = self.client.get(self._url(q='كتاب', mode='exact', countries='egypt,Atlantis'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = json.dumps(self._body_of(get_conn))
+        self.assertNotIn('countries', body)
+        self.assertNotIn('nationality', body)
+        self.assertEqual(
+            sorted(r['id'] for r in resp.data['results']),
+            sorted([self.doc_a.id, self.doc_c.id]),
+        )
+        self.assertEqual(resp.data['count'], 2)
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_death_centuries_filter_is_django_side_only(self, get_conn, _embed):
+        # author_one dies 728 AH (century 8), author_two 911 AH (century 10);
+        # save() derives death_century.
+        self.author_one.date_of_death = '728 هـ'
+        self.author_one.save()
+        self.author_two.date_of_death = '911'
+        self.author_two.save()
+        get_conn.return_value = self._conn(self._all_hits())
+        resp = self.client.get(self._url(q='كتاب', mode='exact', death_centuries='8'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertNotIn('death', json.dumps(self._body_of(get_conn)))
+        self.assertEqual(
+            sorted(r['id'] for r in resp.data['results']),
+            sorted([self.doc_a.id, self.doc_c.id]),
+        )
+        # Paginated count reflects the Django-side narrowing.
+        self.assertEqual(resp.data['count'], 2)
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_death_centuries_invalid_tokens_dropped(self, get_conn, _embed):
+        self.author_one.date_of_death = '728 هـ'
+        self.author_one.save()
+        get_conn.return_value = self._conn(self._all_hits())
+        # 'abc' and out-of-range '50' are dropped; '8' still applies.
+        resp = self.client.get(self._url(q='كتاب', mode='exact', death_centuries='abc,50,8'))
+        self.assertEqual(
+            sorted(r['id'] for r in resp.data['results']),
+            sorted([self.doc_a.id, self.doc_c.id]),
+        )
+        # All tokens invalid → the filter is a no-op, not a zero-matcher.
+        resp = self.client.get(self._url(q='كتاب', mode='exact', death_centuries='abc,50'))
+        self.assertEqual(resp.data['count'], 3)
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_list_endpoint_filters_without_query(self, get_conn, _embed):
+        # The plain list endpoint (no q) applies the new filters purely in the
+        # DB — no ES involvement at all.
+        self.author_one.nationality = 'Egypt'
+        self.author_one.date_of_death = '728 هـ'
+        self.author_one.save()
+        resp = self.client.get(
+            '/api/search_engine/documents/?countries=egypt&death_centuries=8&languages=ar'
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            sorted(r['id'] for r in resp.data['results']),
+            sorted([self.doc_a.id, self.doc_c.id]),
+        )
+        get_conn.return_value.search.assert_not_called()
 
     # --- snippets ---------------------------------------------------------
 

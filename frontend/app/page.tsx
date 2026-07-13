@@ -12,7 +12,7 @@ import HeroSection from "@/components/landing/HeroSection";
 import WhyIlmSection from "@/components/landing/WhyIlmSection";
 import HowItWorksSection from "@/components/landing/HowItWorksSection";
 import FinalCTASection from "@/components/landing/FinalCTASection";
-import StarMark from "@/components/landing/StarMark";
+import Logo from "@/components/brand/Logo";
 
 const FadeIn = ({
   children,
@@ -166,10 +166,7 @@ export default function Home() {
         <div className="max-w-6xl mx-auto">
           <div className="grid md:grid-cols-12 gap-10 mb-12">
             <div className="md:col-span-5">
-              <div className="flex items-center gap-2.5 mb-4">
-                <span className="font-reem-kufi font-semibold text-[24px] text-ink-deep">ILM <em className="not-italic text-gold">Shamela</em></span>
-                <StarMark size={26} className="text-gold" holeColor="#e7dbc1" />
-              </div>
+              <Logo className="h-16 w-auto mb-4" />
               <p className="text-[14px] leading-[1.95] max-w-[330px] text-ink-warm">
                 {t('home.footer.tagline', "A private digital library and document search engine for the world's classical scholarship — built with care, run with respect.")}
               </p>

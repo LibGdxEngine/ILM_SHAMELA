@@ -39,6 +39,10 @@ export type ReaderPreferences = {
   letter_spacing: number;
   line_height: number;
   tashkeel_enabled: boolean;
+  /** Free-form per-user payload (backend JSONField). PATCH replaces the WHOLE
+   *  object — always spread the last-fetched value when writing a key (e.g.
+   *  `search_pins` from `useSearchTermStore`). */
+  extra?: Record<string, unknown>;
 };
 
 export type ApiBookmark = {

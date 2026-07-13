@@ -1,15 +1,13 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useI18n } from '@/components/i18n/I18nProvider';
-import type { InDocSearchMode, PrintedRef } from '@/lib/api';
+import type { PrintedRef } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
-import { TASHKEEL, buildTashkeelStripMapping, findArabicMatches, findArabicPhraseMatches } from '@/lib/arabic';
+import { TASHKEEL, buildTashkeelStripMapping, classifyArabicTokenMatches } from '@/lib/arabic';
 
 interface DocumentPageProps {
   pageNumber: number;
   content: string;
   searchQuery: string;
-  /** Mode the current search results were produced with; drives on-page match strictness. */
-  searchMode?: InDocSearchMode;
   isIntersecting?: boolean;
   language?: string | null;
   tashkeelEnabled?: boolean;
@@ -32,7 +30,7 @@ function escapeHtml(text: string): string {
 interface Range {
   start: number;
   end: number;
-  type: 'highlight' | 'search';
+  type: 'highlight' | 'search-exact' | 'search-near';
   highlightId?: number;
   color?: string;
 }
@@ -40,8 +38,9 @@ interface Range {
 /**
  * Render `content` with highlights (user-created marks) layered under search
  * matches. Highlights wrap with `<mark data-hid data-color>` so deep-link
- * scroll-into-view works; search matches use the original yellow `<mark>`
- * styling so search functionality remains visually unchanged.
+ * scroll-into-view works; search matches are token-classified per the v2
+ * design — the searched phrase itself gets `rr-tok-exact` (gold), tokens
+ * within a small edit distance get `rr-tok-near` (lighter).
  *
  * Strategy: produce a non-overlapping list of "segments" of plain text and
  * sliced wrapped ranges, then convert each to escaped HTML. Newlines become
@@ -50,7 +49,6 @@ interface Range {
 function renderContentHtml(
   content: string,
   searchQuery: string,
-  searchMode: InDocSearchMode,
   highlights: ApiHighlight[]
 ): string {
   const ranges: Range[] = [];
@@ -73,14 +71,8 @@ function renderContentHtml(
   }
 
   if (searchQuery.trim()) {
-    // Mirror the backend's highlight semantics: exact mode marks whole-token
-    // phrases only; the other modes mark tashkeel/variant-insensitive substrings.
-    const matches =
-      searchMode === 'exact'
-        ? findArabicPhraseMatches(content, searchQuery)
-        : findArabicMatches(content, searchQuery);
-    for (const m of matches) {
-      ranges.push({ start: m.start, end: m.end, type: 'search' });
+    for (const m of classifyArabicTokenMatches(content, searchQuery)) {
+      ranges.push({ start: m.start, end: m.end, type: m.kind === 'exact' ? 'search-exact' : 'search-near' });
     }
   }
 
@@ -110,7 +102,7 @@ function renderContentHtml(
       (r) => r.type === 'highlight' && r.start <= segStart && r.end >= segEnd
     );
     const matchingSearch = ranges.find(
-      (r) => r.type === 'search' && r.start <= segStart && r.end >= segEnd
+      (r) => r.type !== 'highlight' && r.start <= segStart && r.end >= segEnd
     );
 
     let inner = segText;
@@ -119,7 +111,8 @@ function renderContentHtml(
       inner = `<mark data-hid="${matchingHighlight.highlightId}" data-color="${color}" class="highlight-${color}">${inner}</mark>`;
     }
     if (matchingSearch) {
-      inner = `<mark class="bg-yellow-200/80 px-1 py-0.5 rounded text-gray-900">${inner}</mark>`;
+      const cls = matchingSearch.type === 'search-exact' ? 'rr-tok-exact' : 'rr-tok-near';
+      inner = `<mark class="${cls}">${inner}</mark>`;
     }
     html += inner;
   }
@@ -130,7 +123,6 @@ export default function DocumentPage({
   pageNumber,
   content,
   searchQuery,
-  searchMode = 'mix',
   language,
   tashkeelEnabled = true,
   highlights = [],
@@ -156,24 +148,26 @@ export default function DocumentPage({
   // Strip tashkeel client-side for Arabic pages when toggled off so highlights
   // and search use the same visible offsets. Highlights store offsets against
   // the ORIGINAL content; remap them to the stripped string so wrapping aligns
-  // with the visible text.
-  const shouldStrip = !tashkeelEnabled && language === 'ar' && TASHKEEL.test(content);
-  // Reset regex.lastIndex because TASHKEEL is global.
-  TASHKEEL.lastIndex = 0;
+  // with the visible text. Token classification re-runs per keystrokeless
+  // executed query, so memoize the whole HTML pass on its actual inputs.
+  const innerHtml = useMemo(() => {
+    const shouldStrip = !tashkeelEnabled && language === 'ar' && TASHKEEL.test(content);
+    // Reset regex.lastIndex because TASHKEEL is global.
+    TASHKEEL.lastIndex = 0;
 
-  let visibleContent = content;
-  let displayHighlights = highlights;
-  if (shouldStrip) {
-    const { stripped, mapping } = buildTashkeelStripMapping(content);
-    visibleContent = stripped;
-    displayHighlights = highlights.map((h) => ({
-      ...h,
-      char_start: mapping[Math.max(0, Math.min(h.char_start, content.length))],
-      char_end: mapping[Math.max(0, Math.min(h.char_end, content.length))],
-    }));
-  }
-
-  const innerHtml = renderContentHtml(visibleContent, searchQuery, searchMode, displayHighlights);
+    let visibleContent = content;
+    let displayHighlights = highlights;
+    if (shouldStrip) {
+      const { stripped, mapping } = buildTashkeelStripMapping(content);
+      visibleContent = stripped;
+      displayHighlights = highlights.map((h) => ({
+        ...h,
+        char_start: mapping[Math.max(0, Math.min(h.char_start, content.length))],
+        char_end: mapping[Math.max(0, Math.min(h.char_end, content.length))],
+      }));
+    }
+    return renderContentHtml(visibleContent, searchQuery, displayHighlights);
+  }, [content, searchQuery, highlights, tashkeelEnabled, language]);
 
   return (
     <article
