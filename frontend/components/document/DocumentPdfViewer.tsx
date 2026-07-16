@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { DocumentPage as DocumentPageType, LayoutBlock, PageLayout, normalizeMediaUrl } from '@/lib/api';
+import { DocumentPage as DocumentPageType, PageLayout, normalizeMediaUrl } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
 import DocumentPage from './DocumentPage';
 import DocumentPageSkeleton from './DocumentPageSkeleton';
@@ -8,8 +8,9 @@ import ErrorDisplay from '@/components/ErrorDisplay';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { toLocaleDigits } from '@/lib/utils';
-import { findArabicMatches } from '@/lib/arabic';
-import { blockOverlayMetrics } from '@/lib/reader/overlayMetrics';
+import { getLineMeasurer } from '@/lib/reader/lineMeasure';
+import { blockOverlayLayout } from '@/lib/reader/overlayMetrics';
+import { renderBlockOverlayHtml } from '@/lib/reader/overlayHtml';
 import { suppressSelectionPopover, releaseSelectionPopoverSuppression } from '@/lib/reader/selection';
 
 /**
@@ -27,7 +28,9 @@ interface DocumentPdfViewerProps {
   isLoading: boolean;
   hasMore: boolean;
   searchQuery: string;
-  /** Mode the current search results were produced with; drives on-page match strictness. */
+  /** Matched surface tokens per page (from the backend highlight fragments) —
+   *  lets fuzzy/lexical hits mark exactly the words they matched. */
+  searchTokensByPage?: ReadonlyMap<number, readonly string[]>;
   onLoadMore: () => void;
   onPageVisible: (pageNumber: number) => void;
   onLoadFirstPage?: () => void;
@@ -74,105 +77,15 @@ function wordAtPoint(x: number, y: number): string | null {
   return word.length >= 2 ? word : null;
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-interface OverlayRange {
-  start: number;
-  end: number;
-  type: 'highlight' | 'search';
-  highlightId?: number;
-  color?: string;
-}
-
-/**
- * Render one block's text with user highlights and search matches wrapped in
- * `<mark>` runs. Offsets are page-level (`content` = blocks joined by '\n'),
- * clipped to this block and shifted to block-local space. Newlines are kept as
- * literal characters (the block uses `white-space: pre-wrap`) so DOM selection
- * offsets align exactly with the stored content offsets.
- */
-function renderBlockHtml(
-  block: LayoutBlock,
-  searchQuery: string,
-  highlights: ApiHighlight[]
-): string {
-  const text = block.text;
-  const ranges: OverlayRange[] = [];
-
-  for (const h of highlights) {
-    if (
-      typeof h.char_start === 'number' &&
-      typeof h.char_end === 'number' &&
-      h.char_end > block.char_start &&
-      h.char_start < block.char_end
-    ) {
-      ranges.push({
-        start: Math.max(0, h.char_start - block.char_start),
-        end: Math.min(text.length, h.char_end - block.char_start),
-        type: 'highlight',
-        highlightId: h.id,
-        color: h.color,
-      });
-    }
-  }
-
-  if (searchQuery.trim()) {
-    // Tashkeel/variant-insensitive matching, mirroring the backend's
-    // `content.exact` analyzer, with ranges mapped back to original offsets.
-    for (const m of findArabicMatches(text, searchQuery)) {
-      ranges.push({ start: m.start, end: m.end, type: 'search' });
-    }
-  }
-
-  if (ranges.length === 0) {
-    return escapeHtml(text);
-  }
-
-  const boundaries = new Set<number>([0, text.length]);
-  for (const r of ranges) {
-    boundaries.add(Math.max(0, Math.min(r.start, text.length)));
-    boundaries.add(Math.max(0, Math.min(r.end, text.length)));
-  }
-  const sorted = Array.from(boundaries).sort((a, b) => a - b);
-
-  let html = '';
-  for (let i = 0; i < sorted.length - 1; i += 1) {
-    const segStart = sorted[i];
-    const segEnd = sorted[i + 1];
-    if (segStart >= segEnd) continue;
-    let inner = escapeHtml(text.slice(segStart, segEnd));
-
-    const matchingHighlight = ranges.find(
-      (r) => r.type === 'highlight' && r.start <= segStart && r.end >= segEnd
-    );
-    const matchingSearch = ranges.find(
-      (r) => r.type === 'search' && r.start <= segStart && r.end >= segEnd
-    );
-
-    if (matchingHighlight) {
-      const color = matchingHighlight.color ?? 'yellow';
-      inner = `<mark data-hid="${matchingHighlight.highlightId}" data-color="${color}" class="highlight-${color}">${inner}</mark>`;
-    }
-    if (matchingSearch) {
-      inner = `<mark class="ilm-pdf-search-mark">${inner}</mark>`;
-    }
-    html += inner;
-  }
-  return html;
-}
+/** Stable empty default so pages without matched tokens share one identity. */
+const EMPTY_TOKENS: readonly string[] = Object.freeze([]);
 
 interface PdfOverlayPageProps {
   pageNumber: number;
   layout: PageLayout;
   imageUrl: string | null;
   searchQuery: string;
+  searchTokens: readonly string[];
   highlights: ApiHighlight[];
   textDirection: 'rtl' | 'ltr';
   pageLabel: string;
@@ -183,11 +96,13 @@ function PdfOverlayPage({
   layout,
   imageUrl,
   searchQuery,
+  searchTokens,
   highlights,
   textDirection,
   pageLabel,
 }: PdfOverlayPageProps) {
   const { width, height } = layout;
+  const measure = getLineMeasurer();
   return (
     <article className="ilm-pdf-page" aria-label={pageLabel}>
       <div
@@ -214,8 +129,12 @@ function PdfOverlayPage({
         )}
         <div className="ilm-pdf-overlay" dir={textDirection}>
           {layout.blocks.map((block) => {
-            const html = renderBlockHtml(block, searchQuery, highlights);
-            const metrics = blockOverlayMetrics(block, height);
+            const blockLayout = blockOverlayLayout(block, height, measure);
+            const html = renderBlockOverlayHtml(block, blockLayout, {
+              searchQuery,
+              searchTokens,
+              highlights,
+            });
             return (
               <div
                 key={block.id}
@@ -227,8 +146,7 @@ function PdfOverlayPage({
                   top: `${(block.bbox[1] / height) * 100}%`,
                   width: `${((block.bbox[2] - block.bbox[0]) / width) * 100}%`,
                   height: `${((block.bbox[3] - block.bbox[1]) / height) * 100}%`,
-                  fontSize: `${metrics.fontSizeCqh}cqh`,
-                  lineHeight: `${metrics.lineHeightCqh}cqh`,
+                  fontSize: `${blockLayout.fontSizeCqh}cqh`,
                 }}
                 dangerouslySetInnerHTML={{ __html: html }}
               />
@@ -245,6 +163,7 @@ export default function DocumentPdfViewer({
   isLoading,
   hasMore,
   searchQuery,
+  searchTokensByPage,
   onLoadMore,
   onPageVisible,
   onLoadFirstPage,
@@ -598,6 +517,7 @@ export default function DocumentPdfViewer({
                   layout={page.layout}
                   imageUrl={normalizeMediaUrl(page.image_url ?? null)}
                   searchQuery={searchQuery}
+                  searchTokens={searchTokensByPage?.get(page.page_number) ?? EMPTY_TOKENS}
                   highlights={highlights.filter((h) => h.page_number === page.page_number)}
                   textDirection={textDirection}
                   pageLabel={pageLabel}

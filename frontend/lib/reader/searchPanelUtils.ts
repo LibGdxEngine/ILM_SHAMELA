@@ -3,6 +3,7 @@
 // never re-fetch), plus citation/CSV formatting for the result-card actions.
 
 import type { DocumentSearchMatch, InDocMatchKind } from '../api';
+import { normalizeArabicForSearch } from '../arabic';
 
 export type SearchScope = 'book' | 'library';
 export type SearchKindTab = 'all' | InDocMatchKind;
@@ -58,6 +59,81 @@ export function resultKey(match: DocumentSearchMatch): string {
 /** Strip the backend's <mark> highlight tags (and any stray markup) from a snippet. */
 export function stripHtml(snippet: string): string {
   return snippet.replace(/<[^>]+>/g, '');
+}
+
+/** Tokens per page the overlay will look for — matches arrive relevance-sorted,
+ *  so the best-attributed tokens win the slots. */
+const MARKED_TOKENS_CAP = 24;
+
+function unescapeEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * Per-page matched surface tokens pulled from the snippets' `<mark>` runs (the
+ * backend highlights the document's own tokens, for exact AND lexical/fuzzy
+ * matches — semantic snippets carry no marks and contribute nothing). Tokens
+ * are normalized (`normalizeArabicForSearch`) so tashkeel variants of the same
+ * word dedupe; the overlay re-normalizes the page text the same way. A mark
+ * can span several words (ES merges adjacent phrase terms), so captures are
+ * whitespace-split before normalization.
+ */
+export function extractMarkedTokens(
+  matches: DocumentSearchMatch[],
+  cap = MARKED_TOKENS_CAP
+): Map<number, string[]> {
+  const byPage = new Map<number, string[]>();
+  for (const match of matches) {
+    for (const [, marked] of match.snippet.matchAll(/<mark>([^<]*)<\/mark>/g)) {
+      for (const word of unescapeEntities(marked).split(/\s+/)) {
+        const normalized = normalizeArabicForSearch(word).normalized.trim();
+        if (normalized.length < 2) continue;
+        let tokens = byPage.get(match.page_number);
+        if (!tokens) {
+          tokens = [];
+          byPage.set(match.page_number, tokens);
+        }
+        if (tokens.length >= cap || tokens.includes(normalized)) continue;
+        tokens.push(normalized);
+      }
+    }
+  }
+  return byPage;
+}
+
+export interface OverlayMarking {
+  /** Query whose whole-token phrase occurrences get the strong overlay mark;
+   *  '' when the active tab excludes exact hits. */
+  query: string;
+  /** Per-page lexical surface tokens for the lighter `--near` overlay marks;
+   *  empty when the active tab excludes them. */
+  tokensByPage: Map<number, string[]>;
+}
+
+/**
+ * What the PDF overlay should mark for the selected kind tab — mirroring the
+ * result cards the tab shows: الكل = phrase + lexical tokens, تام = phrase
+ * only, لفظي = tokens only, دلالي = nothing (no token-level match exists).
+ * Tokens come only from lexical-kind matches: exact-match fragments wrap every
+ * query word (stopwords included), which would spray near-marks over words the
+ * strong phrase marks already cover.
+ */
+export function overlayMarking(
+  matches: DocumentSearchMatch[],
+  tab: SearchKindTab,
+  executedQuery: string
+): OverlayMarking {
+  const query = tab === 'all' || tab === 'exact' ? executedQuery : '';
+  const tokensByPage =
+    tab === 'all' || tab === 'lexical'
+      ? extractMarkedTokens(matches.filter((m) => resolveMatchKind(m) === 'lexical'))
+      : new Map<number, string[]>();
+  return { query, tokensByPage };
 }
 
 export interface CitationParts {

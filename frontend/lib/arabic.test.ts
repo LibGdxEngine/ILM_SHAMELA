@@ -6,6 +6,7 @@ import {
   classifyArabicTokenMatches,
   findArabicMatches,
   findArabicPhraseMatches,
+  findArabicTokenSetMatches,
   normalizeArabicForSearch,
   tokenizeArabicForSearch,
 } from './arabic';
@@ -245,5 +246,31 @@ describe('classifyArabicTokenMatches', () => {
     for (let i = 1; i < matches.length; i += 1) {
       expect(matches[i].start).toBeGreaterThanOrEqual(matches[i - 1].end);
     }
+  });
+});
+
+describe('findArabicTokenSetMatches', () => {
+  it('marks whole-token occurrences of any token in the set', () => {
+    const text = 'قرأت كتابهم ثم كتابكم مرة أخرى';
+    const matches = findArabicTokenSetMatches(text, ['كتابهم', 'كتابكم']);
+    expect(matches).toHaveLength(2);
+    expect(text.slice(matches[0].start, matches[0].end)).toBe('كتابهم');
+    expect(text.slice(matches[1].start, matches[1].end)).toBe('كتابكم');
+  });
+
+  it('never matches inside a longer word', () => {
+    expect(findArabicTokenSetMatches('جاء العلماء جميعا', ['علم'])).toEqual([]);
+  });
+
+  it('is tashkeel/variant-insensitive with original offsets', () => {
+    const text = 'فَضْلُ العِلْمِ ونوره';
+    const matches = findArabicTokenSetMatches(text, ['العلم']);
+    expect(matches).toHaveLength(1);
+    expect(text.slice(matches[0].start, matches[0].end)).toBe('العِلْمِ');
+  });
+
+  it('returns nothing for empty or whitespace-only token sets', () => {
+    expect(findArabicTokenSetMatches('نص ما', [])).toEqual([]);
+    expect(findArabicTokenSetMatches('نص ما', ['  '])).toEqual([]);
   });
 });

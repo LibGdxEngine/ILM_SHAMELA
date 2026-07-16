@@ -170,6 +170,33 @@ export function findArabicPhraseMatches(
 }
 
 /**
+ * Find every whole-token occurrence of any of `tokens` in `text`,
+ * tashkeel/variant-insensitive. Used by the PDF overlay to mark the surface
+ * tokens a lexical/fuzzy backend hit actually matched (pulled from the ES
+ * highlight fragments — e.g. `كتابهم` for the query `كتاب`): the fragments
+ * carry the document's own token, so whole-token equality reproduces the
+ * backend hit without substring false positives (`علم` inside `العلماء`).
+ * Returned ranges are offsets into the ORIGINAL text, in document order.
+ */
+export function findArabicTokenSetMatches(
+  text: string,
+  tokens: Iterable<string>
+): Array<{ start: number; end: number }> {
+  const needles = new Set<string>();
+  for (const token of tokens) {
+    const normalized = normalizeArabicForSearch(token).normalized.trim();
+    if (normalized) needles.add(normalized);
+  }
+  if (needles.size === 0) return [];
+  const { tokens: textTokens, ranges } = tokenizeArabicForSearch(text);
+  const matches: Array<{ start: number; end: number }> = [];
+  for (let i = 0; i < textTokens.length; i += 1) {
+    if (needles.has(textTokens[i])) matches.push(ranges[i]);
+  }
+  return matches;
+}
+
+/**
  * Levenshtein distance with an early exit: returns `maxDist + 1` as soon as the
  * distance provably exceeds `maxDist`, so token classification stays cheap on
  * long pages.

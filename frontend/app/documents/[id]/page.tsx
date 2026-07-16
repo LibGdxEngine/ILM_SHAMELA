@@ -50,7 +50,7 @@ import { useReaderPreferences } from '@/lib/reader/useReaderPreferences';
 import { useReadingProgress } from '@/lib/reader/useReadingProgress';
 import { migrateReaderLocalStorageForDocument } from '@/lib/reader/migrate';
 import { computeSelectionPayload, type SelectionPayload } from '@/lib/reader/selection';
-import { resultKey, type SearchKindTab, type SearchScope, type SearchSort } from '@/lib/reader/searchPanelUtils';
+import { overlayMarking, resultKey, type SearchKindTab, type SearchScope, type SearchSort } from '@/lib/reader/searchPanelUtils';
 import { useSearchTermStore } from '@/lib/reader/useSearchTermStore';
 import { createCorrection, type HighlightColor } from '@/lib/api/reader';
 
@@ -629,6 +629,14 @@ export default function DocumentDetailPage() {
   useEffect(() => {
     setSearchTab('all');
   }, [searchQuery]);
+
+  // What the PDF overlay marks follows the selected kind tab: تام → only the
+  // exact phrase, لفظي → only the backend-matched lexical tokens, دلالي →
+  // nothing, الكل → both.
+  const overlayMarks = useMemo(
+    () => overlayMarking(searchResults?.matches ?? [], searchTab, executedQuery),
+    [searchResults, searchTab, executedQuery]
+  );
 
   useEffect(() => {
     return () => {
@@ -1257,7 +1265,8 @@ export default function DocumentDetailPage() {
               pages={pages}
               isLoading={isLoadingMore}
               hasMore={hasMore}
-              searchQuery={executedQuery}
+              searchQuery={overlayMarks.query}
+              searchTokensByPage={overlayMarks.tokensByPage}
               onLoadMore={handleLoadMore}
               onPageVisible={setVisiblePageNum}
               onLoadFirstPage={fetchPreviousBatch}

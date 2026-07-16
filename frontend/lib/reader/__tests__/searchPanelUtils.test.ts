@@ -3,8 +3,10 @@ import type { DocumentSearchMatch } from '../../api';
 import {
   buildResultsCsv,
   countMatchesByKind,
+  extractMarkedTokens,
   filterMatchesByTab,
   formatCitation,
+  overlayMarking,
   resolveMatchKind,
   resultKey,
   sortMatches,
@@ -126,5 +128,91 @@ describe('buildResultsCsv', () => {
   it('leaves the score cell empty when null', () => {
     const csv = buildResultsCsv([{ page: 1, kind: 'دلالي', score: null, snippet: 'س' }], header);
     expect(csv).toContain('1,دلالي,,س');
+  });
+});
+
+describe('extractMarkedTokens', () => {
+  it('collects normalized marked tokens per page', () => {
+    const tokens = extractMarkedTokens([
+      match({ page_number: 3, snippet: 'فضل <mark>العِلْمِ</mark> ثم <mark>كتابهم</mark>' }),
+      match({ page_number: 7, snippet: 'ذكر <mark>الحكمة</mark> هنا' }),
+    ]);
+    expect(tokens.get(3)).toEqual(['العلم', 'كتابهم']);
+    expect(tokens.get(7)).toEqual(['الحكمه']);
+  });
+
+  it('dedupes tashkeel variants of the same token on a page', () => {
+    const tokens = extractMarkedTokens([
+      match({ page_number: 1, snippet: '<mark>كِتَاب</mark> ثم <mark>كتاب</mark>' }),
+    ]);
+    expect(tokens.get(1)).toEqual(['كتاب']);
+  });
+
+  it('splits multi-word marks into individual tokens', () => {
+    const tokens = extractMarkedTokens([
+      match({ page_number: 1, snippet: 'قال <mark>كتاب الله</mark> تعالى' }),
+    ]);
+    expect(tokens.get(1)).toEqual(['كتاب', 'الله']);
+  });
+
+  it('contributes nothing for markless (semantic) snippets', () => {
+    const tokens = extractMarkedTokens([match({ page_number: 4, snippet: 'نص دلالي بلا وسم' })]);
+    expect(tokens.has(4)).toBe(false);
+  });
+
+  it('drops single-character tokens and respects the per-page cap', () => {
+    const words = Array.from({ length: 30 }, (_, i) => `<mark>كلمة${i}</mark>`).join(' ');
+    const tokens = extractMarkedTokens([match({ page_number: 1, snippet: `<mark>و</mark> ${words}` })]);
+    expect(tokens.get(1)).toHaveLength(24);
+    // ة folds to ه under normalization.
+    expect(tokens.get(1)?.[0]).toBe('كلمه0');
+  });
+
+  it('unescapes HTML entities inside marks', () => {
+    const tokens = extractMarkedTokens([
+      match({ page_number: 1, snippet: '<mark>a&amp;b</mark>' }),
+    ]);
+    expect(tokens.get(1)).toEqual(['a&b']);
+  });
+});
+
+describe('overlayMarking', () => {
+  const matches = [
+    // Exact hit: fragments mark every query word, stopwords included.
+    match({ page_number: 2, match_kind: 'exact', snippet: '<mark>في</mark> <mark>هذه</mark> <mark>الصنعة</mark>' }),
+    match({ page_number: 5, match_kind: 'lexical', snippet: 'ذكر <mark>مقاصدها</mark> هنا' }),
+    match({ page_number: 8, match_kind: 'semantic', snippet: 'نص دلالي بلا وسم' }),
+  ];
+  const query = 'في هذه الصنعة';
+
+  it('الكل: phrase query plus tokens from lexical matches only', () => {
+    const marks = overlayMarking(matches, 'all', query);
+    expect(marks.query).toBe(query);
+    expect(marks.tokensByPage.get(5)).toEqual(['مقاصدها']);
+    // The exact hit's per-word marks (في/هذه/الصنعة) must not spray near-marks.
+    expect(marks.tokensByPage.has(2)).toBe(false);
+  });
+
+  it('تام: phrase query only, no tokens even when lexical matches exist', () => {
+    const marks = overlayMarking(matches, 'exact', query);
+    expect(marks.query).toBe(query);
+    expect(marks.tokensByPage.size).toBe(0);
+  });
+
+  it('لفظي: tokens only, no phrase query', () => {
+    const marks = overlayMarking(matches, 'lexical', query);
+    expect(marks.query).toBe('');
+    expect(marks.tokensByPage.get(5)).toEqual(['مقاصدها']);
+  });
+
+  it('دلالي: nothing to mark', () => {
+    const marks = overlayMarking(matches, 'semantic', query);
+    expect(marks.query).toBe('');
+    expect(marks.tokensByPage.size).toBe(0);
+  });
+
+  it('falls back on the score shape for legacy responses without match_kind', () => {
+    const legacy = [match({ page_number: 3, score_lexical: 0.5, snippet: '<mark>كتابهم</mark>' })];
+    expect(overlayMarking(legacy, 'all', query).tokensByPage.get(3)).toEqual(['كتابهم']);
   });
 });

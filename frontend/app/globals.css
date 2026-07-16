@@ -462,17 +462,29 @@ mark[data-hid] { cursor: context-menu; }
   overflow: hidden;
   color: transparent;
   caret-color: transparent;
-  white-space: pre-wrap;
-  /* With pre-wrap, `text-align: justify` leaves `\n`-terminated lines
-     unstretched ("last lines"); `text-align-last` stretches them across the
-     block width so each invisible line tracks its printed line horizontally.
-     No `word-break`: the per-block font cap already prevents wrapping, and a
-     mid-word break would shift every following row off its printed line. */
-  text-align: justify;
-  text-align-last: justify;
-  line-height: 1.25; /* fallback; the per-block inline line-height wins */
+  white-space: pre-wrap; /* safety for any flat-text fallback; lines are abs-positioned spans */
   cursor: text;
   font-family: serif;
+  font-weight: 400; /* pinned: canvas measurement uses '400 …px serif' — must never desync */
+}
+
+/* One absolutely-positioned span per printed line (PDF.js-textLayer model);
+   `top` and `scaleX` are computed per line. The line's separator '\n' lives
+   INSIDE the span (its last text node) so the block's concatenated text nodes
+   stay byte-identical to the stored content — the selection layer depends on
+   it. With `pre` a trailing newline adds no extra line box. */
+.ilm-pdf-line {
+  position: absolute;
+  white-space: pre; /* abs + pre → max-content width, never wraps */
+  line-height: 1.1; /* keep in sync with LINE_BOX_FACTOR in overlayMetrics.ts */
+}
+.ilm-pdf-overlay[dir='rtl'] .ilm-pdf-line {
+  right: 0;
+  transform-origin: right center;
+}
+.ilm-pdf-overlay[dir='ltr'] .ilm-pdf-line {
+  left: 0;
+  transform-origin: left center;
 }
 
 /* Text stays invisible even inside highlight/search marks. The global `mark`
@@ -494,10 +506,18 @@ mark[data-hid] { cursor: context-menu; }
   color: transparent;
 }
 
-/* The matched search run. */
+/* The matched search runs: strong for the exact phrase, lighter for the
+   fuzzy/lexical tokens a backend hit actually matched (mirrors the plain
+   reader's .rr-tok-exact/.rr-tok-near split). No dark-theme variants: the
+   overlay paints over the page IMAGE, which stays paper-colored in every
+   theme. */
 .ilm-pdf-search-mark {
   background: rgba(250, 204, 21, 0.45);
   border-radius: 2px;
+}
+
+.ilm-pdf-search-mark--near {
+  background: rgba(250, 204, 21, 0.26);
 }
 
 /* Reader popover animation */
