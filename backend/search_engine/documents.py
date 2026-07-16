@@ -75,6 +75,9 @@ class DocumentIndex(Document):
         # Disable automatic indexing on save
         # Documents are indexed manually in the Celery task after processing
         ignore_signals = True
+        # Required: get_queryset() uses prefetch_related(), and Django refuses
+        # .iterator() without a chunk_size on prefetched querysets.
+        queryset_pagination = 100
 
     def get_queryset(self):
         """Return only processed documents for indexing."""
