@@ -31,14 +31,30 @@ vi.mock('@/lib/search/optionSources', () => ({
   fetchFacetOptions: () => fetchFacetOptionsMock(),
 }));
 
+vi.mock('@/lib/api/extraction', () => ({
+  fetchPersonOptions: vi.fn(),
+  fetchPlaceOptions: vi.fn(),
+}));
+
 const handlers: CorpusFilterHandlers = {
   setMode: vi.fn(),
+  setScope: vi.fn(),
+  addTerm: vi.fn(),
+  updateTerm: vi.fn(),
+  removeTerm: vi.fn(),
+  setTerms: vi.fn(),
   toggleCategory: vi.fn(),
   toggleAuthor: vi.fn(),
   toggleBook: vi.fn(),
   toggleLanguage: vi.fn(),
   toggleCountry: vi.fn(),
   toggleDeathCentury: vi.fn(),
+  toggleGenre: vi.fn(),
+  toggleMadhhab: vi.fn(),
+  toggleEraCentury: vi.fn(),
+  togglePhysicalClass: vi.fn(),
+  togglePerson: vi.fn(),
+  togglePlace: vi.fn(),
   setDateFrom: vi.fn(),
   setDateTo: vi.fn(),
   clearAll: vi.fn(),
@@ -54,6 +70,10 @@ const FACET_PAYLOAD = {
   languages: [{ value: 'ar', count: 12 }],
   death_centuries: [{ value: 8, count: 5 }],
   countries: [{ value: 'مصر', count: 7 }],
+  genres: [],
+  madhhabs: [],
+  era_centuries: [],
+  physical_classes: [],
 };
 
 describe('useSearchSections', () => {
@@ -87,8 +107,8 @@ describe('useSearchSections', () => {
 
     await waitFor(() => {
       expect(result.current.map((s) => s.key)).toEqual([
-        'presets', 'mode', 'categories', 'authors', 'books',
-        'languages', 'countries', 'deathCenturies', 'dates',
+        'presets', 'mode', 'terms', 'scope', 'categories', 'authors',
+        'languages', 'countries', 'deathCenturies', 'persons', 'places', 'dates',
       ]);
     });
 
@@ -97,6 +117,13 @@ describe('useSearchSections', () => {
     expect(byKey.mode.badge).toBe(1); // exact ≠ hybrid
     expect(byKey.categories.badge).toBe(2);
     expect(byKey.deathCenturies.badge).toBe(1);
+
+    // The book multi-select nests inside the scope section.
+    const scope = byKey.scope;
+    if (scope.kind !== 'scope') throw new Error('bad scope spec');
+    expect(scope.scope).toBe('all');
+    expect(scope.showMine).toBe(true);
+    expect(scope.books.key).toBe('books');
 
     // Static options got labeled + counted.
     const langs = byKey.languages;

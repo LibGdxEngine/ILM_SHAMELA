@@ -4,7 +4,7 @@
 # components/documents
 
 ## Purpose
-The "Reading Room" library discovery page (/documents) and all discovery-specific UI. Includes the hero section (LibraryHero), topic shortcuts (ReadingRoomTopicBar), the main filter sidebar (FilterSidebar with facet pickers, date range, saved presets), the books grid/carousel (Shelf, ContinueShelf, BookSpine), the bespoke library AI assistant (LibraryAssistant — a headless CopilotKit drawer replacing the default popup), and in-page search tools (SearchCommandPalette, AssistantSessionMenu for library chat sessions). **Not to be confused with `components/document/` (singular) — the in-book reader.**
+The "Reading Room" library discovery page (/documents) and all discovery-specific UI. Includes the hero section (LibraryHero), topic shortcuts (ReadingRoomTopicBar), the main filter sidebar (FilterSidebar with facet pickers, date range, saved presets), the books grid/carousel (Shelf, RecommendedShelf, BookSpine), the bespoke library AI assistant (LibraryAssistant — a headless CopilotKit drawer replacing the default popup), and in-page search tools (SearchCommandPalette, AssistantSessionMenu for library chat sessions). **Not to be confused with `components/document/` (singular) — the in-book reader.**
 
 ## Key Files
 | File | Description |
@@ -16,7 +16,6 @@ The "Reading Room" library discovery page (/documents) and all discovery-specifi
 | `LibraryAssistant.tsx` | Bespoke, on-brand replacement for CopilotKit's default popup. Gold khatim-star launcher (fixed-position inline-end/bottom corner) opens a full-height edge drawer (Framer Motion slide). Headless via `useCopilotChat()` so the backend path (/api/copilotkit → FastAPI agent) stays untouched. Markdown rendering, session menu, fully RTL-aware. |
 | `LibraryHero.tsx` | Top section of Reading Room. Book/topic count + headline + subtext + CTA. States: empty (no books), growing (<10 books), established (10+). Reem Kufi font, parchment colors. |
 | `ReadingRoomTopicBar.tsx` | Chip row for "Browse by topic" — real categories from the backend (getCategories). Clicking toggles category filter (server-side refetch). Selected topics always visible; default limit 9. |
-| `ContinueShelf.tsx` | Carousel of recently read books, scoped to the /documents page. Uses Shelf wrapper. |
 | `Shelf.tsx` | Generic section wrapper: eyebrow + title + action button. Children grid (MD: 2 cols, LG: 4 cols) or mobile horizontal scroll. |
 | `BookSpine.tsx` | Compact vertical book representation. Spine (thin) or cover (wide). Used in narrow layouts or carousels. |
 | `SearchCommandPalette.tsx` | Quick search modal (Cmd+K) for jump-to-book. Input + live list of matching documents. Keyboard nav (↑/↓/Enter). |
@@ -34,7 +33,7 @@ The "Reading Room" library discovery page (/documents) and all discovery-specifi
 
 ### Testing Requirements
 - **Gates**: `npx tsc --noEmit` and `npm run build` from `frontend/` before commit.
-- **Live verification** (requires login — /documents is auth-gated): facets load and toggle filters (documents refetch); date picker updates results; save/load/delete presets; topic chips toggle category filters; LibraryAssistant launcher opens the drawer, messages send, Escape/outer-click closes; ContinueShelf shows recently read; Cmd+K palette with keyboard nav; RTL layout (Arabic/Farsi) — drawer slides from the correct edge, direction correct.
+- **Live verification** (requires login — /documents is auth-gated): facets load and toggle filters (documents refetch); date picker updates results; save/load/delete presets; topic chips toggle category filters; LibraryAssistant launcher opens the drawer, messages send, Escape/outer-click closes; Cmd+K palette with keyboard nav; RTL layout (Arabic/Farsi) — drawer slides from the correct edge, direction correct.
 - **Search performance**: FacetTypeahead debounce is ~300–400ms; verify no excessive network requests while typing.
 
 ### Common Patterns

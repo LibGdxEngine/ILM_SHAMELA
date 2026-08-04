@@ -71,3 +71,19 @@ class DocumentApiAuthTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIn('processing_status', response.data)
+
+    def test_upload_stamps_uploaded_by(self):
+        from search_engine.models import Document
+
+        self.client.force_authenticate(user=self.editor)
+        response = self.client.post(
+            '/api/search_engine/documents/',
+            {
+                'title': 'Owned Upload',
+                'file': self._sample_upload(),
+            },
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        document = Document.objects.get(id=response.data['id'])
+        self.assertEqual(document.uploaded_by_id, self.editor.id)

@@ -9,6 +9,7 @@ from .views import (
     OCREngineListView, DocumentByCountryView, CountryDocumentStatsView,
     DocumentFacetOptionsView,
 )
+from .views_search import CorpusQueryView, InBookQueryView
 from .views_reader import (
     BookmarkViewSet,
     ContinueReadingView,
@@ -82,7 +83,9 @@ urlpatterns = [
         name='library-chat-messages',
     ),
     path('documents/<int:pk>/search/', DocumentInDocumentSearchView.as_view(), name='document-in-search'),
+    path('documents/<int:pk>/search/query/', InBookQueryView.as_view(), name='document-in-search-query'),
     path('documents/search/', DocumentSearchView.as_view(), name='document-search'),
+    path('documents/search/query/', CorpusQueryView.as_view(), name='document-search-query'),
     path('documents/search/assist/', DocumentSearchAssistView.as_view(), name='document-search-assist'),
     path('documents/country/<str:country>/', DocumentByCountryView.as_view(), name='documents-by-country'),
     path('documents/country-stats/', CountryDocumentStatsView.as_view(), name='country-document-stats'),

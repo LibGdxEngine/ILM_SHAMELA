@@ -48,6 +48,8 @@ export interface NavSearchPopoverProps {
   filters: CorpusFilterState;
   handlers: CorpusFilterHandlers;
   isAuthenticated: boolean;
+  /** Show the "my uploads" scope choice (default true). */
+  canUpload?: boolean;
   /** Preset wiring (apply navigates on these surfaces); omit to hide. */
   presets?: PalettePresetsBundle;
   /** Which surface hosts this popover — stamped on telemetry events. */
@@ -80,6 +82,7 @@ export default function NavSearchPopover({
   filters,
   handlers,
   isAuthenticated,
+  canUpload = true,
   presets,
   analyticsSurface = 'nav-popover',
 }: NavSearchPopoverProps) {
@@ -124,6 +127,8 @@ export default function NavSearchPopover({
         surface: analyticsSurface,
         ai: false,
         mode: filters.mode,
+        scope: filters.scope,
+        term_count: filters.terms.length,
         categories: filters.categories.length,
         authors: filters.authors.length,
         books: filters.books.length,
@@ -139,6 +144,7 @@ export default function NavSearchPopover({
     filters,
     handlers,
     isAuthenticated,
+    canUpload,
     presetCount: presets ? presets.list.length : null,
   });
 

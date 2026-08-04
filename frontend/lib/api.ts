@@ -143,6 +143,9 @@ export interface Document {
     matched_fields: string[];
     method: string;
   };
+  /** POST query search only: request-array indexes of the terms that matched
+   *  this document (from ES named queries). */
+  term_hits?: number[];
 }
 
 export interface UploadResponse {
@@ -220,6 +223,8 @@ export interface SearchResponse {
 
 export interface DocumentsListParams {
   page?: number;
+  /** Ownership scope; only `'mine'` is serialized. */
+  scope?: 'all' | 'mine' | 'selected';
   authors?: string[];
   categories?: string[];
   documents?: number[];
@@ -231,6 +236,18 @@ export interface DocumentsListParams {
   countries?: string[];
   /** Hijri centuries of author death (CSV `death_centuries` param). */
   death_centuries?: number[];
+  /** Genre / discipline slugs (CSV `genre` param). */
+  genre?: string[];
+  /** Madhhab slugs (CSV `madhhab` param). */
+  madhhab?: string[];
+  /** Hijri centuries of composition (CSV `era_centuries` param). */
+  era_centuries?: number[];
+  /** Physical / material class slugs (CSV `physical_class` param). */
+  physical_class?: string[];
+  /** Person entity ids (extraction facet, CSV `persons` param). */
+  persons?: number[];
+  /** Place entity ids (extraction facet, CSV `places` param). */
+  places?: number[];
   date_from?: string;
   date_to?: string;
   search?: string;
@@ -251,6 +268,50 @@ export interface DocumentsListResponse {
 
 /** Library-wide (corpus) search modes accepted by `getDocumentsSearch()`. */
 export type CorpusSearchMode = 'exact' | 'semantic' | 'hybrid';
+
+/** One term row of the structured `POST documents/search/query/` body. */
+export interface CorpusQueryTerm {
+  text: string;
+  match: 'phrase' | 'word' | 'fuzzy' | 'stem';
+  /** Only meaningful with `match: 'fuzzy'`. */
+  fuzziness?: 0 | 1 | 2 | 'AUTO';
+  diacritics?: 'ignore' | 'sensitive';
+  op: 'must' | 'should' | 'must_not';
+}
+
+export interface CorpusQueryRequest {
+  version: 1;
+  terms: CorpusQueryTerm[];
+  scope?: { type: 'all' | 'mine' | 'selected'; ids?: number[] };
+  filters?: {
+    authors?: string[];
+    categories?: string[];
+    languages?: string[];
+    countries?: string[];
+    death_centuries?: number[];
+    genre?: string[];
+    madhhab?: string[];
+    era_centuries?: number[];
+    physical_class?: string[];
+    rights_status?: string[];
+    date_from?: string;
+    date_to?: string;
+    /** Registered entity facets (`{facet_key: values}`). */
+    facets?: Record<string, string[]>;
+  };
+  mode?: CorpusSearchMode;
+  page?: number;
+}
+
+/** POST variant of the corpus list response: `next`/`previous` are page
+ *  numbers (URLs are meaningless for POST bodies). */
+export interface CorpusQueryResponse {
+  count: number;
+  next: number | null;
+  previous: number | null;
+  results: Document[];
+  degraded_reason?: string;
+}
 
 /** One positioned OCR block on a page (PDF-overlay reader mode). */
 export interface LayoutBlock {
@@ -302,6 +363,9 @@ export interface DocumentSearchMatch {
   score_lexical?: number;
   score_semantic?: number | null;  // null = no chunks for this doc (hide badge)
   score_final?: number;
+  /** Multi-term POST search only: request-array indexes of the terms this
+   *  fragment answered for (`[]` on semantic-only pages). */
+  matched_terms?: number[];
 }
 
 export interface DocumentSearchResponse {
@@ -337,6 +401,11 @@ export interface SearchSuggestionsResponse {
 export interface AssistFilters {
   q: string;
   mode: CorpusSearchMode;
+  /** `mine` only when the user referred to their own uploads. */
+  scope?: 'all' | 'mine';
+  /** Structured multi-term rows the assistant extracted (quoted phrases,
+   *  exclusions, alternatives); plain topical text stays in `q`. */
+  terms?: { text: string; match: 'phrase' | 'word' | 'fuzzy' | 'stem'; op: 'must' | 'should' | 'must_not' }[];
   authors: string[];
   categories: string[];
   languages: string[];
@@ -603,6 +672,9 @@ export async function getDocuments(params: DocumentsListParams = {}): Promise<Do
   if (params.page) {
     url.searchParams.append('page', params.page.toString());
   }
+  if (params.scope === 'mine') {
+    url.searchParams.append('scope', 'mine');
+  }
   if (params.authors && params.authors.length > 0) {
     url.searchParams.append('authors', params.authors.join(','));
   }
@@ -622,6 +694,24 @@ export async function getDocuments(params: DocumentsListParams = {}): Promise<Do
   }
   if (params.death_centuries && params.death_centuries.length > 0) {
     url.searchParams.append('death_centuries', params.death_centuries.join(','));
+  }
+  if (params.genre && params.genre.length > 0) {
+    url.searchParams.append('genre', params.genre.join(','));
+  }
+  if (params.madhhab && params.madhhab.length > 0) {
+    url.searchParams.append('madhhab', params.madhhab.join(','));
+  }
+  if (params.era_centuries && params.era_centuries.length > 0) {
+    url.searchParams.append('era_centuries', params.era_centuries.join(','));
+  }
+  if (params.physical_class && params.physical_class.length > 0) {
+    url.searchParams.append('physical_class', params.physical_class.join(','));
+  }
+  if (params.persons && params.persons.length > 0) {
+    url.searchParams.append('persons', params.persons.join(','));
+  }
+  if (params.places && params.places.length > 0) {
+    url.searchParams.append('places', params.places.join(','));
   }
   if (params.date_from) {
     url.searchParams.append('date_from', params.date_from);
@@ -654,6 +744,9 @@ export interface DocumentsSearchParams {
   q: string;
   /** Search mode; omitted from the request when `'hybrid'` (the backend default). */
   mode?: CorpusSearchMode;
+  /** Ownership scope; only `'mine'` is serialized (`selected` is expressed via
+   *  `documents`, `all` is the backend default). */
+  scope?: 'all' | 'mine' | 'selected';
   /** Scope the search to specific document IDs. */
   documents?: number[];
   page?: number;
@@ -667,6 +760,18 @@ export interface DocumentsSearchParams {
   countries?: string[];
   /** Hijri centuries of author death (CSV `death_centuries` param). */
   death_centuries?: number[];
+  /** Genre / discipline slugs (CSV `genre` param). */
+  genre?: string[];
+  /** Madhhab slugs (CSV `madhhab` param). */
+  madhhab?: string[];
+  /** Hijri centuries of composition (CSV `era_centuries` param). */
+  era_centuries?: number[];
+  /** Physical / material class slugs (CSV `physical_class` param). */
+  physical_class?: string[];
+  /** Person entity ids (extraction facet, CSV `persons` param). */
+  persons?: number[];
+  /** Place entity ids (extraction facet, CSV `places` param). */
+  places?: number[];
   date_from?: string;
   date_to?: string;
 }
@@ -691,6 +796,9 @@ export async function getDocumentsSearch(
   if (params.mode && params.mode !== 'hybrid') {
     url.searchParams.append('mode', params.mode);
   }
+  if (params.scope === 'mine') {
+    url.searchParams.append('scope', 'mine');
+  }
   if (params.documents && params.documents.length > 0) {
     url.searchParams.append('documents', params.documents.join(','));
   }
@@ -710,6 +818,24 @@ export async function getDocumentsSearch(
   }
   if (params.death_centuries && params.death_centuries.length > 0) {
     url.searchParams.append('death_centuries', params.death_centuries.join(','));
+  }
+  if (params.genre && params.genre.length > 0) {
+    url.searchParams.append('genre', params.genre.join(','));
+  }
+  if (params.madhhab && params.madhhab.length > 0) {
+    url.searchParams.append('madhhab', params.madhhab.join(','));
+  }
+  if (params.era_centuries && params.era_centuries.length > 0) {
+    url.searchParams.append('era_centuries', params.era_centuries.join(','));
+  }
+  if (params.physical_class && params.physical_class.length > 0) {
+    url.searchParams.append('physical_class', params.physical_class.join(','));
+  }
+  if (params.persons && params.persons.length > 0) {
+    url.searchParams.append('persons', params.persons.join(','));
+  }
+  if (params.places && params.places.length > 0) {
+    url.searchParams.append('places', params.places.join(','));
   }
   if (params.date_from) {
     url.searchParams.append('date_from', params.date_from);
@@ -734,6 +860,40 @@ export async function getDocumentsSearch(
     const error = await response.json().catch(() => ({}));
     // DocumentSearchView returns validation errors as `{error: '...'}`
     // (e.g. "Invalid mode…"), so check `error` first to surface the real message.
+    throw new Error(error.error || error.detail || error.message || 'Search failed');
+  }
+
+  return response.json();
+}
+
+/**
+ * Structured multi-term corpus search (`POST documents/search/query/`): term
+ * rows with per-term criteria + scope (all/mine/selected) + the same facet
+ * filters as the GET endpoint. Results carry `term_hits` for per-term
+ * attribution. The GET `getDocumentsSearch()` remains the single-input path.
+ */
+export async function postDocumentsSearchQuery(
+  body: CorpusQueryRequest,
+  opts: { signal?: AbortSignal } = {}
+): Promise<CorpusQueryResponse> {
+  const basePath = '/api/search_engine/documents/search/query/';
+  const url = API_BASE_URL
+    ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
+    : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...csrfHeaders(),
+    },
+    credentials: 'include',
+    signal: opts.signal,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
     throw new Error(error.error || error.detail || error.message || 'Search failed');
   }
 
@@ -865,6 +1025,48 @@ export async function searchInDocument(
   }
 
   return { ...(await response.json()), mode };
+}
+
+/** Body of the multi-term in-book search (`POST documents/<id>/search/query/`). */
+export interface InBookQueryRequest {
+  version: 1;
+  terms: CorpusQueryTerm[];
+  mode?: InDocSearchMode;
+  threshold?: number | null;
+}
+
+/**
+ * Multi-term in-book search. Matches carry `matched_terms` (request-array
+ * term indexes) alongside the usual v2 match shape. The single-input GET
+ * (`searchInDocument`) remains untouched.
+ */
+export async function postSearchInDocumentQuery(
+  id: number,
+  body: InBookQueryRequest,
+  opts: { signal?: AbortSignal } = {}
+): Promise<DocumentSearchResponse> {
+  const basePath = `/api/search_engine/documents/${id}/search/query/`;
+  const url = API_BASE_URL
+    ? new URL(basePath, API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`)
+    : new URL(basePath, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...csrfHeaders(),
+    },
+    credentials: 'include',
+    signal: opts.signal,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || error.detail || error.message || 'Search failed');
+  }
+
+  return response.json();
 }
 
 /**

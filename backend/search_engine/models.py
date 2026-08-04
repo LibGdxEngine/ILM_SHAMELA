@@ -87,6 +87,17 @@ class Document(models.Model):
     title = models.CharField(max_length=500)
     file = models.FileField(upload_to='documents/')
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='uploaded_documents',
+        db_index=True,
+        help_text="User who uploaded the document; NULL for legacy uploads that predate "
+                  "ownership tracking (the 'my uploads' search scope only covers "
+                  "attributed documents)",
+    )
     processed = models.BooleanField(default=False)
     processing_status = models.CharField(
         max_length=20,

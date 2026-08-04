@@ -69,7 +69,7 @@ Next.js App Router tree. Implements the landing page, authentication flows (emai
 - `layout.tsx` → components (Navbar, I18nProvider, HtmlLangDirSync), lib (AuthContext, getDictionary, i18n config)
 - `page.tsx` → landing components (HeroSection, WhyIlmSection, HowItWorksSection, FinalCTASection, StarMark, LandingHeader)
 - `auth/*` → AuthPanel component, useAuth hook, i18n navigation helpers
-- `documents/page.tsx` → FilterSidebar, BookCard, ContinueShelf, LibraryAssistant, SearchCommandPalette, TanStack Query
+- `documents/page.tsx` → FilterSidebar, BookCard, RecommendedShelf, LibraryAssistant, SearchCommandPalette, TanStack Query
 - `documents/[id]/page.tsx` → DocumentViewer, ReaderShell, SelectionPopover, ReaderAssistant, AdvancedSearchPanel, reader hooks (useChapters, useHighlights, useNotes, useBookmarks, useReadingProgress, useReaderCopilotSessions)
 - `map/page.tsx` → InteractiveWorldMap, AtlasRail, NavSearchPopover, country stats API
 - `upload/page.tsx` → UploadZone, RequireAuth

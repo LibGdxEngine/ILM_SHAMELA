@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { DocumentPage as DocumentPageType } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
+import type { PageMention, EntityType } from '@/lib/api/extractionMentions';
 import DocumentPage from './DocumentPage';
 import DocumentPageSkeleton from './DocumentPageSkeleton';
 import ErrorDisplay from '@/components/ErrorDisplay';
@@ -36,6 +37,10 @@ interface DocumentViewerProps {
   onWordSearch?: (word: string) => void;
   /** Hide the volume part of printed-edition page labels (single-volume works). */
   singleVolume?: boolean;
+  /** Entity mentions by page number (overlay mode). Absent or empty = no overlay. */
+  entityMentions?: Map<number, PageMention[]>;
+  /** Returns a localized label for the entity type (passed through to DocumentPage). */
+  getEntityLabel?: (type: EntityType) => string;
 }
 
 const WORD_CHAR = /[\p{L}\p{M}ـ]/u;
@@ -86,6 +91,8 @@ export default function DocumentViewer({
   bookTitle,
   onWordSearch,
   singleVolume = false,
+  entityMentions,
+  getEntityLabel,
 }: DocumentViewerProps) {
   const { t, locale } = useI18n();
   const localizedPath = useLocalizedPath();
@@ -523,6 +530,8 @@ export default function DocumentViewer({
               highlights={highlights.filter((h) => h.page_number === page.page_number)}
               printedRef={page.printed_ref}
               singleVolume={singleVolume}
+              entityMentions={entityMentions?.get(page.page_number)}
+              getEntityLabel={getEntityLabel}
             />
           </div>
         );

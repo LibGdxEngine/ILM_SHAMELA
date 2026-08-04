@@ -38,6 +38,17 @@ export function filterMatchesByTab(
   return matches.filter((m) => resolveMatchKind(m) === tab);
 }
 
+/** Client-side slice by term row (multi-term search): matches whose
+ *  `matched_terms` includes `index`; `null` = no term filter. Semantic-only
+ *  pages (`matched_terms: []`) only survive the `null` filter. */
+export function filterMatchesByTerm(
+  matches: DocumentSearchMatch[],
+  index: number | null
+): DocumentSearchMatch[] {
+  if (index === null) return matches;
+  return matches.filter((m) => (m.matched_terms ?? []).includes(index));
+}
+
 /** Stable sort: `relevance` by descending `score_final`, `page` by ascending page number. */
 export function sortMatches(matches: DocumentSearchMatch[], sort: SearchSort): DocumentSearchMatch[] {
   const indexed = matches.map((match, index) => ({ match, index }));

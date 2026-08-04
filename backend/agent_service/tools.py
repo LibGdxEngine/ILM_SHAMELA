@@ -32,6 +32,11 @@ def search_library(
     language: str = "",
     countries: str = "",
     death_centuries: str = "",
+    documents: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    must_terms: str = "",
+    exclude_terms: str = "",
 ) -> str:
     """Search the whole ILM Shamela library for books/manuscripts matching a query.
 
@@ -51,6 +56,13 @@ def search_library(
             (e.g. "مصر") — filters by where the authors are from.
         death_centuries: Optional comma-separated hijri centuries of author
             death (e.g. "8" for القرن الثامن الهجري, year 728 AH → century 8).
+        documents: Optional comma-separated document ids to scope the search to.
+        date_from: Optional upload-date lower bound (YYYY-MM-DD).
+        date_to: Optional upload-date upper bound (YYYY-MM-DD).
+        must_terms: Optional comma-separated words/phrases that MUST all appear
+            (exact word matching) in addition to the query.
+        exclude_terms: Optional comma-separated words/phrases that must NOT
+            appear — results containing any of them are excluded.
     """
     from search_engine.views import execute_corpus_search
 
@@ -69,11 +81,42 @@ def search_library(
         filters["countries"] = countries.strip()
     if death_centuries.strip():
         filters["death_centuries"] = death_centuries.strip()
+    if documents.strip():
+        filters["documents"] = documents.strip()
+    if date_from.strip():
+        filters["date_from"] = date_from.strip()
+    if date_to.strip():
+        filters["date_to"] = date_to.strip()
+
+    must_rows = [t.strip() for t in must_terms.split(",") if t.strip()]
+    not_rows = [t.strip() for t in exclude_terms.split(",") if t.strip()]
 
     try:
-        ordered_docs, metadata = execute_corpus_search(
-            query, filters=filters or None, include_snippets=True
-        )
+        if must_rows or not_rows:
+            # Structured boolean path: query as a fuzzy must + explicit word
+            # must/must_not rows, same executor as POST documents/search/query/.
+            from types import SimpleNamespace
+
+            from search_engine.query_builder import TermSpec
+            from search_engine.views_search import execute_corpus_query
+
+            terms = [TermSpec(text=query, match="fuzzy", fuzziness="AUTO")]
+            terms += [TermSpec(text=t, match="word") for t in must_rows[:6]]
+            terms += [TermSpec(text=t, match="word", op="must_not") for t in not_rows[:6]]
+            ordered_docs, metadata, _degraded = execute_corpus_query(
+                terms[:8],
+                filters_request=SimpleNamespace(query_params=filters, user=None),
+                mode="hybrid",
+            )
+            # Agent display is plain text: strip the REST-shaped <mark> tags.
+            import re as _re
+            for meta in metadata.values():
+                if meta.get("snippet"):
+                    meta["snippet"] = _re.sub(r"</?mark>", "", meta["snippet"]).strip()
+        else:
+            ordered_docs, metadata = execute_corpus_search(
+                query, filters=filters or None, include_snippets=True
+            )
     except Exception as exc:  # noqa: BLE001
         logger.exception("[AGENT] search_library failed")
         return _dump({"error": str(exc)})
@@ -121,7 +164,7 @@ def suggest_alternative_keywords(query: str) -> str:
 
 
 @tool
-def search_within_book(document_id: int, query: str, mode: str = "mix") -> str:
+def search_within_book(document_id: int, query: str, mode: str = "mix", exclude: str = "") -> str:
     """Search inside ONE specific book (by its library id) for relevant passages.
 
     Use after search_library to pull page-level snippets from a chosen book.
@@ -130,14 +173,24 @@ def search_within_book(document_id: int, query: str, mode: str = "mix") -> str:
         document_id: The library document id (from search_library results).
         query: The word, phrase, or topic to find inside that book.
         mode: One of "exact", "similar", "semantic", "mix" (default "mix").
+        exclude: Optional comma-separated words — pages containing any of them
+            are excluded from the results.
     """
     from django.shortcuts import get_object_or_404
     from search_engine.models import Document
-    from search_engine.views import search_within_document
+    from search_engine.views import search_within_document, search_within_document_terms
 
     try:
         document = get_object_or_404(Document, pk=document_id)
-        result = search_within_document(document, query, mode=mode, top_k=5)
+        not_rows = [t.strip() for t in (exclude or "").split(",") if t.strip()]
+        if not_rows:
+            from search_engine.query_builder import TermSpec
+
+            terms = [TermSpec(text=query, match="fuzzy", fuzziness="AUTO")]
+            terms += [TermSpec(text=t, match="word", op="must_not") for t in not_rows[:6]]
+            result = search_within_document_terms(document, terms[:8], mode="mix", top_k=5)
+        else:
+            result = search_within_document(document, query, mode=mode, top_k=5)
         edition = document.primary_edition
     except Exception as exc:  # noqa: BLE001
         logger.exception("[AGENT] search_within_book failed")

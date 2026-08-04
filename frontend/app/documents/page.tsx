@@ -2,13 +2,12 @@
 
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { CorpusSearchMode, Document, DocumentsListParams, getDocument, getDocuments, getDocumentsSearch, type AssistFilters } from '@/lib/api';
+import { CorpusSearchMode, Document, DocumentsListParams, getDocument, getDocuments, getDocumentsSearch, postDocumentsSearchQuery, type AssistFilters, type CorpusQueryRequest, type CorpusQueryResponse, type DocumentsListResponse } from '@/lib/api';
 import BookCard from '@/components/BookCard';
 import BookListRow from '@/components/BookListRow';
 import BookCardSkeleton from '@/components/BookCardSkeleton';
 import RequireAuth from '@/components/RequireAuth';
 import { useAuth } from '@/lib/AuthContext';
-import ContinueShelf from '@/components/documents/ContinueShelf';
 import RecommendedShelf from '@/components/documents/RecommendedShelf';
 import BookSpine from '@/components/documents/BookSpine';
 import FilterSidebar from '@/components/documents/FilterSidebar';
@@ -27,7 +26,16 @@ import {
   type SavedFilterPreset,
 } from '@/lib/api/documentFilters';
 import useFilterPresets from '@/hooks/useFilterPresets';
-import type { CorpusFilterHandlers, CorpusFilterState } from '@/lib/search/useCorpusSearchState';
+import type { CorpusFilterHandlers, CorpusFilterState, SelectedEntity } from '@/lib/search/useCorpusSearchState';
+import {
+  createSearchTerm,
+  deserializeSearchTerm,
+  serializeSearchTerm,
+  MAX_SEARCH_TERMS,
+  type SearchScopeType,
+  type SearchTerm,
+} from '@/lib/search/terms';
+import { parseTerms } from '@/lib/search/termsUrl';
 import useMediaQuery from '@/hooks/useMediaQuery';
 import useDebounce from '@/hooks/useDebounce';
 import { useI18n } from '@/components/i18n/I18nProvider';
@@ -109,6 +117,12 @@ export default function DocumentsPage() {
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedDeathCenturies, setSelectedDeathCenturies] = useState<number[]>([]);
+  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+  const [selectedMadhhabs, setSelectedMadhhabs] = useState<string[]>([]);
+  const [selectedEraCenturies, setSelectedEraCenturies] = useState<number[]>([]);
+  const [selectedPhysicalClasses, setSelectedPhysicalClasses] = useState<string[]>([]);
+  const [selectedPersons, setSelectedPersons] = useState<SelectedEntity[]>([]);
+  const [selectedPlaces, setSelectedPlaces] = useState<SelectedEntity[]>([]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -116,8 +130,10 @@ export default function DocumentsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [statusSegment, setStatusSegment] = useState<StatusSegment>('all');
 
-  /* ─── Corpus search (mode + book scope) + popover ─── */
+  /* ─── Corpus search (mode + scope + book scope + term rows) + popover ─── */
   const [searchMode, setSearchMode] = useState<CorpusSearchMode>('hybrid');
+  const [searchScope, setSearchScope] = useState<SearchScopeType>('all');
+  const [searchTerms, setSearchTerms] = useState<SearchTerm[]>([]);
   const [selectedBooks, setSelectedBooks] = useState<SelectedBook[]>([]);
   const [popoverOpen, setPopoverOpen] = useState(false);
   // The AI's one-line reading of the last natural-language query, shown as a
@@ -165,14 +181,34 @@ export default function DocumentsPage() {
     setSelectedDeathCenturies(
       (state.deathCenturies ?? []).filter((c) => Number.isInteger(c) && c > 0),
     );
+    setSelectedGenres(state.genres ?? []);
+    setSelectedMadhhabs(state.madhhabs ?? []);
+    setSelectedEraCenturies(
+      (state.eraCenturies ?? []).filter((c) => Number.isInteger(c) && c >= 1 && c <= 15),
+    );
+    setSelectedPhysicalClasses(state.physicalClasses ?? []);
+    setSelectedPersons(
+      (state.persons ?? []).filter((n) => Number.isInteger(n) && n > 0).map((id) => ({ id, label: '#' + id })),
+    );
+    setSelectedPlaces(
+      (state.places ?? []).filter((n) => Number.isInteger(n) && n > 0).map((id) => ({ id, label: '#' + id })),
+    );
     setDateFrom(state.dateFrom ?? '');
     setDateTo(state.dateTo ?? '');
     const m = state.mode;
     setSearchMode(m === 'exact' || m === 'semantic' || m === 'hybrid' ? m : 'hybrid');
+    setSearchTerms(
+      (state.terms ?? [])
+        .map(deserializeSearchTerm)
+        .filter((term): term is SearchTerm => term !== null),
+    );
     // `documents` is id-based: resolve each id to its title via getDocument().
     // allSettled so one deleted/invalid id doesn't drop the rest; result order
     // follows the input order.
     const docIds = (state.documents ?? []).filter((n) => Number.isInteger(n) && n > 0);
+    // Scope: an explicit book set implies `selected` (v1 blobs lack `scope`);
+    // otherwise honor a persisted `mine`, defaulting to `all`.
+    setSearchScope(docIds.length > 0 ? 'selected' : state.scope === 'mine' ? 'mine' : 'all');
     if (docIds.length === 0) {
       setSelectedBooks([]);
     } else {
@@ -195,19 +231,26 @@ export default function DocumentsPage() {
     (filters: AssistFilters, interpretation: string | null) => {
       assistJustAppliedRef.current = true;
       const preservedBooks = selectedBooks;
+      const preservedScope = searchScope;
       applyFilterState({
         ...filters,
+        terms: filters.terms?.map((row) => ({ ...row, diacritics: 'ignore' as const })),
         dateFrom: filters.dateFrom ?? undefined,
         dateTo: filters.dateTo ?? undefined,
       });
       // The assistant parses corpus filters only and can't express an explicit
-      // book scope, so applyFilterState would clear it — restore the user's
-      // selection (same array ref, so no refetch). `refine` intentionally
-      // resets: a fresh natural-language query supersedes the old refinement.
+      // book/ownership scope, so applyFilterState would clear them — restore
+      // the user's selection (same array ref, so no refetch). `refine`
+      // intentionally resets: a fresh natural-language query supersedes the
+      // old refinement.
       if (preservedBooks.length) setSelectedBooks(preservedBooks);
+      // An explicit assist «كتبي» wins; otherwise the user's scope survives.
+      if (filters.scope !== 'mine' && preservedScope !== 'all') {
+        setSearchScope(preservedBooks.length ? 'selected' : preservedScope);
+      }
       setAssistInterpretation(interpretation);
     },
-    [applyFilterState, selectedBooks],
+    [applyFilterState, selectedBooks, searchScope],
   );
 
   const applyFromUrl = useCallback((search: string) => {
@@ -223,12 +266,20 @@ export default function DocumentsPage() {
       q: p.get('q') ?? '',
       refine: p.get('refine') ?? '',
       mode: m === 'exact' || m === 'semantic' || m === 'hybrid' ? m : undefined,
+      scope: p.get('scope') === 'mine' ? 'mine' : undefined,
+      terms: parseTerms(p.getAll('t')),
       documents: parseList('documents').map((s) => Number(s)),
       authors: parseList('authors'),
       categories: parseList('categories'),
       languages: parseList('languages'),
       countries: parseList('countries'),
       deathCenturies: parseList('death_centuries').map((s) => Number(s)),
+      genres: parseList('genre'),
+      madhhabs: parseList('madhhab'),
+      eraCenturies: parseList('era_centuries').map((s) => Number(s)),
+      physicalClasses: parseList('physical_class'),
+      persons: parseList('persons').map((s) => Number(s)),
+      places: parseList('places').map((s) => Number(s)),
       dateFrom: p.get('date_from') ?? '',
       dateTo: p.get('date_to') ?? '',
     });
@@ -254,7 +305,7 @@ export default function DocumentsPage() {
     // Record whether the URL specified any *filter* param (sort/status/view
     // don't count) — if so it takes precedence over the saved preference.
     const p = new URLSearchParams(window.location.search);
-    const FILTER_PARAMS = ['q', 'refine', 'authors', 'categories', 'languages', 'countries', 'death_centuries', 'date_from', 'date_to', 'documents', 'mode'];
+    const FILTER_PARAMS = ['q', 'refine', 'authors', 'categories', 'languages', 'countries', 'death_centuries', 'genre', 'madhhab', 'era_centuries', 'physical_class', 'persons', 'places', 'date_from', 'date_to', 'documents', 'mode', 'scope', 't'];
     hadUrlFiltersRef.current = FILTER_PARAMS.some((key) => p.has(key));
     applyFromUrl(window.location.search);
   }, [applyFromUrl]);
@@ -296,12 +347,20 @@ export default function DocumentsPage() {
       q: searchQuery,
       refine: refineText,
       mode: searchMode,
+      scope: searchScope,
+      terms: searchTerms.map(serializeSearchTerm),
       documents: selectedBooks.map((b) => b.id),
       authors: selectedAuthors,
       categories: selectedCategories,
       languages: selectedLanguages,
       countries: selectedCountries,
       deathCenturies: selectedDeathCenturies,
+      genres: selectedGenres,
+      madhhabs: selectedMadhhabs,
+      eraCenturies: selectedEraCenturies,
+      physicalClasses: selectedPhysicalClasses,
+      persons: selectedPersons.map((p) => p.id),
+      places: selectedPlaces.map((p) => p.id),
       dateFrom,
       dateTo,
       sort,
@@ -316,15 +375,24 @@ export default function DocumentsPage() {
     // debounced so rapid edits collapse into a single PATCH.
     if (!isAuthenticated) return;
     const filterValues: DocumentFilterValues = {
+      version: 2,
       q: searchQuery,
       refine: refineText,
       mode: searchMode,
+      scope: searchScope,
+      terms: searchTerms.map(serializeSearchTerm),
       documents: selectedBooks.map((b) => b.id),
       authors: selectedAuthors,
       categories: selectedCategories,
       languages: selectedLanguages,
       countries: selectedCountries,
       deathCenturies: selectedDeathCenturies,
+      genres: selectedGenres,
+      madhhabs: selectedMadhhabs,
+      eraCenturies: selectedEraCenturies,
+      physicalClasses: selectedPhysicalClasses,
+      persons: selectedPersons.map((p) => p.id),
+      places: selectedPlaces.map((p) => p.id),
       dateFrom,
       dateTo,
     };
@@ -336,12 +404,20 @@ export default function DocumentsPage() {
     searchQuery,
     refineText,
     searchMode,
+    searchScope,
+    searchTerms,
     selectedBooks,
     selectedAuthors,
     selectedCategories,
     selectedLanguages,
     selectedCountries,
     selectedDeathCenturies,
+    selectedGenres,
+    selectedMadhhabs,
+    selectedEraCenturies,
+    selectedPhysicalClasses,
+    selectedPersons,
+    selectedPlaces,
     dateFrom,
     dateTo,
     sort,
@@ -359,21 +435,31 @@ export default function DocumentsPage() {
     return [searchQuery, refineText].map((s) => s.trim()).filter(Boolean).join(' ');
   }, [searchQuery, refineText]);
 
-  // An active query keeps the reader on this same Reading Room page and simply
-  // filters the grid in place (rather than swapping in a separate layout).
-  const isSearching = Boolean(effectiveSearch.trim());
+  // An active query (free text or term rows) keeps the reader on this same
+  // Reading Room page and simply filters the grid in place (rather than
+  // swapping in a separate layout).
+  const isSearching =
+    Boolean(effectiveSearch.trim()) || searchTerms.some((t) => t.text.trim());
 
   const debouncedEffective = useDebounce(effectiveSearch, 350);
 
   const resetKey = JSON.stringify({
     debouncedEffective,
     searchMode,
+    searchScope,
+    searchTerms: searchTerms.map(serializeSearchTerm),
     selectedBooks,
     selectedAuthors,
     selectedCategories,
     selectedLanguages,
     selectedCountries,
     selectedDeathCenturies,
+    selectedGenres,
+    selectedMadhhabs,
+    selectedEraCenturies,
+    selectedPhysicalClasses,
+    selectedPersons,
+    selectedPlaces,
     dateFrom,
     dateTo,
   });
@@ -386,31 +472,93 @@ export default function DocumentsPage() {
     else setIsLoading(true);
     setError(null);
 
-    // With an active query, use the Elasticsearch-backed corpus search (mode +
-    // book scope). With no query, plain browsing is unchanged (getDocuments).
-    let request: Promise<Awaited<ReturnType<typeof getDocuments>>>;
-    if (debouncedEffective) {
+    // Routing: term rows (with ≥1 positive condition) → the structured POST
+    // executor; a plain query → the ES-backed GET corpus search; nothing →
+    // plain browsing (getDocuments).
+    const validTerms = searchTerms.filter((t) => t.text.trim());
+    const hasPositiveTerm =
+      validTerms.some((t) => t.op !== 'must_not') || Boolean(debouncedEffective);
+    let request: Promise<DocumentsListResponse | CorpusQueryResponse>;
+    if (validTerms.length > 0 && hasPositiveTerm) {
+      const bodyTerms = validTerms.map(serializeSearchTerm) as CorpusQueryRequest['terms'];
+      // The header input stays live alongside the builder: its text joins as
+      // an implicit must/fuzzy row (the same shape the plain GET search runs).
+      if (debouncedEffective && bodyTerms.length < MAX_SEARCH_TERMS) {
+        bodyTerms.push({
+          text: debouncedEffective,
+          match: 'fuzzy',
+          fuzziness: 'AUTO',
+          diacritics: 'ignore',
+          op: 'must',
+        });
+      }
+      request = postDocumentsSearchQuery({
+        version: 1,
+        terms: bodyTerms,
+        scope:
+          searchScope === 'mine'
+            ? { type: 'mine' }
+            : selectedBooks.length > 0
+              ? { type: 'selected', ids: selectedBooks.map((b) => b.id) }
+              : { type: 'all' },
+        filters: {
+          authors: selectedAuthors,
+          categories: selectedCategories,
+          languages: selectedLanguages,
+          countries: selectedCountries,
+          death_centuries: selectedDeathCenturies,
+          genre: selectedGenres.length > 0 ? selectedGenres : undefined,
+          madhhab: selectedMadhhabs.length > 0 ? selectedMadhhabs : undefined,
+          era_centuries: selectedEraCenturies.length > 0 ? selectedEraCenturies : undefined,
+          physical_class: selectedPhysicalClasses.length > 0 ? selectedPhysicalClasses : undefined,
+          date_from: dateFrom || undefined,
+          date_to: dateTo || undefined,
+          ...(selectedPersons.length > 0 || selectedPlaces.length > 0 ? {
+            facets: {
+              ...(selectedPersons.length > 0 && { person_keys: selectedPersons.map((p) => 'p:' + p.id) }),
+              ...(selectedPlaces.length > 0 && { place_keys: selectedPlaces.map((p) => 'pl:' + p.id) }),
+            },
+          } : {}),
+        },
+        mode: searchMode,
+        page: currentPage,
+      });
+    } else if (debouncedEffective) {
       request = getDocumentsSearch({
         q: debouncedEffective,
         mode: searchMode,
+        scope: searchScope,
         documents: selectedBooks.map((b) => b.id),
         authors: selectedAuthors,
         categories: selectedCategories,
         languages: selectedLanguages,
         countries: selectedCountries,
         death_centuries: selectedDeathCenturies,
+        genre: selectedGenres,
+        madhhab: selectedMadhhabs,
+        era_centuries: selectedEraCenturies,
+        physical_class: selectedPhysicalClasses,
+        persons: selectedPersons.map((p) => p.id),
+        places: selectedPlaces.map((p) => p.id),
         date_from: dateFrom,
         date_to: dateTo,
         page: currentPage,
       });
     } else {
       const params: DocumentsListParams = { page: currentPage };
+      if (searchScope === 'mine') params.scope = 'mine';
       if (selectedAuthors.length > 0) params.authors = selectedAuthors;
       if (selectedCategories.length > 0) params.categories = selectedCategories;
       if (selectedBooks.length > 0) params.documents = selectedBooks.map((b) => b.id);
       if (selectedLanguages.length > 0) params.languages = selectedLanguages;
       if (selectedCountries.length > 0) params.countries = selectedCountries;
       if (selectedDeathCenturies.length > 0) params.death_centuries = selectedDeathCenturies;
+      if (selectedGenres.length > 0) params.genre = selectedGenres;
+      if (selectedMadhhabs.length > 0) params.madhhab = selectedMadhhabs;
+      if (selectedEraCenturies.length > 0) params.era_centuries = selectedEraCenturies;
+      if (selectedPhysicalClasses.length > 0) params.physical_class = selectedPhysicalClasses;
+      if (selectedPersons.length > 0) params.persons = selectedPersons.map((p) => p.id);
+      if (selectedPlaces.length > 0) params.places = selectedPlaces.map((p) => p.id);
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
       request = getDocuments(params);
@@ -433,7 +581,7 @@ export default function DocumentsPage() {
         setIsLoading(false);
         setIsLoadingMore(false);
       });
-  }, [currentPage, debouncedEffective, searchMode, selectedBooks, selectedAuthors, selectedCategories, selectedLanguages, selectedCountries, selectedDeathCenturies, dateFrom, dateTo, t]);
+  }, [currentPage, debouncedEffective, searchMode, searchScope, searchTerms, selectedBooks, selectedAuthors, selectedCategories, selectedLanguages, selectedCountries, selectedDeathCenturies, selectedGenres, selectedMadhhabs, selectedEraCenturies, selectedPhysicalClasses, selectedPersons, selectedPlaces, dateFrom, dateTo, t]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -528,34 +676,73 @@ export default function DocumentsPage() {
     setRefineText('');
     setRefineDraft('');
     setSearchMode('hybrid');
+    setSearchScope('all');
+    setSearchTerms([]);
     setSelectedBooks([]);
     setSelectedAuthors([]);
     setSelectedCategories([]);
     setSelectedLanguages([]);
     setSelectedCountries([]);
     setSelectedDeathCenturies([]);
+    setSelectedGenres([]);
+    setSelectedMadhhabs([]);
+    setSelectedEraCenturies([]);
+    setSelectedPhysicalClasses([]);
+    setSelectedPersons([]);
+    setSelectedPlaces([]);
     setDateFrom('');
     setDateTo('');
     setAssistInterpretation(null);
   };
+
+  // Books ⇄ scope invariant: an explicit book selection means `selected`;
+  // losing the last book leaves `selected` meaningless, so fall back to `all`.
+  // Runs regardless of which path mutated the books (console toggle, chip
+  // removal, async id→title resolution in applyFilterState).
+  useEffect(() => {
+    if (selectedBooks.length > 0 && searchScope !== 'selected') {
+      setSearchScope('selected');
+    } else if (selectedBooks.length === 0 && searchScope === 'selected') {
+      setSearchScope('all');
+    }
+  }, [selectedBooks, searchScope]);
 
   // Adapt this page's lifted filter state onto the search console's
   // `{filters, handlers}` contract — the page stays the single state owner
   // (URL mirror / preference PATCH / popstate all untouched).
   const consoleFilters = useMemo<CorpusFilterState>(() => ({
     mode: searchMode,
+    scope: searchScope,
+    terms: searchTerms,
     categories: selectedCategories,
     authors: selectedAuthors,
     books: selectedBooks,
     languages: selectedLanguages,
     countries: selectedCountries,
     deathCenturies: selectedDeathCenturies,
+    genres: selectedGenres,
+    madhhabs: selectedMadhhabs,
+    eraCenturies: selectedEraCenturies,
+    physicalClasses: selectedPhysicalClasses,
+    persons: selectedPersons,
+    places: selectedPlaces,
     dateFrom,
     dateTo,
-  }), [searchMode, selectedCategories, selectedAuthors, selectedBooks, selectedLanguages, selectedCountries, selectedDeathCenturies, dateFrom, dateTo]);
+  }), [searchMode, searchScope, searchTerms, selectedCategories, selectedAuthors, selectedBooks, selectedLanguages, selectedCountries, selectedDeathCenturies, selectedGenres, selectedMadhhabs, selectedEraCenturies, selectedPhysicalClasses, selectedPersons, selectedPlaces, dateFrom, dateTo]);
 
   const consoleHandlers = useMemo<CorpusFilterHandlers>(() => ({
     setMode: setSearchMode,
+    setScope: (scope) => {
+      setSearchScope(scope);
+      // mine/all never carry an explicit book set (the sync effect below
+      // enforces the reverse direction: books ⇒ selected).
+      if (scope !== 'selected') setSelectedBooks([]);
+    },
+    addTerm: (partial) => setSearchTerms((prev) => [...prev, createSearchTerm(partial)]),
+    updateTerm: (id, patch) =>
+      setSearchTerms((prev) => prev.map((term) => (term.id === id ? { ...term, ...patch } : term))),
+    removeTerm: (id) => setSearchTerms((prev) => prev.filter((term) => term.id !== id)),
+    setTerms: setSearchTerms,
     toggleCategory: (v) => setSelectedCategories((prev) => toggleIn(prev, v)),
     toggleAuthor: (v) => setSelectedAuthors((prev) => toggleIn(prev, v)),
     toggleBook: (book) =>
@@ -567,6 +754,21 @@ export default function DocumentsPage() {
     toggleDeathCentury: (c) =>
       setSelectedDeathCenturies((prev) =>
         prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
+      ),
+    toggleGenre: (v) => setSelectedGenres((prev) => toggleIn(prev, v)),
+    toggleMadhhab: (v) => setSelectedMadhhabs((prev) => toggleIn(prev, v)),
+    toggleEraCentury: (c) =>
+      setSelectedEraCenturies((prev) =>
+        prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
+      ),
+    togglePhysicalClass: (v) => setSelectedPhysicalClasses((prev) => toggleIn(prev, v)),
+    togglePerson: (entity) =>
+      setSelectedPersons((prev) =>
+        prev.some((p) => p.id === entity.id) ? prev.filter((p) => p.id !== entity.id) : [...prev, entity],
+      ),
+    togglePlace: (entity) =>
+      setSelectedPlaces((prev) =>
+        prev.some((p) => p.id === entity.id) ? prev.filter((p) => p.id !== entity.id) : [...prev, entity],
       ),
     setDateFrom,
     setDateTo,
@@ -581,18 +783,27 @@ export default function DocumentsPage() {
   const { presets, savePreset, deletePreset } = useFilterPresets(isAuthenticated);
 
   const currentFilterValues = useMemo((): DocumentFilterValues => ({
+    version: 2,
     q: searchQuery,
     refine: refineText,
     mode: searchMode,
+    scope: searchScope,
+    terms: searchTerms.map(serializeSearchTerm),
     documents: selectedBooks.map((b) => b.id),
     authors: selectedAuthors,
     categories: selectedCategories,
     languages: selectedLanguages,
     countries: selectedCountries,
     deathCenturies: selectedDeathCenturies,
+    genres: selectedGenres,
+    madhhabs: selectedMadhhabs,
+    eraCenturies: selectedEraCenturies,
+    physicalClasses: selectedPhysicalClasses,
+    persons: selectedPersons.map((p) => p.id),
+    places: selectedPlaces.map((p) => p.id),
     dateFrom,
     dateTo,
-  }), [searchQuery, refineText, searchMode, selectedBooks, selectedAuthors, selectedCategories, selectedLanguages, selectedCountries, selectedDeathCenturies, dateFrom, dateTo]);
+  }), [searchQuery, refineText, searchMode, searchScope, searchTerms, selectedBooks, selectedAuthors, selectedCategories, selectedLanguages, selectedCountries, selectedDeathCenturies, selectedGenres, selectedMadhhabs, selectedEraCenturies, selectedPhysicalClasses, selectedPersons, selectedPlaces, dateFrom, dateTo]);
 
   // Drop the AI "Interpreted as" chip whenever the filters change through any
   // path other than the AI apply itself (manual search, sidebar toggle, chip
@@ -626,6 +837,12 @@ export default function DocumentsPage() {
     selectedLanguages.length > 0 ||
     selectedCountries.length > 0 ||
     selectedDeathCenturies.length > 0 ||
+    selectedGenres.length > 0 ||
+    selectedMadhhabs.length > 0 ||
+    selectedEraCenturies.length > 0 ||
+    selectedPhysicalClasses.length > 0 ||
+    selectedPersons.length > 0 ||
+    selectedPlaces.length > 0 ||
     Boolean(dateFrom) ||
     Boolean(dateTo);
 
@@ -640,6 +857,12 @@ export default function DocumentsPage() {
     (selectedLanguages.length ? 1 : 0) +
     (selectedCountries.length ? 1 : 0) +
     (selectedDeathCenturies.length ? 1 : 0) +
+    (selectedGenres.length ? 1 : 0) +
+    (selectedMadhhabs.length ? 1 : 0) +
+    (selectedEraCenturies.length ? 1 : 0) +
+    (selectedPhysicalClasses.length ? 1 : 0) +
+    (selectedPersons.length ? 1 : 0) +
+    (selectedPlaces.length ? 1 : 0) +
     (dateFrom || dateTo ? 1 : 0);
 
   const submitSearch = (e: React.FormEvent) => {
@@ -1074,6 +1297,7 @@ export default function DocumentsPage() {
         filters={consoleFilters}
         handlers={consoleHandlers}
         isAuthenticated={isAuthenticated}
+        canUpload={canUpload}
         analyticsSurface="documents"
         onAssistApply={applyAssistFilters}
         onPlainSubmit={(q) => {
@@ -1340,7 +1564,6 @@ export default function DocumentsPage() {
                       )
                     ) : grouped ? (
                       <>
-                        <ContinueShelf />
                         <RecommendedShelf />
                         {renderGroup(t('docs.group.processing', 'قيد المعالجة'), processingDocs)}
                         {renderGroup(t('docs.rr.picks', 'مختارات المكتبة'), readyDocs, showAll)}

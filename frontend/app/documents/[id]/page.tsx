@@ -6,6 +6,8 @@ import {
   getDocument,
   getDocumentPages,
   getDocumentsSearch,
+  postDocumentsSearchQuery,
+  postSearchInDocumentQuery,
   searchInDocument,
   QuotaExceededError,
   Document,
@@ -13,7 +15,13 @@ import {
   DocumentSearchMatch,
   DocumentSearchResponse,
   DocumentsListResponse,
+  type CorpusQueryRequest,
 } from '@/lib/api';
+import {
+  serializeSearchTerm,
+  MAX_SEARCH_TERMS,
+  type SearchTerm,
+} from '@/lib/search/terms';
 import DocumentViewer from '@/components/document/DocumentViewer';
 import DocumentPdfViewer from '@/components/document/DocumentPdfViewer';
 import DocumentPageSkeleton from '@/components/document/DocumentPageSkeleton';
@@ -53,6 +61,8 @@ import { computeSelectionPayload, type SelectionPayload } from '@/lib/reader/sel
 import { overlayMarking, resultKey, type SearchKindTab, type SearchScope, type SearchSort } from '@/lib/reader/searchPanelUtils';
 import { useSearchTermStore } from '@/lib/reader/useSearchTermStore';
 import { createCorrection, type HighlightColor } from '@/lib/api/reader';
+import { useEntityMentions } from '@/lib/reader/useEntityMentions';
+import type { EntityType } from '@/lib/api/extractionMentions';
 
 const PAGE_BATCH_SIZE = 5;
 const FONT_ORDER: FontSizeKey[] = ['small', 'medium', 'large'];
@@ -112,6 +122,7 @@ export default function DocumentDetailPage() {
   const [searchResults, setSearchResults] = useState<DocumentSearchResponse | null>(null);
   const [libraryResults, setLibraryResults] = useState<DocumentsListResponse | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchTerms, setSearchTerms] = useState<SearchTerm[]>([]);
   const [searchScope, setSearchScope] = useState<SearchScope>('book');
   const [searchTab, setSearchTab] = useState<SearchKindTab>('all');
   const [searchSort, setSearchSort] = useState<SearchSort>('relevance');
@@ -356,6 +367,24 @@ export default function DocumentDetailPage() {
   const [pendingNoteTags, setPendingNoteTags] = useState<string[]>([]);
   const [noteSelectedTags, setNoteSelectedTags] = useState<string[]>([]);
 
+  // Entity-mention overlay toggle (plain text viewer only; no-op for PDF overlay).
+  const [showEntityMentions, setShowEntityMentions] = useState(false);
+  const ENTITY_OVERLAY_KEY = 'reader:entityOverlay';
+  // Hydrate from localStorage once on mount.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(ENTITY_OVERLAY_KEY);
+      if (raw !== null) setShowEntityMentions(raw === 'true');
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Persist every change.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ENTITY_OVERLAY_KEY, String(showEntityMentions));
+    } catch { /* ignore */ }
+  }, [showEntityMentions]);
+
   // Font & theme preferences.
   const [fontSize, setFontSize] = useState<FontSizeKey>('medium');
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>('light');
@@ -556,18 +585,42 @@ export default function DocumentDetailPage() {
   const searchAbortControllerRef = useRef<AbortController | null>(null);
 
   const performSearch = useCallback(
-    async (query: string, scope: SearchScope, thresh: number, diacritics: boolean) => {
+    async (
+      query: string,
+      scope: SearchScope,
+      thresh: number,
+      diacritics: boolean,
+      terms: SearchTerm[] = [],
+    ) => {
       if (searchAbortControllerRef.current) {
         searchAbortControllerRef.current.abort();
       }
 
-      if (!query.trim()) {
+      const validTerms = terms.filter((row) => row.text.trim());
+      const hasPositiveTerm =
+        validTerms.some((row) => row.op !== 'must_not') || Boolean(query.trim());
+      const useTermsPath = validTerms.length > 0 && hasPositiveTerm;
+
+      if (!query.trim() && !useTermsPath) {
         setSearchResults(null);
         setLibraryResults(null);
         setExecutedQuery('');
         setSearchError(null);
         setIsSearching(false);
         return;
+      }
+
+      // The single input joins the term rows as an implicit must/fuzzy row
+      // (same shape the plain search runs), honoring the diacritics toggle.
+      const bodyTerms = validTerms.map(serializeSearchTerm) as CorpusQueryRequest['terms'];
+      if (useTermsPath && query.trim() && bodyTerms.length < MAX_SEARCH_TERMS) {
+        bodyTerms.push({
+          text: query.trim(),
+          match: 'fuzzy',
+          fuzziness: 'AUTO',
+          diacritics: diacritics ? 'ignore' : 'sensitive',
+          op: 'must',
+        });
       }
 
       const abortController = new AbortController();
@@ -577,15 +630,38 @@ export default function DocumentDetailPage() {
       setSearchError(null);
       try {
         if (scope === 'book') {
-          const results = await searchInDocument(documentId, query, {
-            mode: 'all',
-            threshold: thresh,
-            ignoreDiacritics: diacritics,
-            signal: abortController.signal,
-          });
+          const results = useTermsPath
+            ? await postSearchInDocumentQuery(
+                documentId,
+                { version: 1, terms: bodyTerms, mode: 'all', threshold: thresh },
+                { signal: abortController.signal },
+              )
+            : await searchInDocument(documentId, query, {
+                mode: 'all',
+                threshold: thresh,
+                ignoreDiacritics: diacritics,
+                signal: abortController.signal,
+              });
           if (!abortController.signal.aborted) {
             setSearchResults(results);
-            setExecutedQuery(query.trim());
+            setExecutedQuery((results.query || query).trim());
+          }
+        } else if (useTermsPath) {
+          const res = await postDocumentsSearchQuery(
+            { version: 1, terms: bodyTerms, scope: { type: 'all' }, mode: 'hybrid', page: 1 },
+            { signal: abortController.signal },
+          );
+          if (!abortController.signal.aborted) {
+            // Adapt the POST page-number pagination onto the list shape the
+            // panel consumes (it only reads count/results).
+            setLibraryResults({
+              count: res.count,
+              next: res.next != null ? String(res.next) : null,
+              previous: res.previous != null ? String(res.previous) : null,
+              results: res.results,
+              degraded_reason: res.degraded_reason,
+            });
+            setExecutedQuery(query.trim() || validTerms.map((row) => row.text).join(' '));
           }
         } else {
           const results = await getDocumentsSearch({ q: query.trim() }, { signal: abortController.signal });
@@ -614,16 +690,17 @@ export default function DocumentDetailPage() {
   );
 
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      performSearch('', searchScope, threshold, ignoreDiacritics);
+    const hasAny = searchQuery.trim() || searchTerms.some((row) => row.text.trim());
+    if (!hasAny) {
+      performSearch('', searchScope, threshold, ignoreDiacritics, []);
       return;
     }
     const timeout = window.setTimeout(() => {
-      performSearch(searchQuery, searchScope, threshold, ignoreDiacritics);
+      performSearch(searchQuery, searchScope, threshold, ignoreDiacritics, searchTerms);
     }, 350);
     return () => window.clearTimeout(timeout);
     // Tab and sort are deliberately NOT deps — they slice client-side.
-  }, [searchQuery, searchScope, threshold, ignoreDiacritics, performSearch]);
+  }, [searchQuery, searchTerms, searchScope, threshold, ignoreDiacritics, performSearch]);
 
   // A new query text starts back on the الكل tab.
   useEffect(() => {
@@ -1021,6 +1098,54 @@ export default function DocumentDetailPage() {
     [chaptersHook.data]
   );
 
+  // Entity mentions for the overlay (only fetched when the toggle is on and the
+  // document is a plain-text book — layout/PDF documents are out of scope).
+  const isOverlayDoc = !!document?.has_layout;
+  const entityMentionsMap = useEntityMentions(
+    documentId,
+    pages,
+    showEntityMentions && !isOverlayDoc,
+  );
+
+  // Build a stable per-render label resolver that uses the i18n t() function.
+  // Partial maps + a raw-type default so backend-added entity types can never
+  // break rendering.
+  const getEntityLabel = useCallback(
+    (type: EntityType): string => {
+      const KEY_MAP: Partial<Record<EntityType, string>> = {
+        person: 'reader.entities.type.person',
+        place: 'reader.entities.type.place',
+        date: 'reader.entities.type.date',
+        quran: 'reader.entities.type.quran',
+        hadith_source: 'reader.entities.type.hadith_source',
+      };
+      const FALLBACK_MAP: Partial<Record<EntityType, string>> = {
+        person: 'Person',
+        place: 'Place',
+        date: 'Date',
+        quran: 'Quran',
+        hadith_source: 'Hadith source',
+        organization: 'Organization',
+        work_title: 'Work title',
+        event: 'Event',
+        money: 'Money',
+        measure: 'Measure',
+        percent: 'Percent',
+        law_regulation: 'Law / regulation',
+        product_brand: 'Product / brand',
+        id_number: 'Identifier',
+        isnad: 'Isnad',
+        matn: 'Matn',
+        poetry: 'Poetry',
+        quote: 'Quotation',
+      };
+      const fallback = FALLBACK_MAP[type] ?? type;
+      const key = KEY_MAP[type];
+      return key ? t(key, fallback) : fallback;
+    },
+    [t],
+  );
+
   // Suggested search words from the loaded pages (frequent meaningful terms).
   const suggestions = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1160,6 +1285,8 @@ export default function DocumentDetailPage() {
             showTypography={!isOverlay}
             isFullscreen={immersive}
             onToggleFullscreen={toggleFullscreen}
+            showEntityMentions={showEntityMentions}
+            onEntityMentionsChange={setShowEntityMentions}
           />
         }
         tocColumn={
@@ -1207,6 +1334,8 @@ export default function DocumentDetailPage() {
         searchColumn={
           <AdvancedSearchPanel
             query={searchQuery}
+            terms={searchTerms}
+            onTermsChange={setSearchTerms}
             scope={searchScope}
             tab={searchTab}
             sort={searchSort}
@@ -1298,6 +1427,8 @@ export default function DocumentDetailPage() {
               bookTitle={document.title}
               onWordSearch={searchFor}
               singleVolume={singleVolume}
+              entityMentions={showEntityMentions && !isOverlayDoc ? entityMentionsMap : undefined}
+              getEntityLabel={getEntityLabel}
             />
           )}
 

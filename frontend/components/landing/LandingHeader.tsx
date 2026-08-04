@@ -27,7 +27,8 @@ export default function LandingHeader() {
   const router = useRouter();
   const localizedPath = useLocalizedPath();
   const { t } = useI18n();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const canUpload = !!user?.can_upload;
 
   const [queryValue, setQueryValue] = useState('');
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -47,6 +48,9 @@ export default function LandingHeader() {
     goToDocuments({
       q: assist.q,
       mode: assist.mode,
+      // Assist `mine` wins; otherwise keep the user's current scope/books.
+      scope: assist.scope === 'mine' ? 'mine' : filters.scope,
+      terms: assist.terms?.map((row) => ({ ...row, diacritics: 'ignore' as const })),
       documents: filters.books.map((b) => b.id),
       authors: assist.authors,
       categories: assist.categories,
@@ -112,6 +116,7 @@ export default function LandingHeader() {
         filters={filters}
         handlers={handlers}
         isAuthenticated={isAuthenticated}
+        canUpload={canUpload}
         analyticsSurface="landing"
         onAssistApply={onAssistApply}
         onPlainSubmit={onPlainSubmit}

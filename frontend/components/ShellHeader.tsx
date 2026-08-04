@@ -81,7 +81,7 @@ export default function ShellHeader({
 
       {/* Right cluster */}
       <div className="flex shrink-0 items-center gap-3.5">
-        <ShellLanguagePills only={languages} />
+        {!isAuthenticated && <ShellLanguagePills only={languages} />}
 
         {showThemeToggle && (
           <div

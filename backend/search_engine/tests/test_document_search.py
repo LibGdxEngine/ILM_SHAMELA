@@ -354,19 +354,20 @@ class CorpusSearchTests(APITestCase):
 
     @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
     @mock.patch(f'{VIEWS}.connections.get_connection')
-    def test_countries_filter_is_django_side_and_case_insensitive(self, get_conn, _embed):
+    def test_countries_filter_pushed_to_es_and_case_insensitive(self, get_conn, _embed):
         self.author_one.nationality = 'Egypt'
         self.author_one.save()
         self.author_two.nationality = 'Syria'
         self.author_two.save()
         get_conn.return_value = self._conn(self._all_hits())
-        # Lowercase value + an unknown country: iexact matches Egypt, Atlantis
-        # matches nothing but must not zero the whole set.
+        # Lowercase value + an unknown country: iexact resolves Egypt, Atlantis
+        # matches nothing but must not zero the whole set. The resolved stored
+        # casing is pushed into the ES filter (author_countries keyword field);
+        # the Django-side narrowing stays as a correctness net.
         resp = self.client.get(self._url(q='كتاب', mode='exact', countries='egypt,Atlantis'))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        body = json.dumps(self._body_of(get_conn))
-        self.assertNotIn('countries', body)
-        self.assertNotIn('nationality', body)
+        filters = self._body_of(get_conn)['query']['bool']['filter']
+        self.assertIn({'terms': {'author_countries': ['Egypt']}}, filters)
         self.assertEqual(
             sorted(r['id'] for r in resp.data['results']),
             sorted([self.doc_a.id, self.doc_c.id]),
@@ -375,7 +376,17 @@ class CorpusSearchTests(APITestCase):
 
     @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
     @mock.patch(f'{VIEWS}.connections.get_connection')
-    def test_death_centuries_filter_is_django_side_only(self, get_conn, _embed):
+    def test_countries_all_unknown_yields_impossible_es_clause(self, get_conn, _embed):
+        get_conn.return_value = self._conn(self._all_hits())
+        resp = self.client.get(self._url(q='كتاب', mode='exact', countries='Atlantis'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        filters = self._body_of(get_conn)['query']['bool']['filter']
+        self.assertIn({'terms': {'_id': []}}, filters)
+        self.assertEqual(resp.data['count'], 0)
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_death_centuries_filter_pushed_to_es_and_django_side(self, get_conn, _embed):
         # author_one dies 728 AH (century 8), author_two 911 AH (century 10);
         # save() derives death_century.
         self.author_one.date_of_death = '728 هـ'
@@ -385,13 +396,78 @@ class CorpusSearchTests(APITestCase):
         get_conn.return_value = self._conn(self._all_hits())
         resp = self.client.get(self._url(q='كتاب', mode='exact', death_centuries='8'))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertNotIn('death', json.dumps(self._body_of(get_conn)))
+        filters = self._body_of(get_conn)['query']['bool']['filter']
+        self.assertIn({'terms': {'author_death_centuries': [8]}}, filters)
         self.assertEqual(
             sorted(r['id'] for r in resp.data['results']),
             sorted([self.doc_a.id, self.doc_c.id]),
         )
         # Paginated count reflects the Django-side narrowing.
         self.assertEqual(resp.data['count'], 2)
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_authors_filter_pushed_to_es_as_canonical_names(self, get_conn, _embed):
+        get_conn.return_value = self._conn(self._all_hits())
+        resp = self.client.get(self._url(q='كتاب', mode='exact', authors='المؤلف الأول'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        filters = self._body_of(get_conn)['query']['bool']['filter']
+        self.assertIn({'terms': {'author_names': ['المؤلف الأول']}}, filters)
+        self.assertEqual(
+            sorted(r['id'] for r in resp.data['results']),
+            sorted([self.doc_a.id, self.doc_c.id]),
+        )
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_scope_mine_filters_to_own_uploads(self, get_conn, _embed):
+        other = User.objects.create_user(
+            username='other', email='other@example.com', password='OtherPass123!')
+        self.doc_a.uploaded_by = self.user
+        self.doc_a.save()
+        self.doc_b.uploaded_by = other
+        self.doc_b.save()
+        get_conn.return_value = self._conn(self._all_hits())
+        resp = self.client.get(self._url(q='كتاب', mode='exact', scope='mine'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        filters = self._body_of(get_conn)['query']['bool']['filter']
+        self.assertIn({'term': {'uploaded_by_id': str(self.user.id)}}, filters)
+        # Django-side net: legacy NULL-owner doc_c and other's doc_b drop out.
+        self.assertEqual([r['id'] for r in resp.data['results']], [self.doc_a.id])
+        self.assertEqual(resp.data['count'], 1)
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_scope_ignored_when_not_mine(self, get_conn, _embed):
+        get_conn.return_value = self._conn(self._all_hits())
+        resp = self.client.get(self._url(q='كتاب', mode='exact', scope='all'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertNotIn('uploaded_by_id', json.dumps(self._body_of(get_conn)))
+        self.assertEqual(resp.data['count'], 3)
+
+    @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
+    @mock.patch(f'{VIEWS}.connections.get_connection')
+    def test_entity_facets_pushed_to_es(self, get_conn, _embed):
+        get_conn.return_value = self._conn(self._all_hits())
+        resp = self.client.get(self._url(
+            q='كتاب', mode='exact',
+            genre='fiqh', madhhab='shafii', era_centuries='8',
+            physical_class='printed_book', persons='3', places='17',
+            quran='2,2:255', hadith_collections='bukhari,muttafaq',
+        ))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        filters = self._body_of(get_conn)['query']['bool']['filter']
+        self.assertIn({'terms': {'genre': ['fiqh']}}, filters)
+        self.assertIn({'terms': {'madhhab': ['shafii']}}, filters)
+        self.assertIn({'terms': {'era_century': [8]}}, filters)
+        self.assertIn({'terms': {'physical_class': ['printed_book']}}, filters)
+        self.assertIn({'terms': {'person_keys': ['p:3']}}, filters)
+        self.assertIn({'terms': {'place_keys': ['pl:17']}}, filters)
+        self.assertIn({'bool': {'should': [
+            {'terms': {'quran_suras': [2]}},
+            {'terms': {'quran_ayas': ['2:255']}},
+        ], 'minimum_should_match': 1}}, filters)
+        self.assertIn({'terms': {'hadith_collections': ['bukhari', 'muttafaq']}}, filters)
 
     @mock.patch(f'{VIEWS}.build_embedding', return_value=NO_VECTOR)
     @mock.patch(f'{VIEWS}.connections.get_connection')

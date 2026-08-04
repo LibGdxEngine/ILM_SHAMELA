@@ -81,6 +81,7 @@ INSTALLED_APPS = [
     'core',
     'search_engine',
     'analytics',
+    'extraction',
     'rest_framework.authtoken',
     'dj_rest_auth',
     'dj_rest_auth.registration',

@@ -1,4 +1,5 @@
 import type { CorpusSearchMode } from '@/lib/api';
+import type { SearchScopeType, SearchTerm } from '@/lib/search/terms';
 
 /** A book selected as a search scope. Canonical home of the type (moved from
  *  `SearchFacetControls`; `NavSearchPopover` re-exports it for old importers). */
@@ -7,15 +8,29 @@ export interface SelectedBook {
   title: string;
 }
 
+/** A named entity (person or place) selected as a facet. */
+export interface SelectedEntity {
+  id: number;
+  label: string;
+}
+
 export type FilterSectionKey =
   | 'presets'
   | 'mode'
+  | 'terms'
+  | 'scope'
   | 'categories'
   | 'authors'
   | 'books'
   | 'languages'
   | 'countries'
   | 'deathCenturies'
+  | 'genres'
+  | 'madhhabs'
+  | 'eraCenturies'
+  | 'physicalClasses'
+  | 'persons'
+  | 'places'
   | 'dates';
 
 /** One selectable row in a filter section. `id` is the canonical value sent
@@ -98,8 +113,34 @@ export interface PresetsSectionSpec extends SectionBase {
   key: 'presets';
 }
 
+/** Multi-term query rows, each with its own match criteria and boolean role
+ *  (يجب / أو / بدون). Empty list = plain single-input search. */
+export interface TermsSectionSpec extends SectionBase {
+  kind: 'terms';
+  key: 'terms';
+  terms: SearchTerm[];
+  onAdd: (partial?: Partial<Omit<SearchTerm, 'id'>>) => void;
+  onUpdate: (id: string, patch: Partial<Omit<SearchTerm, 'id'>>) => void;
+  onRemove: (id: string) => void;
+}
+
+/** Search scope: all books / the user's uploads / an explicit selected set.
+ *  The book multi-select (formerly its own `books` section) nests here as a
+ *  ready-made options spec, shown only when scope is `selected`. */
+export interface ScopeSectionSpec extends SectionBase {
+  kind: 'scope';
+  key: 'scope';
+  scope: SearchScopeType;
+  onScopeChange: (scope: SearchScopeType) => void;
+  /** Hide the `mine` choice for viewers who can't own uploads. */
+  showMine: boolean;
+  books: OptionsSectionSpec;
+}
+
 export type SectionSpec =
   | OptionsSectionSpec
   | ModeSectionSpec
   | DateRangeSectionSpec
-  | PresetsSectionSpec;
+  | PresetsSectionSpec
+  | ScopeSectionSpec
+  | TermsSectionSpec;

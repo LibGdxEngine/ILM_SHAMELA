@@ -1,0 +1,148 @@
+# source	source_id	name	name_translit	modern_name	feature_type	lat	lon	variants
+manual	makka	مكة	Mecca	مكة المكرمة، السعودية	city	21.4225	39.8262	مكه المكرمه:variant|بكه:historical|المكي:nisba
+manual	madina	المدينة	Medina	المدينة المنورة، السعودية	city	24.4672	39.6111	المدينه المنوره:variant|يثرب:historical|طيبه:historical|المدني:nisba
+manual	baghdad	بغداد	Baghdad	بغداد، العراق	city	33.3152	44.3661	مدينه السلام:historical|البغدادي:nisba
+manual	dimashq	دمشق	Damascus	دمشق، سوريا	city	33.5138	36.2765	الشام:variant|الدمشقي:nisba
+manual	qahira	القاهرة	Cairo	القاهرة، مصر	city	30.0444	31.2357	القاهره المعزيه:historical|القاهري:nisba
+manual	fustat	الفسطاط	Fustat	القاهرة القديمة، مصر	city	30.0053	31.2320	فسطاط مصر:variant
+manual	basra	البصرة	Basra	البصرة، العراق	city	30.5081	47.7835	البصري:nisba
+manual	kufa	الكوفة	Kufa	الكوفة، العراق	city	32.0342	44.4006	الكوفي:nisba
+manual	nishapur	نيسابور	Nishapur	نیشابور، إيران	city	36.2133	58.7958	نيشابور:variant|النيسابوري:nisba
+manual	rayy	الري	Rayy	طهران (ري)، إيران	city	35.5892	51.4344	الرازي:nisba
+manual	isfahan	أصبهان	Isfahan	أصفهان، إيران	city	32.6539	51.6660	اصفهان:variant|الأصبهاني:nisba|الأصفهاني:nisba
+manual	qurtuba	قرطبة	Cordoba	قرطبة، إسبانيا	city	37.8882	-4.7794	القرطبي:nisba
+manual	gharnata	غرناطة	Granada	غرناطة، إسبانيا	city	37.1773	-3.5986	الغرناطي:nisba
+manual	ishbiliya	إشبيلية	Seville	إشبيلية، إسبانيا	city	37.3891	-5.9845	الإشبيلي:nisba
+manual	tulaytula	طليطلة	Toledo	طليطلة، إسبانيا	city	39.8628	-4.0273	الطليطلي:nisba
+manual	balansiya	بلنسية	Valencia	بلنسية، إسبانيا	city	39.4699	-0.3763	البلنسي:nisba
+manual	saraqusta	سرقسطة	Zaragoza	سرقسطة، إسبانيا	city	41.6488	-0.8891	السرقسطي:nisba
+manual	mariyya	المرية	Almeria	المرية، إسبانيا	city	36.8340	-2.4637	المريي:nisba
+manual	malaqa	مالقة	Malaga	مالقة، إسبانيا	city	36.7213	-4.4213	المالقي:nisba
+manual	andalus	الأندلس	al-Andalus	إسبانيا والبرتغال	region	40.4637	-3.7492	الأندلسي:nisba
+manual	fas	فاس	Fez	فاس، المغرب	city	34.0181	-5.0078	الفاسي:nisba
+manual	marrakush	مراكش	Marrakesh	مراكش، المغرب	city	31.6295	-7.9811	المراكشي:nisba
+manual	sabta	سبتة	Ceuta	سبتة	city	35.8894	-5.3213	السبتي:nisba
+manual	tanja	طنجة	Tangier	طنجة، المغرب	city	35.7595	-5.8340	الطنجي:nisba
+manual	tilimsan	تلمسان	Tlemcen	تلمسان، الجزائر	city	34.8828	-1.3167	التلمساني:nisba
+manual	bijaya	بجاية	Bejaia	بجاية، الجزائر	city	36.7509	5.0567	البجائي:nisba
+manual	qayrawan	القيروان	Kairouan	القيروان، تونس	city	35.6781	10.0963	القيرواني:nisba
+manual	tunis	تونس	Tunis	تونس	city	36.8065	10.1815	التونسي:nisba
+manual	tarabulus_gharb	طرابلس الغرب	Tripoli (Libya)	طرابلس، ليبيا	city	32.8872	13.1913	الطرابلسي:nisba
+manual	barqa	برقة	Barqa	بنغازي (برقة)، ليبيا	region	32.1167	20.0667	البرقي:nisba
+manual	iskandariyya	الإسكندرية	Alexandria	الإسكندرية، مصر	city	31.2001	29.9187	الاسكندريه:variant|السكندري:nisba
+manual	dimyat	دمياط	Damietta	دمياط، مصر	city	31.4165	31.8133	الدمياطي:nisba
+manual	aswan	أسوان	Aswan	أسوان، مصر	city	24.0889	32.8998	الأسواني:nisba
+manual	said	الصعيد	Upper Egypt	صعيد مصر	region	26.0000	32.0000	الصعيدي:nisba
+manual	halab	حلب	Aleppo	حلب، سوريا	city	36.2021	37.1343	الحلبي:nisba
+manual	hims	حمص	Homs	حمص، سوريا	city	34.7324	36.7137	الحمصي:nisba
+manual	hama	حماة	Hama	حماة، سوريا	city	35.1318	36.7578	الحموي:nisba
+manual	quds	بيت المقدس	Jerusalem	القدس	city	31.7683	35.2137	القدس:variant|المقدسي:nisba
+manual	khalil	الخليل	Hebron	الخليل، فلسطين	city	31.5326	35.0998	الخليلي:nisba
+manual	nablus	نابلس	Nablus	نابلس، فلسطين	city	32.2211	35.2544	النابلسي:nisba
+manual	ramla	الرملة	Ramla	الرملة، فلسطين	city	31.9297	34.8722	الرملي:nisba
+manual	asqalan	عسقلان	Ascalon	عسقلان، فلسطين	city	31.6688	34.5715	العسقلاني:nisba
+manual	ghazza	غزة	Gaza	غزة، فلسطين	city	31.5017	34.4668	الغزي:nisba
+manual	akka	عكا	Acre	عكا، فلسطين	city	32.9226	35.0687	العكي:nisba
+manual	sur	صور	Tyre	صور، لبنان	city	33.2733	35.1939	الصوري:nisba
+manual	sayda	صيدا	Sidon	صيدا، لبنان	city	33.5634	35.3688	الصيداوي:nisba
+manual	baalbak	بعلبك	Baalbek	بعلبك، لبنان	city	34.0058	36.2181	البعلبكي:nisba
+manual	tarabulus_sham	طرابلس الشام	Tripoli (Lebanon)	طرابلس، لبنان	city	34.4367	35.8497
+manual	taif	الطائف	Taif	الطائف، السعودية	city	21.2703	40.4158	الطائفي:nisba
+manual	yamama	اليمامة	al-Yamama	الرياض (اليمامة)، السعودية	region	24.7136	46.6753	اليمامي:nisba
+manual	sanaa	صنعاء	Sanaa	صنعاء، اليمن	city	15.3694	44.1910	الصنعاني:nisba
+manual	aden	عدن	Aden	عدن، اليمن	city	12.7855	45.0187	العدني:nisba
+manual	zabid	زبيد	Zabid	زبيد، اليمن	city	14.1951	43.3152	الزبيدي:nisba
+manual	hadramawt	حضرموت	Hadhramaut	حضرموت، اليمن	region	15.9300	48.6300	الحضرمي:nisba
+manual	herat	هراة	Herat	هرات، أفغانستان	city	34.3529	62.2040	الهروي:nisba
+manual	balkh	بلخ	Balkh	بلخ، أفغانستان	city	36.7581	66.8989	البلخي:nisba
+manual	ghazna	غزنة	Ghazni	غزني، أفغانستان	city	33.5539	68.4269	الغزنوي:nisba
+manual	bukhara	بخارى	Bukhara	بخارا، أوزبكستان	city	39.7747	64.4286	بخاري:variant
+manual	samarqand	سمرقند	Samarkand	سمرقند، أوزبكستان	city	39.6270	66.9750	السمرقندي:nisba
+manual	marw	مرو	Merv	ماري (مرو)، تركمانستان	city	37.6633	62.1750	المروزي:nisba
+manual	khwarizm	خوارزم	Khwarazm	خوارزم، أوزبكستان	region	41.5500	60.6333	الخوارزمي:nisba
+manual	shiraz	شيراز	Shiraz	شیراز، إيران	city	29.5918	52.5837	الشيرازي:nisba
+manual	tabriz	تبريز	Tabriz	تبریز، إيران	city	38.0800	46.2919	التبريزي:nisba
+manual	hamadhan	همذان	Hamadan	همدان، إيران	city	34.7983	48.5148	الهمذاني:nisba
+manual	qazwin	قزوين	Qazvin	قزوین، إيران	city	36.2688	50.0041	القزويني:nisba
+manual	jurjan	جرجان	Gorgan	گرگان، إيران	city	36.8456	54.4393	الجرجاني:nisba
+manual	tabaristan	طبرستان	Tabaristan	مازندران، إيران	region	36.4500	52.3500	الطبري:nisba
+manual	tus	طوس	Tus	طوس، إيران	city	36.4917	59.5183	الطوسي:nisba
+manual	sijistan	سجستان	Sistan	سیستان، إيران	region	30.5000	61.0000	السجستاني:nisba
+manual	kirman	كرمان	Kerman	کرمان، إيران	city	30.2839	57.0834	الكرماني:nisba
+manual	ahwaz	الأهواز	Ahvaz	اهواز، إيران	city	31.3183	48.6706	الأهوازي:nisba
+manual	wasit	واسط	Wasit	واسط، العراق	city	32.1900	46.2900	الواسطي:nisba
+manual	samarra	سامراء	Samarra	سامراء، العراق	city	34.1990	43.8742	سر من رأى:historical|السامرائي:nisba
+manual	mawsil	الموصل	Mosul	الموصل، العراق	city	36.3350	43.1189	الموصلي:nisba
+manual	raqqa	الرقة	Raqqa	الرقة، سوريا	city	35.9594	39.0391	الرقي:nisba
+manual	harran	حران	Harran	حران، تركيا	city	36.8641	39.0265	الحراني:nisba
+manual	ruha	الرها	Edessa	أورفة (الرها)، تركيا	city	37.1591	38.7969	الرهاوي:nisba
+manual	amid	آمد	Amid	ديار بكر (آمد)، تركيا	city	37.9144	40.2306	الآمدي:nisba
+manual	mardin	ماردين	Mardin	ماردين، تركيا	city	37.3212	40.7245	الماردیني:nisba
+manual	antakiya	أنطاكية	Antioch	أنطاكيا، تركيا	city	36.2000	36.1600	الأنطاكي:nisba
+manual	tarsus	طرسوس	Tarsus	طرسوس، تركيا	city	36.9177	34.8949	الطرسوسي:nisba
+manual	qaysariyya	قيسارية	Kayseri	قيصري، تركيا	city	38.7312	35.4787	القيسراني:nisba
+manual	qustantiniyya	القسطنطينية	Constantinople	إسطنبول، تركيا	city	41.0082	28.9784	إسطنبول:variant|الآستانه:historical
+manual	hijaz	الحجاز	Hejaz	غرب السعودية	region	23.5000	40.5000	الحجازي:nisba
+manual	najd	نجد	Najd	وسط السعودية	region	25.0000	45.0000	النجدي:nisba
+manual	bahrayn	البحرين	Bahrain (historical)	شرق الجزيرة العربية	region	26.0667	50.5577	البحراني:nisba
+manual	uman	عُمان	Oman	سلطنة عمان	region	21.4735	55.9754	العماني:nisba
+manual	sham	الشام	Greater Syria	بلاد الشام	region	34.0000	37.0000	الشامي:nisba
+manual	iraq	العراق	Iraq	العراق	region	33.2232	43.6793	العراقي:nisba
+manual	khurasan	خراسان	Khorasan	شرق إيران	region	35.0000	59.0000	الخراساني:nisba
+manual	faris	فارس	Fars	فارس، إيران	region	29.1044	53.0459	الفارسي:nisba
+manual	misr	مصر	Egypt	مصر	region	26.8206	30.8025	المصري:nisba
+manual	maghrib	المغرب	Maghreb	شمال أفريقيا الغربي	region	31.7917	-7.0926	المغربي:nisba
+manual	yaman	اليمن	Yemen	اليمن	region	15.5527	48.5164	اليمني:nisba
+manual	habasha	الحبشة	Abyssinia	إثيوبيا	region	9.1450	40.4897	الحبشي:nisba
+manual	nuba	النوبة	Nubia	جنوب مصر وشمال السودان	region	21.0000	31.0000	النوبي:nisba
+manual	arminiyya	أرمينية	Armenia	أرمينيا	region	40.0691	45.0382
+manual	adharbayjan	أذربيجان	Azerbaijan	أذربيجان	region	40.1431	47.5769
+manual	jazira	الجزيرة	al-Jazira	شمال العراق وسوريا	region	36.5000	40.5000	الجزري:nisba
+manual	sind	السند	Sindh	السند، باكستان	region	25.8943	68.5247	السندي:nisba
+manual	hind	الهند	India	الهند	region	20.5937	78.9629	الهندي:nisba
+manual	sin	الصين	China	الصين	region	35.8617	104.1954	الصيني:nisba
+manual	rum	بلاد الروم	Byzantium/Anatolia	الأناضول	region	39.0000	35.0000	الرومي:nisba
+manual	bulgar	بلغار	Volga Bulgaria	تتارستان، روسيا	region	54.9885	49.0000	البلغاري:nisba
+manual	sicily	صقلية	Sicily	صقلية، إيطاليا	region	37.6000	14.0154	الصقلي:nisba
+manual	jurjaniyya	الجرجانية	Gurganj	كونيا-أورغنش، تركمانستان	city	42.3300	59.1500
+manual	farghana	فرغانة	Fergana	فرغانة، أوزبكستان	region	40.3894	71.7843	الفرغاني:nisba
+manual	shash	الشاش	Tashkent	طشقند، أوزبكستان	city	41.2995	69.2401	الشاشي:nisba
+manual	khujand	خجندة	Khujand	خجند، طاجيكستان	city	40.2826	69.6221	الخجندي:nisba
+manual	tirmidh	ترمذ	Termez	ترمذ، أوزبكستان	city	37.2242	67.2783
+manual	sarakhs	سرخس	Sarakhs	سرخس، إيران	city	36.5449	61.1577	السرخسي:nisba
+manual	daylam	الديلم	Daylam	جيلان، إيران	region	36.9000	49.6000	الديلمي:nisba
+manual	jilan	جيلان	Gilan	جيلان، إيران	region	37.2809	49.5924	الجيلاني:nisba|الكيلاني:nisba
+manual	astarabad	أسترآباد	Astarabad	گرگان، إيران	city	36.8380	54.4340	الأسترآبادي:nisba
+manual	shirwan	شروان	Shirvan	أذربيجان	region	40.5000	48.5000	الشرواني:nisba
+manual	darband	دربند	Derbent	داغستان، روسيا	city	42.0692	48.2958	الدربندي:nisba
+manual	bitlis	بدليس	Bitlis	بدليس، تركيا	city	38.3938	42.1232
+manual	akhlat	خلاط	Ahlat	أخلاط، تركيا	city	38.7523	42.4813	الخلاطي:nisba
+manual	dunaysir	دنيسر	Dunaysir	قزل تبه، تركيا	city	37.1500	40.5833
+manual	sinjar	سنجار	Sinjar	سنجار، العراق	city	36.3209	41.8641	السنجاري:nisba
+manual	tikrit	تكريت	Tikrit	تكريت، العراق	city	34.6070	43.6786	التكريتي:nisba
+manual	anbar	الأنبار	al-Anbar	الأنبار، العراق	city	33.3800	43.2300	الأنباري:nisba
+manual	hilla	الحلة	Hillah	الحلة، العراق	city	32.4637	44.4199	الحلي:nisba
+manual	karbala	كربلاء	Karbala	كربلاء، العراق	city	32.6160	44.0249	الكربلائي:nisba
+manual	najaf	النجف	Najaf	النجف، العراق	city	32.0000	44.3300	النجفي:nisba
+manual	busra	بصرى	Bosra	بصرى، سوريا	city	32.5182	36.4817
+manual	tadmur	تدمر	Palmyra	تدمر، سوريا	city	34.5560	38.2739
+manual	maarra	معرة النعمان	Maarrat al-Numan	معرة النعمان، سوريا	city	35.6485	36.6790	المعري:nisba
+manual	shayzar	شيزر	Shayzar	شيزر، سوريا	city	35.2647	36.5665
+manual	baniyas	بانياس	Baniyas	بانياس، سوريا	city	35.1818	35.9410
+manual	kark	الكرك	Karak	الكرك، الأردن	city	31.1853	35.7047	الكركي:nisba
+manual	aqaba	أيلة	Ayla	العقبة، الأردن	city	29.5321	35.0063
+manual	tabuk	تبوك	Tabuk	تبوك، السعودية	city	28.3838	36.5550
+manual	khaybar	خيبر	Khaybar	خيبر، السعودية	city	25.6975	39.2933
+manual	badr	بدر	Badr	بدر، السعودية	city	23.7800	38.7906
+manual	hunayn	حنين	Hunayn	قرب الطائف، السعودية	site	21.4400	40.2200
+manual	jidda	جدة	Jeddah	جدة، السعودية	city	21.4858	39.1925
+manual	qatif	القطيف	Qatif	القطيف، السعودية	city	26.5765	50.0115	القطيفي:nisba
+manual	hira	الحيرة	al-Hira	قرب الكوفة، العراق	city	31.8886	44.4589	الحيري:nisba
+manual	mada_in	المدائن	Ctesiphon	المدائن، العراق	city	33.0940	44.5800
+manual	ubulla	الأبلة	al-Ubulla	البصرة، العراق	city	30.5300	47.8300
+manual	siraf	سيراف	Siraf	بندر سيراف، إيران	city	27.6667	52.3333	السيرافي:nisba
+manual	hurmuz	هرمز	Hormuz	جزيرة هرمز، إيران	city	27.0956	56.4528
+manual	zanjibar	زنجبار	Zanzibar	زنجبار، تنزانيا	region	-6.1659	39.2026	الزنجباري:nisba
+manual	qulzum	القلزم	Clysma	السويس، مصر	city	29.9668	32.5498
+manual	ayla	العريش	al-Arish	العريش، مصر	city	31.1249	33.8006
+manual	tinnis	تنيس	Tinnis	بحيرة المنزلة، مصر	city	31.2000	32.2000	التنيسي:nisba

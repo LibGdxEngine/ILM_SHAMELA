@@ -34,9 +34,13 @@ interface ReaderHeaderProps {
   /**
    * Show the font stepper + typography popover. Off for PDF-overlay books,
    * where the transparent text layer sizes itself from OCR bounding boxes and
-   * these controls have no effect.
+   * these controls have no effect. The entity-mention toggle lives inside this
+   * popover and is therefore also hidden for overlay documents.
    */
   showTypography?: boolean;
+  /** Whether the entity-mention overlay is active (plain text books only). */
+  showEntityMentions?: boolean;
+  onEntityMentionsChange?: (enabled: boolean) => void;
   onToggleBookmark: () => void;
   onOpenAssistant: () => void;
   onToggleSearch: () => void;
@@ -76,6 +80,8 @@ export default function ReaderHeader({
   fontWeight,
   onFontWeightChange,
   showTypography = true,
+  showEntityMentions = false,
+  onEntityMentionsChange,
   onToggleBookmark,
   onOpenAssistant,
   onToggleSearch,
@@ -276,6 +282,28 @@ export default function ReaderHeader({
                     />
                   </button>
                 </div>
+
+                {onEntityMentionsChange && (
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-[12.5px]" style={{ color: 'var(--rr-ink-2)' }}>
+                      {t('reader.entities.toggle', 'إظهار الأعلام والمواضع')}
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={showEntityMentions}
+                      aria-label={t('reader.entities.toggle', 'إظهار الأعلام والمواضع')}
+                      onClick={() => onEntityMentionsChange(!showEntityMentions)}
+                      className="relative h-[22px] w-10 rounded-full transition-colors"
+                      style={{ background: showEntityMentions ? 'var(--rr-brand)' : 'var(--rr-line-2)' }}
+                    >
+                      <span
+                        className="absolute top-[3px] h-4 w-4 rounded-full bg-white transition-all"
+                        style={{ insetInlineStart: showEntityMentions ? 21 : 3 }}
+                      />
+                    </button>
+                  </div>
+                )}
 
                 <TypoSlider
                   label={t('reader.letterSpacing', 'تباعد الحروف')}

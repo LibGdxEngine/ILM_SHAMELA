@@ -37,17 +37,37 @@ vi.mock('@/lib/search/optionSources', () => ({
     languages: [],
     death_centuries: [],
     countries: [],
+    genres: [],
+    madhhabs: [],
+    era_centuries: [],
+    physical_classes: [],
   }),
+}));
+
+vi.mock('@/lib/api/extraction', () => ({
+  fetchPersonOptions: vi.fn().mockResolvedValue({ count: 0, options: [] }),
+  fetchPlaceOptions: vi.fn().mockResolvedValue({ count: 0, options: [] }),
 }));
 
 const handlers: CorpusFilterHandlers = {
   setMode: vi.fn(),
+  setScope: vi.fn(),
+  addTerm: vi.fn(),
+  updateTerm: vi.fn(),
+  removeTerm: vi.fn(),
+  setTerms: vi.fn(),
   toggleCategory: vi.fn(),
   toggleAuthor: vi.fn(),
   toggleBook: vi.fn(),
   toggleLanguage: vi.fn(),
   toggleCountry: vi.fn(),
   toggleDeathCentury: vi.fn(),
+  toggleGenre: vi.fn(),
+  toggleMadhhab: vi.fn(),
+  toggleEraCentury: vi.fn(),
+  togglePhysicalClass: vi.fn(),
+  togglePerson: vi.fn(),
+  togglePlace: vi.fn(),
   setDateFrom: vi.fn(),
   setDateTo: vi.fn(),
   clearAll: vi.fn(),

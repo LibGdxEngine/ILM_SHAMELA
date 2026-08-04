@@ -27,12 +27,24 @@ export interface FacetOptionCount<T extends string | number = string> {
   count: number;
 }
 
+/** Like `FacetOptionCount` but with an optional server-supplied Arabic display
+ *  label for slug-valued facets (genre / madhhab / physical class). */
+export interface FacetOptionLabeled<T extends string | number = string> {
+  value: T;
+  label?: string;
+  count: number;
+}
+
 /** Server payload: raw values + document counts; display labels (language
  *  names, "القرن الثامن") are applied client-side. Cached 300s server-side. */
 export interface FacetOptionsResponse {
   languages: FacetOptionCount<string>[];
   death_centuries: FacetOptionCount<number>[];
   countries: FacetOptionCount<string>[];
+  genres: FacetOptionLabeled<string>[];
+  madhhabs: FacetOptionLabeled<string>[];
+  era_centuries: FacetOptionCount<number>[];
+  physical_classes: FacetOptionLabeled<string>[];
 }
 
 /**

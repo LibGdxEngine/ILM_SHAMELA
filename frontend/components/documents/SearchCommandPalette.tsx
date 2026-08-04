@@ -56,6 +56,8 @@ export interface SearchCommandPaletteProps {
   filters: CorpusFilterState;
   handlers: CorpusFilterHandlers;
   isAuthenticated: boolean;
+  /** Show the "my uploads" scope choice (default true). */
+  canUpload?: boolean;
   /** Apply AI-parsed filters (replace semantics — a fresh query defines the set). */
   onAssistApply: (filters: AssistFilters, interpretation: string | null) => void;
   /** Plain search: set the query, keep facets (also the AI-unavailable fallback). */
@@ -82,6 +84,7 @@ export default function SearchCommandPalette({
   filters,
   handlers,
   isAuthenticated,
+  canUpload = true,
   onAssistApply,
   onPlainSubmit,
   presets,
@@ -163,6 +166,8 @@ export default function SearchCommandPalette({
         surface: analyticsSurface,
         ai,
         mode: filters.mode,
+        scope: filters.scope,
+        term_count: filters.terms.length,
         categories: filters.categories.length,
         authors: filters.authors.length,
         books: filters.books.length,
@@ -258,6 +263,7 @@ export default function SearchCommandPalette({
     filters,
     handlers,
     isAuthenticated,
+    canUpload,
     presetCount: presets ? presets.list.length : null,
   });
 

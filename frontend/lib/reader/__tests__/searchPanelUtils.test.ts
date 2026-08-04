@@ -5,6 +5,7 @@ import {
   countMatchesByKind,
   extractMarkedTokens,
   filterMatchesByTab,
+  filterMatchesByTerm,
   formatCitation,
   overlayMarking,
   resolveMatchKind,
@@ -47,6 +48,22 @@ describe('countMatchesByKind / filterMatchesByTab', () => {
     expect(filterMatchesByTab(matches, 'all')).toHaveLength(4);
     expect(filterMatchesByTab(matches, 'lexical').map((m) => m.page_number)).toEqual([2, 3]);
     expect(filterMatchesByTab(matches, 'semantic').map((m) => m.page_number)).toEqual([4]);
+  });
+});
+
+describe('filterMatchesByTerm', () => {
+  const matches = [
+    match({ page_number: 1, matched_terms: [0] }),
+    match({ page_number: 2, matched_terms: [0, 1] }),
+    match({ page_number: 3, matched_terms: [] }),   // semantic-only page
+    match({ page_number: 4 }),                       // legacy single-term match
+  ];
+
+  it('passes everything through for null and slices by term index', () => {
+    expect(filterMatchesByTerm(matches, null)).toHaveLength(4);
+    expect(filterMatchesByTerm(matches, 0).map((m) => m.page_number)).toEqual([1, 2]);
+    expect(filterMatchesByTerm(matches, 1).map((m) => m.page_number)).toEqual([2]);
+    expect(filterMatchesByTerm(matches, 2)).toHaveLength(0);
   });
 });
 

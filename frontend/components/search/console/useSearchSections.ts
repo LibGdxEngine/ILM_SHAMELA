@@ -12,6 +12,10 @@ import {
   fetchCategoryOptions,
   fetchFacetOptions,
 } from '@/lib/search/optionSources';
+import {
+  fetchPersonOptions,
+  fetchPlaceOptions,
+} from '@/lib/api/extraction';
 import type {
   CorpusFilterHandlers,
   CorpusFilterState,
@@ -22,6 +26,9 @@ export interface UseSearchSectionsArgs {
   filters: CorpusFilterState;
   handlers: CorpusFilterHandlers;
   isAuthenticated: boolean;
+  /** Show the "my uploads" scope choice (viewers who can't upload never have
+   *  owned documents). Defaults to true for authenticated users. */
+  canUpload?: boolean;
   /** Include the presets rail entry (badge = this count). Pass `null` to omit
    *  the section entirely (surface has no preset wiring). */
   presetCount: number | null;
@@ -29,8 +36,9 @@ export interface UseSearchSectionsArgs {
 
 /**
  * Builds the ordered `SectionSpec[]` driving both console presentations
- * (two-pane rail and accordion): presets → mode → categories → authors →
- * books → languages → countries → death centuries → dates.
+ * (two-pane rail and accordion): presets → mode → terms (the multi-term
+ * builder) → scope (with the book multi-select nested inside) → categories →
+ * authors → languages → countries → death centuries → dates.
  *
  * Facet sections require an authenticated API and are omitted when signed
  * out (the mode toggle survives — same gate as the legacy facet body).
@@ -43,6 +51,7 @@ export default function useSearchSections({
   filters,
   handlers,
   isAuthenticated,
+  canUpload = true,
   presetCount,
 }: UseSearchSectionsArgs): SectionSpec[] {
   const { t, locale } = useI18n();
@@ -88,6 +97,40 @@ export default function useSearchSections({
     });
 
     sections.push({
+      kind: 'terms',
+      key: 'terms',
+      label: t('nav.search.terms.label', 'شروط البحث'),
+      badge: filters.terms.length,
+      terms: filters.terms,
+      onAdd: handlers.addTerm,
+      onUpdate: handlers.updateTerm,
+      onRemove: handlers.removeTerm,
+    });
+
+    sections.push({
+      kind: 'scope',
+      key: 'scope',
+      label: t('nav.search.scope.label', 'نطاق البحث'),
+      badge: filters.scope === 'mine' ? 1 : filters.books.length,
+      scope: filters.scope,
+      onScopeChange: handlers.setScope,
+      showMine: canUpload,
+      books: {
+        kind: 'options',
+        key: 'books',
+        label: t('nav.search.books', 'الكتب'),
+        badge: filters.books.length,
+        source: { type: 'search', cacheKey: 'facet-books', fetchOptions: fetchBookOptions },
+        selected: filters.books.map((b) => ({ id: b.id, label: b.title })),
+        onToggle: (opt) => handlers.toggleBook({ id: Number(opt.id), title: opt.label }),
+        labels: searchLabels(
+          t('nav.search.booksSearch.placeholder', 'ابحث عن كتاب بالعنوان…'),
+          t('nav.search.booksSearch.empty', 'لا كتب مطابقة'),
+        ),
+      },
+    });
+
+    sections.push({
       kind: 'options',
       key: 'categories',
       label: t('docs.categories', 'العلم'),
@@ -112,20 +155,6 @@ export default function useSearchSections({
       labels: searchLabels(
         t('docs.authorSearch.placeholder', 'ابحث عن مؤلف…'),
         t('docs.authorSearch.empty', 'لا مؤلفين مطابقين'),
-      ),
-    });
-
-    sections.push({
-      kind: 'options',
-      key: 'books',
-      label: t('nav.search.books', 'الكتب'),
-      badge: filters.books.length,
-      source: { type: 'search', cacheKey: 'facet-books', fetchOptions: fetchBookOptions },
-      selected: filters.books.map((b) => ({ id: b.id, label: b.title })),
-      onToggle: (opt) => handlers.toggleBook({ id: Number(opt.id), title: opt.label }),
-      labels: searchLabels(
-        t('nav.search.booksSearch.placeholder', 'ابحث عن كتاب بالعنوان…'),
-        t('nav.search.booksSearch.empty', 'لا كتب مطابقة'),
       ),
     });
 
@@ -208,6 +237,110 @@ export default function useSearchSections({
           : [],
     });
 
+    pushStatic({
+      kind: 'options',
+      key: 'genres',
+      label: t('docs.facet.genre', 'الفن/التخصص'),
+      badge: filters.genres.length,
+      selected: filters.genres.map((v) => {
+        const opt = facetData?.genres.find((r) => r.value === v);
+        return { id: v, label: opt?.label ?? v };
+      }),
+      onToggle: (opt) => handlers.toggleGenre(String(opt.id)),
+      labels: staticEmpty(t('docs.facet.noneMatch', 'لا خيارات مطابقة')),
+      options: facetFailed
+        ? null
+        : facetData
+          ? facetData.genres.map((r) => ({ id: r.value, label: r.label ?? r.value, count: r.count }))
+          : [],
+    });
+
+    pushStatic({
+      kind: 'options',
+      key: 'madhhabs',
+      label: t('docs.facet.madhhab', 'المذهب'),
+      badge: filters.madhhabs.length,
+      selected: filters.madhhabs.map((v) => {
+        const opt = facetData?.madhhabs.find((r) => r.value === v);
+        return { id: v, label: opt?.label ?? v };
+      }),
+      onToggle: (opt) => handlers.toggleMadhhab(String(opt.id)),
+      labels: staticEmpty(t('docs.facet.noneMatch', 'لا خيارات مطابقة')),
+      options: facetFailed
+        ? null
+        : facetData
+          ? facetData.madhhabs.map((r) => ({ id: r.value, label: r.label ?? r.value, count: r.count }))
+          : [],
+    });
+
+    pushStatic({
+      kind: 'options',
+      key: 'eraCenturies',
+      label: t('docs.facet.eraCentury', 'قرن التأليف'),
+      badge: filters.eraCenturies.length,
+      selected: filters.eraCenturies.map((c) => ({
+        id: c,
+        label: formatHijriCentury(c, locale),
+      })),
+      onToggle: (opt) => handlers.toggleEraCentury(Number(opt.id)),
+      labels: staticEmpty(t('docs.facet.noneMatch', 'لا خيارات مطابقة')),
+      options: facetFailed
+        ? null
+        : facetData
+          ? facetData.era_centuries.map((c) => ({
+              id: c.value,
+              label: formatHijriCentury(c.value, locale),
+              count: c.count,
+            }))
+          : [],
+    });
+
+    pushStatic({
+      kind: 'options',
+      key: 'physicalClasses',
+      label: t('docs.facet.physicalClass', 'نوع الوعاء'),
+      badge: filters.physicalClasses.length,
+      selected: filters.physicalClasses.map((v) => {
+        const opt = facetData?.physical_classes.find((r) => r.value === v);
+        return { id: v, label: opt?.label ?? v };
+      }),
+      onToggle: (opt) => handlers.togglePhysicalClass(String(opt.id)),
+      labels: staticEmpty(t('docs.facet.noneMatch', 'لا خيارات مطابقة')),
+      options: facetFailed
+        ? null
+        : facetData
+          ? facetData.physical_classes.map((r) => ({ id: r.value, label: r.label ?? r.value, count: r.count }))
+          : [],
+    });
+
+    sections.push({
+      kind: 'options',
+      key: 'persons',
+      label: t('docs.facet.persons', 'الأعلام'),
+      badge: filters.persons.length,
+      source: { type: 'search', cacheKey: 'facet-persons', fetchOptions: fetchPersonOptions },
+      selected: filters.persons.map((p) => ({ id: p.id, label: p.label })),
+      onToggle: (opt) => handlers.togglePerson({ id: Number(opt.id), label: opt.label }),
+      labels: searchLabels(
+        t('docs.personSearch.placeholder', 'ابحث عن عَلَم…'),
+        t('docs.personSearch.empty', 'لا أعلام مطابقة'),
+      ),
+    });
+
+    sections.push({
+      kind: 'options',
+      key: 'places',
+      label: t('docs.facet.places', 'المواضع والبلدان'),
+      badge: filters.places.length,
+      source: { type: 'search', cacheKey: 'facet-places', fetchOptions: fetchPlaceOptions },
+      selected: filters.places.map((p) => ({ id: p.id, label: p.label })),
+      onToggle: (opt) => handlers.togglePlace({ id: Number(opt.id), label: opt.label }),
+      labels: searchLabels(
+        t('docs.placeSearch.placeholder', 'ابحث عن موضع…'),
+        t('docs.placeSearch.empty', 'لا مواضع مطابقة'),
+      ),
+    });
+
     sections.push({
       kind: 'dateRange',
       key: 'dates',
@@ -220,5 +353,5 @@ export default function useSearchSections({
     });
 
     return sections;
-  }, [filters, handlers, isAuthenticated, presetCount, facetData, facetFailed, t, locale, languageName]);
+  }, [filters, handlers, isAuthenticated, canUpload, presetCount, facetData, facetFailed, t, locale, languageName]);
 }

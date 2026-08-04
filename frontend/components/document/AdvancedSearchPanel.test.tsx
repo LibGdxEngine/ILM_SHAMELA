@@ -55,6 +55,8 @@ function makeProps(overrides: Record<string, unknown> = {}) {
     sort: 'relevance' as const,
     threshold: 0.5,
     ignoreDiacritics: true,
+    terms: [],
+    onTermsChange: vi.fn(),
     results: RESULTS,
     libraryResults: null,
     isSearching: false,

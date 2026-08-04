@@ -556,6 +556,24 @@ def process_document_task(self, doc_id):
             '[PROCESS] Completed successfully',
             extra={**log_extra, 'status_code': 200},
         )
+
+        # Chain the entity-extraction pass off the success path (explicit
+        # enqueue, not a Celery chain, so OCR retries and extraction retries
+        # never couple). Lazy import keeps search_engine functional if the
+        # extraction app is absent.
+        try:
+            from extraction.tasks import (
+                classify_document_task, extract_document_task, ner_document_task)
+            extract_document_task.delay(document.id)
+            classify_document_task.delay(document.id)
+            # 90s head start lets layer0 usually land first so the NER pass
+            # picks its genre playbook; the task itself covers the race.
+            ner_document_task.apply_async(args=[document.id], countdown=90)
+        except ImportError:
+            pass
+        except Exception as exc:  # noqa: BLE001 — never fail processing over this
+            logger.warning('[PROCESS] could not enqueue extraction: %s', exc)
+
         return {
             'status': 'success',
             'doc_id': doc_id,

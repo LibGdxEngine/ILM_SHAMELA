@@ -7,19 +7,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/AuthContext';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
-import { locales, stripLocalePrefix, withLocale, type Locale } from '@/lib/i18n/config';
 
 interface AppHeaderAvatarMenuProps {
   displayName: string;
   avatarInitial: string;
 }
-
-const LOCALE_SHORT: Record<Locale, string> = {
-  ar: 'AR',
-  en: 'EN',
-  fa: 'FA',
-  ur: 'UR',
-};
 
 export default function AppHeaderAvatarMenu({ displayName, avatarInitial }: AppHeaderAvatarMenuProps) {
   const { t, locale } = useI18n();
@@ -29,7 +21,6 @@ export default function AppHeaderAvatarMenu({ displayName, avatarInitial }: AppH
   const pathname = usePathname();
 
   const [open, setOpen] = useState(false);
-  const [langOpen, setLangOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,13 +28,11 @@ export default function AppHeaderAvatarMenu({ displayName, avatarInitial }: AppH
     const onPointer = (event: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setOpen(false);
-        setLangOpen(false);
       }
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setOpen(false);
-        setLangOpen(false);
       }
     };
     document.addEventListener('mousedown', onPointer);
@@ -53,16 +42,6 @@ export default function AppHeaderAvatarMenu({ displayName, avatarInitial }: AppH
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
-
-  const changeLocale = (target: Locale) => {
-    setOpen(false);
-    setLangOpen(false);
-    if (!pathname) return;
-    const bare = stripLocalePrefix(pathname);
-    const search = typeof window !== 'undefined' ? window.location.search : '';
-    const hash = typeof window !== 'undefined' ? window.location.hash : '';
-    router.push(`${withLocale(bare, target)}${search}${hash}`);
-  };
 
   const handleLogout = async () => {
     setOpen(false);
@@ -123,71 +102,18 @@ export default function AppHeaderAvatarMenu({ displayName, avatarInitial }: AppH
             {t('nav.profile', 'الملف الشخصي')}
           </Link>
 
-          <button
-            type="button"
-            onClick={() => setLangOpen((prev) => !prev)}
-            className="w-full flex items-center justify-between gap-2.5 rounded-[10px] px-3 py-2 text-[13px] text-text-2 hover:bg-accent-soft hover:text-accent-2 transition-colors"
-            aria-expanded={langOpen}
+          <Link
+            href={localizedPath('/settings')}
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-[13px] text-text-2 hover:bg-accent-soft hover:text-accent-2 transition-colors"
             role="menuitem"
           >
-            <span className="flex items-center gap-2.5">
-              <svg className="w-4 h-4 text-text-3" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden>
-                <circle cx="12" cy="12" r="10" />
-                <path d="M2 12h20" />
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-              </svg>
-              {t('nav.language', 'اللغة')}
-            </span>
-            <span className="flex items-center gap-1.5 text-[11.5px] text-text-3">
-              {LOCALE_SHORT[locale]}
-              <svg
-                className={`w-3 h-3 transition-transform ${langOpen ? 'rotate-180' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-                aria-hidden
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
-            </span>
-          </button>
-
-          {langOpen && (
-            <ul role="menu" className="mt-0.5 mb-1 mx-1 rounded-[10px] bg-bg/60 p-1">
-              {locales.map((target) => {
-                const isActive = target === locale;
-                return (
-                  <li key={target} role="none">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => changeLocale(target)}
-                      className={`w-full flex items-center justify-between gap-2 rounded-[8px] px-2.5 py-1.5 text-[12.5px] transition-colors ${
-                        isActive ? 'bg-accent-soft text-accent-2' : 'text-text-2 hover:bg-white/40 hover:text-text'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2">
-                        <span className="font-medium tracking-wide text-[11px] w-7 text-center text-text-3">
-                          {LOCALE_SHORT[target]}
-                        </span>
-                        <span className="font-fraunces">{t(`nav.locale.${target}`, target.toUpperCase())}</span>
-                      </span>
-                      {isActive && (
-                        <svg className="w-3.5 h-3.5 text-accent-2" fill="currentColor" viewBox="0 0 20 20" aria-hidden>
-                          <path
-                            fillRule="evenodd"
-                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+            <svg className="w-4 h-4 text-text-3" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden>
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m5.08 5.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m5.08-5.08l4.24-4.24" />
+            </svg>
+            {t('nav.settings', 'الإعدادات')}
+          </Link>
 
           <div className="border-t border-border my-1" />
           <button

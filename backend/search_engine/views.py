@@ -76,6 +76,17 @@ def _csv_param(request, *names: str) -> List[str]:
 
 
 def apply_document_filters(queryset, request):
+    # Ownership scope. ``scope=mine`` narrows to the requesting user's uploads;
+    # an unauthenticated caller (or a filters-dict caller with no user) gets an
+    # empty set rather than everyone's documents.
+    scope = request.query_params.get('scope', None)
+    if scope == 'mine':
+        user = getattr(request, 'user', None)
+        if user is not None and getattr(user, 'is_authenticated', False):
+            queryset = queryset.filter(uploaded_by=user)
+        else:
+            queryset = queryset.none()
+
     authors = request.query_params.get('authors', None)
     if authors:
         author_list = [a.strip() for a in authors.split(',') if a.strip()]
@@ -158,6 +169,64 @@ def apply_document_filters(queryset, request):
         if statuses:
             queryset = queryset.filter(rights_status__in=statuses)
 
+    # Layer-0 extraction facets (OneToOne DocumentMeta join — no distinct
+    # needed). Django-side only until the ES rollup fields land: with an
+    # active ``q`` these narrow AFTER the ES top-N cut, same caveat as the
+    # pre-pushdown author facets.
+    genre = _csv_param(request, 'genre', 'genres')
+    if genre:
+        queryset = queryset.filter(extracted_meta__genre__in=genre)
+
+    madhhab = _csv_param(request, 'madhhab')
+    if madhhab:
+        queryset = queryset.filter(extracted_meta__madhhab__in=madhhab)
+
+    era_raw = _csv_param(request, 'era_centuries')
+    if era_raw:
+        eras = [int(t) for t in era_raw if t.isdigit() and 1 <= int(t) <= 15]
+        if eras:
+            queryset = queryset.filter(extracted_meta__era_century__in=eras)
+
+    physical = _csv_param(request, 'physical_class')
+    if physical:
+        queryset = queryset.filter(extracted_meta__physical_class__in=physical)
+
+    # Entity-mention facets (active mentions only). ES pushdown is the ranked
+    # path; these mirrors keep plain browsing (no ``q``) correct.
+    persons = _csv_param(request, 'persons')
+    if persons:
+        ids = [int(t) for t in persons if t.isdigit()]
+        if ids:
+            queryset = queryset.filter(
+                entity_mentions__person_id__in=ids,
+                entity_mentions__superseded_at__isnull=True,
+            ).distinct()
+    places = _csv_param(request, 'places')
+    if places:
+        ids = [int(t) for t in places if t.isdigit()]
+        if ids:
+            queryset = queryset.filter(
+                entity_mentions__place_id__in=ids,
+                entity_mentions__superseded_at__isnull=True,
+            ).distinct()
+    quran = _csv_param(request, 'quran')
+    if quran:
+        lookup = DjangoQ()
+        for token in quran:
+            if token.isdigit():
+                lookup |= DjangoQ(entity_mentions__normalized__sura=int(token))
+            elif ':' in token:
+                lookup |= DjangoQ(entity_mentions__normalized_text=f'quran:{token}')
+        if lookup:
+            queryset = queryset.filter(
+                lookup, entity_mentions__superseded_at__isnull=True).distinct()
+    hadith = _csv_param(request, 'hadith_collections')
+    if hadith:
+        queryset = queryset.filter(
+            entity_mentions__normalized__collection__in=hadith,
+            entity_mentions__superseded_at__isnull=True,
+        ).distinct()
+
     return queryset
 
 
@@ -167,26 +236,38 @@ def build_es_filter_clauses(request):
     Mirrors ``apply_document_filters``' silent-drop parsing but targets the ES
     query body instead of the Django queryset, so relevance is computed only
     within the scoped candidate set (otherwise a narrow scope can rank outside
-    the unfiltered top-N and silently vanish). Handles ``documents``,
-    ``categories``, ``languages``/``language`` and ``date_from``/``date_to``.
+    the unfiltered top-N and silently vanish). Handles ``scope=mine``,
+    ``documents``, ``authors``, ``categories``, ``languages``/``language``,
+    ``countries``, ``death_centuries``, ``rights_status`` and
+    ``date_from``/``date_to``.
 
-    ``authors`` is deliberately excluded: the ES ``authors`` field is analyzed
-    text with no keyword sub-field, so a ``terms`` filter wouldn't reliably match
-    whole author identities — author scoping stays Django-side only via
-    ``apply_document_filters``.
+    Author-attribute filters resolve against the DB first (names/ids →
+    canonical ``Author.name``, ``countries`` → stored ``nationality`` casing)
+    because the keyword fields (``author_names``, ``author_countries``,
+    ``author_death_centuries``, ``rights_status``, ``uploaded_by_id``) hold
+    exact stored values. These fields exist since the additive
+    ``update_search_index`` mapping wave — documents not yet repopulated lack
+    them and fall out of filtered searches until repopulation completes, so run
+    ``manage.py update_search_index --repopulate`` right after deploying a
+    mapping change. ``apply_document_filters`` keeps applying the same filters
+    Django-side as a correctness net.
 
-    ``rights_status`` is also Django-side only: it is not indexed in ES (adding
-    it would force a corpus reindex), so narrow rights slices are applied after
-    ranking and can under-return from the top-N.
-
-    ``countries`` and ``death_centuries`` are Django-side only for the same
-    reason as ``authors``: they are author attributes (``nationality``,
-    derived ``death_century``) with no ES field, and indexing them would force
-    a mapping change + corpus reindex. Note the multi-author caveat: a document
-    can satisfy ``authors=X&death_centuries=8`` through *different* authors
-    (each ``.filter(authors__...)`` is an independent join).
+    Note the multi-author caveat: a document can satisfy
+    ``authors=X&death_centuries=8`` through *different* authors (both the ES
+    ``terms`` clauses and the independent Django joins share this behavior).
     """
     clauses: List[Dict] = []
+
+    # Ownership scope; mirrors apply_document_filters. A caller without an
+    # authenticated user (e.g. an internal filters-dict invocation) gets an
+    # impossible clause rather than an unscoped search.
+    scope = request.query_params.get('scope', None)
+    if scope == 'mine':
+        user = getattr(request, 'user', None)
+        if user is not None and getattr(user, 'is_authenticated', False):
+            clauses.append({"term": {"uploaded_by_id": str(user.id)}})
+        else:
+            clauses.append({"terms": {"_id": []}})
 
     documents = request.query_params.get('documents', None)
     if documents:
@@ -195,6 +276,25 @@ def build_es_filter_clauses(request):
         doc_ids = [d.strip() for d in documents.split(',') if d.strip().isdigit()]
         if doc_ids:
             clauses.append({"terms": {"_id": doc_ids}})
+
+    authors = request.query_params.get('authors', None)
+    if authors:
+        author_list = [a.strip() for a in authors.split(',') if a.strip()]
+        if author_list:
+            # Resolve to canonical names exactly like apply_document_filters
+            # (names first, then a PK fallback); an unresolvable author yields
+            # an impossible clause, mirroring queryset.none().
+            names = list(Author.objects.filter(
+                name__in=author_list).values_list('name', flat=True))
+            if not names:
+                author_ids = [int(a) for a in author_list if a.isdigit()]
+                if author_ids:
+                    names = list(Author.objects.filter(
+                        id__in=author_ids).values_list('name', flat=True))
+            if names:
+                clauses.append({"terms": {"author_names": names}})
+            else:
+                clauses.append({"terms": {"_id": []}})
 
     categories = request.query_params.get('categories', None)
     if categories:
@@ -208,6 +308,82 @@ def build_es_filter_clauses(request):
     languages = _csv_param(request, 'languages', 'language')
     if languages:
         clauses.append({"terms": {"language": languages}})
+
+    countries = _csv_param(request, 'countries')
+    if countries:
+        # Resolve to the stored ``nationality`` casing (the Django path is
+        # ``iexact``; ES keyword terms are case-sensitive). All-unknown
+        # countries → impossible clause, matching the Django OR-of-unknowns.
+        lookup = DjangoQ()
+        for country in countries:
+            lookup |= DjangoQ(nationality__iexact=country)
+        values = list(Author.objects.filter(lookup).values_list(
+            'nationality', flat=True).distinct())
+        if values:
+            clauses.append({"terms": {"author_countries": values}})
+        else:
+            clauses.append({"terms": {"_id": []}})
+
+    death_centuries_raw = _csv_param(request, 'death_centuries')
+    if death_centuries_raw:
+        centuries = [int(t) for t in death_centuries_raw
+                     if t.isdigit() and 1 <= int(t) <= 20]
+        if centuries:
+            clauses.append({"terms": {"author_death_centuries": centuries}})
+
+    rights_status = request.query_params.get('rights_status', None)
+    if rights_status:
+        valid_statuses = {choice for choice, _ in Document.RightsStatus.choices}
+        statuses = [s.strip() for s in rights_status.split(',') if s.strip() in valid_statuses]
+        if statuses:
+            clauses.append({"terms": {"rights_status": statuses}})
+
+    # ── Extraction facets (rollup keyword/int fields) ──────────────────────
+    genre = _csv_param(request, 'genre', 'genres')
+    if genre:
+        clauses.append({"terms": {"genre": genre}})
+    madhhab = _csv_param(request, 'madhhab')
+    if madhhab:
+        clauses.append({"terms": {"madhhab": madhhab}})
+    era_raw = _csv_param(request, 'era_centuries')
+    if era_raw:
+        eras = [int(t) for t in era_raw if t.isdigit() and 1 <= int(t) <= 15]
+        if eras:
+            clauses.append({"terms": {"era_century": eras}})
+    physical = _csv_param(request, 'physical_class')
+    if physical:
+        clauses.append({"terms": {"physical_class": physical}})
+
+    persons = _csv_param(request, 'persons')
+    if persons:
+        # Canonical Person pks → 'p:<id>' rollup keys.
+        keys = [f'p:{t}' for t in persons if t.isdigit()]
+        if keys:
+            clauses.append({"terms": {"person_keys": keys}})
+    places = _csv_param(request, 'places')
+    if places:
+        keys = [f'pl:{t}' for t in places if t.isdigit()]
+        if keys:
+            clauses.append({"terms": {"place_keys": keys}})
+
+    quran = _csv_param(request, 'quran')
+    if quran:
+        # 'quran=2' (whole sura) and/or 'quran=2:255' (specific aya), mixable.
+        suras = [int(t) for t in quran if t.isdigit() and 1 <= int(t) <= 114]
+        ayas = [t for t in quran if ':' in t]
+        quran_clauses: List[Dict] = []
+        if suras:
+            quran_clauses.append({"terms": {"quran_suras": suras}})
+        if ayas:
+            quran_clauses.append({"terms": {"quran_ayas": ayas}})
+        if len(quran_clauses) == 1:
+            clauses.append(quran_clauses[0])
+        elif quran_clauses:
+            clauses.append({"bool": {"should": quran_clauses, "minimum_should_match": 1}})
+
+    hadith = _csv_param(request, 'hadith_collections')
+    if hadith:
+        clauses.append({"terms": {"hadith_collections": hadith}})
 
     date_from = request.query_params.get('date_from', None)
     if date_from:
@@ -297,7 +473,8 @@ class DocumentListCreateView(generics.ListCreateAPIView):
             'volume_count': serializer.validated_data.pop('edition_volume_count', None),
         }
 
-        document = serializer.save()
+        uploader = self.request.user if self.request.user.is_authenticated else None
+        document = serializer.save(uploaded_by=uploader)
 
         if any(str(value).strip() for value in edition_fields.values() if value is not None):
             from .models import Edition
@@ -931,6 +1108,38 @@ ASSIST_FILTER_TOOL = {
                         'meaning-based, "hybrid" (default) otherwise.'
                     ),
                 },
+                'terms': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'text': {'type': 'string'},
+                            'match': {
+                                'type': 'string',
+                                'enum': ['phrase', 'word', 'fuzzy', 'stem'],
+                            },
+                            'op': {
+                                'type': 'string',
+                                'enum': ['must', 'should', 'must_not'],
+                            },
+                        },
+                        'required': ['text', 'op'],
+                    },
+                    'description': (
+                        'Structured multi-term conditions, ONLY when the user '
+                        'explicitly combines requirements: a quoted/verbatim phrase '
+                        '→ match "phrase"; "بدون X"/"exclude X" → op "must_not"; '
+                        'alternatives ("X أو Y") → op "should". Plain topical '
+                        'queries stay in search_terms instead.'
+                    ),
+                },
+                'scope': {
+                    'type': 'string', 'enum': ['all', 'mine'],
+                    'description': (
+                        'Set "mine" ONLY when the user asks about their own books/'
+                        'uploads (كتبي، مرفوعاتي، "my uploads"). Default "all".'
+                    ),
+                },
                 'interpretation': {
                     'type': 'string',
                     'description': "One short sentence, in the user's language, summarising how you read the query.",
@@ -940,6 +1149,40 @@ ASSIST_FILTER_TOOL = {
         },
     },
 }
+
+def build_assist_tool() -> Dict:
+    """ASSIST_FILTER_TOOL, augmented with the Layer-0 metadata enums when the
+    extraction app is installed (lazy import — search_engine never hard-depends
+    on extraction)."""
+    import copy
+
+    tool = copy.deepcopy(ASSIST_FILTER_TOOL)
+    try:
+        from extraction.models import DocumentMeta
+    except ImportError:
+        return tool
+    props = tool['function']['parameters']['properties']
+    props['genre'] = {
+        'type': 'array',
+        'items': {'type': 'string', 'enum': [v for v, _ in DocumentMeta.GENRES]},
+        'description': 'Discipline/genre slugs when the user names one (فقه → "fiqh", تراجم → "tarajim"…).',
+    }
+    props['madhhab'] = {
+        'type': 'array',
+        'items': {'type': 'string', 'enum': [v for v, _ in DocumentMeta.MADHHABS]},
+        'description': 'Legal-school slugs when the user restricts madhhab (شافعي → "shafii"…).',
+    }
+    props['era_centuries'] = {
+        'type': 'array', 'items': {'type': 'integer'},
+        'description': 'Hijri centuries of COMPOSITION (1-15) when the user asks about when works were written — distinct from death_centuries (author death).',
+    }
+    props['physical_class'] = {
+        'type': 'array',
+        'items': {'type': 'string', 'enum': [v for v, _ in DocumentMeta.PHYSICAL]},
+        'description': 'Material type when the user restricts it: مخطوطات → "manuscript_scan", صحف/مجلات → "newspaper", رسائل جامعية → "thesis".',
+    }
+    return tool
+
 
 ASSIST_SYSTEM_PROMPT = (
     "You convert a library patron's natural-language book-search request into "
@@ -960,6 +1203,12 @@ ASSIST_SYSTEM_PROMPT = (
     'search_terms.\n'
     '- Default mode to "hybrid" unless the user clearly wants an exact phrase '
     '("exact") or a purely conceptual/meaning search ("semantic").\n'
+    '- Use `terms` ONLY for explicitly combined requirements: quoted phrases '
+    '(match "phrase"), exclusions like "بدون كذا" (op "must_not"), and '
+    'alternatives like "كذا أو كذا" (op "should"). Otherwise keep the text in '
+    'search_terms.\n'
+    '- Set scope to "mine" only when the user refers to their own books/uploads '
+    '(كتبي، مرفوعاتي).\n'
     "- Write a brief interpretation in the user's language."
 )
 
@@ -994,6 +1243,8 @@ def _empty_assist_filters(raw: str) -> Dict:
     return {
         'q': raw,
         'mode': 'hybrid',
+        'scope': 'all',
+        'terms': [],
         'authors': [],
         'categories': [],
         'languages': [],
@@ -1080,7 +1331,7 @@ class DocumentSearchAssistView(views.APIView):
 
             chat = make_openrouter_chat(
                 streaming=False, max_tokens=512, x_title='ILM Shamela Library',
-            ).bind_tools([ASSIST_FILTER_TOOL], tool_choice='set_library_filters')
+            ).bind_tools([build_assist_tool()], tool_choice='set_library_filters')
             response = chat.invoke([
                 SystemMessage(content=ASSIST_SYSTEM_PROMPT),
                 HumanMessage(content=f'User locale: {locale}\nQuery: {raw}'),
@@ -1118,9 +1369,26 @@ class DocumentSearchAssistView(views.APIView):
         if extra_terms:
             terms = ' '.join(part for part in [terms, *extra_terms] if part).strip()
 
+        # Structured term rows: keep only well-formed entries (invalid rows'
+        # text folds back into the free-text query, mirroring facet fold-back).
+        term_rows: List[Dict] = []
+        for row in (parsed.get('terms') or [])[:8]:
+            if not isinstance(row, dict):
+                continue
+            text = str(row.get('text') or '').strip()[:200]
+            if not text:
+                continue
+            match = row.get('match') if row.get('match') in ('phrase', 'word', 'fuzzy', 'stem') else 'word'
+            op = row.get('op') if row.get('op') in ('must', 'should', 'must_not') else 'must'
+            term_rows.append({'text': text, 'match': match, 'op': op})
+
+        scope = parsed.get('scope') if parsed.get('scope') in ('all', 'mine') else 'all'
+
         filters = {
             'q': terms,
             'mode': mode,
+            'scope': scope,
+            'terms': term_rows,
             'authors': authors,
             'categories': categories,
             'languages': languages,
@@ -1129,8 +1397,34 @@ class DocumentSearchAssistView(views.APIView):
             'dateFrom': _valid_iso_date(parsed.get('date_from')),
             'dateTo': _valid_iso_date(parsed.get('date_to')),
         }
+        filters.update(self._resolve_meta_facets(parsed))
         interpretation = (parsed.get('interpretation') or '').strip() or None
         return filters, interpretation
+
+    @staticmethod
+    def _resolve_meta_facets(parsed: Dict) -> Dict:
+        """Validate Layer-0 metadata facet guesses against the extraction
+        enums; empty lists when the app is absent or nothing valid parsed."""
+        out = {
+            'genres': [], 'madhhabs': [], 'eraCenturies': [], 'physicalClasses': [],
+        }
+        try:
+            from extraction.models import DocumentMeta
+        except ImportError:
+            return out
+        genres = {v for v, _ in DocumentMeta.GENRES}
+        madhhabs = {v for v, _ in DocumentMeta.MADHHABS}
+        physical = {v for v, _ in DocumentMeta.PHYSICAL}
+        out['genres'] = [g for g in (parsed.get('genre') or []) if g in genres]
+        out['madhhabs'] = [m for m in (parsed.get('madhhab') or []) if m in madhhabs]
+        out['eraCenturies'] = [
+            c for c in (parsed.get('era_centuries') or [])
+            if isinstance(c, int) and 1 <= c <= 15
+        ]
+        out['physicalClasses'] = [
+            p for p in (parsed.get('physical_class') or []) if p in physical
+        ]
+        return out
 
     @staticmethod
     def _resolve_names(values, model, extra_terms: List[str]) -> List[str]:
@@ -1508,6 +1802,11 @@ def _absorb_duplicate_fragment(matches: List[Dict], candidate: Dict, *, replace_
         if cand_plain == existing_plain or cand_plain in existing_plain or existing_plain in cand_plain:
             if replace_when_richer and _mark_count(candidate['snippet']) > _mark_count(existing['snippet']):
                 existing['snippet'] = candidate['snippet']
+            # Multi-term merging: the surviving fragment answers for every term
+            # that produced a duplicate of it.
+            if candidate.get('matched_terms'):
+                merged = set(existing.get('matched_terms', [])) | set(candidate['matched_terms'])
+                existing['matched_terms'] = sorted(merged)
             return True
     return False
 
@@ -1547,6 +1846,21 @@ def _es_lexical_stage(
     es_query, highlight_fields = _build_lexical_query(
         query, phrase=phrase, ignore_diacritics=ignore_diacritics
     )
+    return _es_lexical_stage_for_query(document, es_query, highlight_fields, pages)
+
+
+def _es_lexical_stage_for_query(
+    document,
+    es_query,
+    highlight_fields: List[str],
+    pages: List[Dict],
+) -> List[Dict]:
+    """Shared body of the lexical stage: run ``es_query`` against this one
+    document, attribute highlight fragments to pages, merge near-duplicates.
+    ``es_query`` may be an elasticsearch-dsl ``Q`` or a raw query dict (the
+    multi-term path passes ``query_builder.build_inbook_term_query`` output)."""
+    if isinstance(es_query, dict):
+        es_query = Q(es_query)
     search = DocumentIndex.search()
     search = search.filter('ids', values=[str(document.id)])
     search = search.query(es_query)
@@ -1801,6 +2115,194 @@ def search_within_document(
     return {'matches': sem_results, 'total_matches': len(sem_results), 'query': query, 'mode': mode, 'has_semantic': True}
 
 
+def search_within_document_terms(
+    document,
+    terms,
+    *,
+    mode: str = 'all',
+    threshold: float | None = None,
+    top_k: int | None = None,
+) -> Dict:
+    """Multi-term in-document search — the N-stage generalization of
+    ``search_within_document``'s two-stage ``all`` merge.
+
+    ``terms`` is a list of ``query_builder.TermSpec`` rows. Each positive
+    (must/should) term runs its own lexical stage (per-term match kind /
+    fuzziness / diacritics via ``build_inbook_term_query``); its fragments are
+    tagged ``matched_terms=[i]`` (``i`` = index in the request array) and
+    ``match_kind`` (phrase→'exact', else 'lexical'). Near-duplicate fragments
+    across terms merge, unioning their ``matched_terms``.
+
+    Page semantics: a page qualifies iff every ``must`` term has a fragment on
+    it, AND (when there are no musts) at least one ``should`` fragment sits on
+    it, AND no ``must_not`` term matches it. ``must_not`` excludes whole
+    pages. The semantic stage runs on the composed positive text and its
+    pages obey the same gates (``matched_terms: []`` on semantic-only pages).
+
+    ``mode``: ``exact``/``similar`` → lexical-only (no semantic stage);
+    ``mix``/``all`` → hybrid blend exactly like ``search_within_document``;
+    ``semantic`` → semantic-only, still gated by must/must_not pages.
+
+    The single-term legacy path (``search_within_document``) is untouched;
+    this coexists so the GET endpoint and agent tools stay byte-compatible.
+    """
+    from .query_builder import (
+        build_inbook_term_query,
+        compose_query_text,
+        inbook_match_kind,
+        split_terms,
+    )
+
+    if mode not in VALID_SEARCH_MODES:
+        mode = 'all'
+    strict_threshold = DEFAULT_SEMANTIC_THRESHOLD if threshold is None else threshold
+    fallback_threshold = SEMANTIC_FALLBACK_THRESHOLD if threshold is None else threshold
+
+    query_text = compose_query_text(terms)
+    content = document.content or ''
+    pages = split_document_content_into_pages(content)
+
+    musts, shoulds, must_nots = split_terms(terms)
+
+    # ---- Per-term lexical stages ----
+    must_pages_per_term: List[set] = []
+    lexical_matches: List[Dict] = []
+    if mode != 'semantic' or musts or must_nots:
+        for index, term in musts + shoulds:
+            es_query, highlight_fields = build_inbook_term_query(term)
+            stage = _es_lexical_stage_for_query(document, es_query, highlight_fields, pages)
+            kind = inbook_match_kind(term)
+            term_pages = set()
+            for match in stage:
+                term_pages.add(match['page_number'])
+                match['matched_terms'] = [index]
+                match['match_kind'] = kind
+                if not _absorb_duplicate_fragment(lexical_matches, match, replace_when_richer=False):
+                    lexical_matches.append(match)
+            if term.op == 'must':
+                must_pages_per_term.append(term_pages)
+
+    excluded_pages: set = set()
+    for _index, term in must_nots:
+        es_query, highlight_fields = build_inbook_term_query(term)
+        for match in _es_lexical_stage_for_query(document, es_query, highlight_fields, pages):
+            excluded_pages.add(match['page_number'])
+
+    must_pages: Optional[set] = None
+    if must_pages_per_term:
+        must_pages = set.intersection(*must_pages_per_term)
+
+    def page_allowed(pn: int) -> bool:
+        if pn in excluded_pages:
+            return False
+        if must_pages is not None and pn not in must_pages:
+            return False
+        return True
+
+    lexical_matches = [m for m in lexical_matches if page_allowed(m['page_number'])]
+
+    # ---- Pure semantic mode (still gated by must/exclusion pages) ----
+    if mode == 'semantic':
+        has_semantic, query_vector, _page_semantic, chunks = _semantic_stage(document, query_text)
+        if not has_semantic or not query_vector:
+            return _empty_result(query_text, mode, has_semantic)
+        results = [
+            dict(r, matched_terms=[])
+            for r in _best_semantic_pages(chunks, strict_threshold)
+            if page_allowed(r['page_number'])
+        ]
+        if top_k:
+            results = results[:top_k]
+        return {'matches': results, 'total_matches': len(results), 'query': query_text,
+                'mode': mode, 'has_semantic': True}
+
+    # ---- Lexical-only modes ----
+    if mode in ('exact', 'similar'):
+        if not lexical_matches:
+            return _empty_result(query_text, mode, has_semantic=False)
+        _score_lexical_matches(lexical_matches)
+        max_lexical = max(m['lex_raw'] for m in lexical_matches) or 1.0
+        results = []
+        for match in lexical_matches:
+            norm_lex = match['lex_raw'] / max_lexical
+            results.append({
+                'page_number': match['page_number'],
+                'snippet': match['snippet'],
+                'match_kind': match['match_kind'],
+                'matched_terms': match['matched_terms'],
+                'score': match['es_score'],
+                'score_lexical': round(norm_lex, 4),
+                'score_semantic': None,
+                'score_final': round(norm_lex, 4),
+            })
+        results.sort(key=lambda r: (-r['score_final'], r['page_number']))
+        if top_k:
+            results = results[:top_k]
+        return {'matches': results, 'total_matches': len(results), 'query': query_text,
+                'mode': mode, 'has_semantic': False}
+
+    # ---- mix / all: hybrid lexical + semantic ----
+    has_semantic, query_vector, page_semantic, chunks = _semantic_stage(document, query_text)
+
+    if lexical_matches:
+        _score_lexical_matches(lexical_matches)
+        max_lexical = max(m['lex_raw'] for m in lexical_matches) or 1.0
+        results = []
+        seen_pages = set()
+        for match in lexical_matches:
+            norm_lex = match['lex_raw'] / max_lexical
+            pn = match['page_number']
+            sem = page_semantic.get(pn, 0.0)
+            if has_semantic and query_vector:
+                final = LEXICAL_WEIGHT * norm_lex + SEMANTIC_WEIGHT * sem
+            else:
+                final = norm_lex
+                sem = None
+            seen_pages.add(pn)
+            results.append({
+                'page_number': pn,
+                'snippet': match['snippet'],
+                'match_kind': match['match_kind'],
+                'matched_terms': match['matched_terms'],
+                'score': match['es_score'],
+                'score_lexical': round(norm_lex, 4),
+                'score_semantic': round(sem, 4) if sem is not None else None,
+                'score_final': round(final, 4),
+            })
+        if has_semantic and query_vector:
+            page_content = {p['page_number']: p['content'] for p in pages}
+            for pn, sem in page_semantic.items():
+                if pn in seen_pages or sem < strict_threshold or not page_allowed(pn):
+                    continue
+                results.append({
+                    'page_number': pn,
+                    'snippet': page_content.get(pn, '')[:300].replace('\n', ' '),
+                    'match_kind': 'semantic',
+                    'matched_terms': [],
+                    'score': sem,
+                    'score_lexical': 0.0,
+                    'score_semantic': round(sem, 4),
+                    'score_final': round(SEMANTIC_WEIGHT * sem, 4),
+                })
+        results.sort(key=lambda r: (-r['score_final'], r['page_number']))
+        if top_k:
+            results = results[:top_k]
+        return {'matches': results, 'total_matches': len(results), 'query': query_text,
+                'mode': mode, 'has_semantic': has_semantic}
+
+    # ---- No lexical hits → semantic fallback, still gated ----
+    if not has_semantic or not query_vector:
+        return _empty_result(query_text, mode, has_semantic)
+    sem_results = [
+        dict(r, matched_terms=[])
+        for r in _best_semantic_pages(chunks, fallback_threshold)
+        if page_allowed(r['page_number'])
+    ]
+    sem_results = sem_results[:(top_k or SEMANTIC_FALLBACK_TOP_K)]
+    return {'matches': sem_results, 'total_matches': len(sem_results), 'query': query_text,
+            'mode': mode, 'has_semantic': True}
+
+
 class DocumentInDocumentSearchView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
     throttle_scope = 'search'
@@ -1976,7 +2478,7 @@ class CountryDocumentStatsView(views.APIView):
         return Response(list(rows), status=status.HTTP_200_OK)
 
 
-_FACET_OPTIONS_CACHE_KEY = 'document_facet_options_v1'
+_FACET_OPTIONS_CACHE_KEY = 'document_facet_options_v2'
 
 
 class DocumentFacetOptionsView(views.APIView):
@@ -2026,10 +2528,48 @@ class DocumentFacetOptionsView(views.APIView):
                 .order_by('-document_count')
                 .values('country', 'document_count')
             ]
+            # Layer-0 extraction facets (genre/madhhab/era/physical class),
+            # served from Postgres like everything else here; empty lists when
+            # the extraction app is absent or nothing is classified yet.
+            genres = []
+            madhhabs = []
+            era_centuries = []
+            physical_classes = []
+            try:
+                from extraction.models import DocumentMeta
+
+                base = DocumentMeta.objects.filter(status=DocumentMeta.Status.SUCCEEDED)
+
+                def _meta_counts(field, labels=None):
+                    qs = base.exclude(**{f'{field}__isnull': True})
+                    if labels is not None:  # char-choice fields: also drop ''
+                        qs = qs.exclude(**{field: ''})
+                    rows = []
+                    for row in qs.values(field) \
+                            .annotate(count=Count('document_id')) \
+                            .order_by('-count'):
+                        entry = {'value': row[field], 'count': row['count']}
+                        if labels:
+                            entry['label'] = labels.get(row[field], str(row[field]))
+                        rows.append(entry)
+                    return rows
+
+                genres = _meta_counts('genre', dict(DocumentMeta.GENRES))
+                madhhabs = _meta_counts('madhhab', dict(DocumentMeta.MADHHABS))
+                era_centuries = sorted(
+                    _meta_counts('era_century'), key=lambda r: r['value'])
+                physical_classes = _meta_counts('physical_class', dict(DocumentMeta.PHYSICAL))
+            except ImportError:
+                pass
+
             payload = {
                 'languages': languages,
                 'death_centuries': death_centuries,
                 'countries': countries,
+                'genres': genres,
+                'madhhabs': madhhabs,
+                'era_centuries': era_centuries,
+                'physical_classes': physical_classes,
             }
             cache.set(_FACET_OPTIONS_CACHE_KEY, payload, 300)
         return Response(payload, status=status.HTTP_200_OK)

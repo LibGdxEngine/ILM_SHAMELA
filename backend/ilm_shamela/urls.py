@@ -24,6 +24,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/search_engine/', include('search_engine.urls')),
     path('api/analytics/', include('analytics.urls')),
+    path('api/extraction/', include('extraction.urls')),
     # Include registration URLs before main dj-rest-auth URLs to avoid conflicts
     path('api/auth/registration/', include('dj_rest_auth.registration.urls')),
     path('api/auth/google/', GoogleLogin.as_view(), name='google_login'),

@@ -142,6 +142,7 @@ class DocumentListSerializer(serializers.ModelSerializer):
             'description',
             'written_date',
             'rights_status',
+            'uploaded_by',
         ]
         read_only_fields = [
             'id',
@@ -155,6 +156,7 @@ class DocumentListSerializer(serializers.ModelSerializer):
             'thumbnail_url',
             'cover_photo_url',
             'rights_status',
+            'uploaded_by',
         ]
     
     def get_thumbnail_url(self, obj):
@@ -233,6 +235,7 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
             'provenance_source',
             'rights_notes',
             'editions',
+            'uploaded_by',
         ]
         read_only_fields = [
             'id',
@@ -250,6 +253,7 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
             'cover_photo_url',
             'has_layout',
             'editions',
+            'uploaded_by',
         ]
 
     def get_thumbnail_url(self, obj):

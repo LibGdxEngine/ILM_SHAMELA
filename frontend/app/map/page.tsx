@@ -30,7 +30,7 @@ export default function MapPage() {
     const { t } = useI18n();
     const router = useRouter();
     const localizedPath = useLocalizedPath();
-    const { isAuthenticated } = useAuth();
+    const { isAuthenticated, user } = useAuth();
 
     const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
     const [countryMap, setCountryMap] = useState<Record<string, CountryInfo>>({});
@@ -148,6 +148,7 @@ export default function MapPage() {
                 filters={filters}
                 handlers={handlers}
                 isAuthenticated={isAuthenticated}
+                canUpload={!!user?.can_upload}
                 analyticsSurface="map"
                 presets={
                     isAuthenticated

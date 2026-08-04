@@ -6,7 +6,7 @@
 // switches between this book (in-document search) and the whole library
 // (corpus search via `getDocumentsSearch`, no kind classification).
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useI18n } from '@/components/i18n/I18nProvider';
 import type { Document, DocumentSearchMatch, DocumentSearchResponse, DocumentsListResponse } from '@/lib/api';
@@ -14,6 +14,7 @@ import {
   buildResultsCsv,
   countMatchesByKind,
   filterMatchesByTab,
+  filterMatchesByTerm,
   formatCitation,
   resolveMatchKind,
   resultKey,
@@ -22,6 +23,14 @@ import {
   type SearchScope,
   type SearchSort,
 } from '@/lib/reader/searchPanelUtils';
+import { termColor } from '@/lib/search/termColors';
+import {
+  createSearchTerm,
+  type SearchTerm,
+  type TermFuzziness,
+  type TermMatch,
+  type TermOp,
+} from '@/lib/search/terms';
 import { toLocaleDigits } from '@/lib/utils';
 import PanelIconButton from './PanelIconButton';
 import SearchEmptyState from './SearchEmptyState';
@@ -31,6 +40,9 @@ import SearchResultCardV2, { LibraryResultCard } from './SearchResultCardV2';
 
 interface AdvancedSearchPanelProps {
   query: string;
+  /** Multi-term rows; empty = classic single-input search. */
+  terms: SearchTerm[];
+  onTermsChange: (terms: SearchTerm[]) => void;
   scope: SearchScope;
   tab: SearchKindTab;
   sort: SearchSort;
@@ -76,6 +88,8 @@ interface AdvancedSearchPanelProps {
 
 export default function AdvancedSearchPanel({
   query,
+  terms,
+  onTermsChange,
   scope,
   tab,
   sort,
@@ -130,16 +144,32 @@ export default function AdvancedSearchPanel({
     return isRtl ? localized.replace('.', '٫') : localized;
   }, [threshold, locale, isRtl]);
 
-  const hasQuery = Boolean(query.trim());
+  const activeTerms = useMemo(() => terms.filter((t) => t.text.trim()), [terms]);
+  const hasQuery = Boolean(query.trim()) || activeTerms.length > 0;
   const isBook = scope === 'book';
+
+  // Term-row editor visibility + the client-side per-term result filter.
+  const [termsOpen, setTermsOpen] = useState(terms.length > 0);
+  const [termFilter, setTermFilter] = useState<number | null>(null);
+  useEffect(() => {
+    setTermFilter(null);
+  }, [results]);
 
   const matches = useMemo(() => results?.matches ?? [], [results]);
   const counts = useMemo(() => countMatchesByKind(matches), [matches]);
   const visibleMatches = useMemo(
-    () => sortMatches(filterMatchesByTab(matches, tab), sort),
-    [matches, tab, sort]
+    () => sortMatches(filterMatchesByTab(filterMatchesByTerm(matches, termFilter), tab), sort),
+    [matches, termFilter, tab, sort]
   );
   const libraryDocs = libraryResults?.results ?? [];
+
+  const updateTerm = (id: string, patch: Partial<Omit<SearchTerm, 'id'>>) =>
+    onTermsChange(terms.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  const removeTerm = (id: string) => onTermsChange(terms.filter((row) => row.id !== id));
+  const addTerm = () => {
+    setTermsOpen(true);
+    onTermsChange([...terms, createSearchTerm()]);
+  };
 
   const visibleCount = isBook ? visibleMatches.length : libraryDocs.length;
   const hasResults = hasQuery && !isSearching && !error && visibleCount > 0;
@@ -255,6 +285,134 @@ export default function AdvancedSearchPanel({
           )}
         </div>
 
+        {/* Multi-term builder toggle + rows */}
+        <button
+          type="button"
+          onClick={() => setTermsOpen((v) => !v)}
+          aria-expanded={termsOpen}
+          className="mt-2 inline-flex items-center gap-1.5 text-[11.5px] font-semibold"
+          style={{ color: 'var(--rr-brand, #b07d2b)' }}
+        >
+          <svg
+            width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2.5" strokeLinecap="round" aria-hidden
+            style={{ transform: termsOpen ? 'rotate(90deg)' : undefined, transition: 'transform .15s' }}
+          >
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+          {t('reader.search.terms.toggle', 'شروط متعددة')}
+          {activeTerms.length > 0 && (
+            <span
+              className="rounded-full px-1.5 text-[10.5px]"
+              style={{ background: 'var(--rr-surface-2)', border: '1px solid var(--rr-line)', color: 'var(--rr-ink-2)' }}
+            >
+              {num(activeTerms.length)}
+            </span>
+          )}
+        </button>
+        {termsOpen && (
+          <div className="mt-2 flex flex-col gap-1.5">
+            {terms.map((term, index) => (
+              <div
+                key={term.id}
+                className="flex flex-wrap items-center gap-1.5 rounded-[10px] px-2 py-1.5"
+                style={{ background: 'var(--rr-surface)', border: '1px solid var(--rr-line)' }}
+              >
+                <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: termColor(index) }} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const order: TermOp[] = ['must', 'should', 'must_not'];
+                    updateTerm(term.id, { op: order[(order.indexOf(term.op) + 1) % order.length] });
+                  }}
+                  title={t('nav.search.terms.opCycle', 'تبديل نوع الشرط')}
+                  className="rounded-full border px-2 py-[2px] text-[11px] font-semibold"
+                  style={
+                    term.op === 'must'
+                      ? { background: 'var(--rr-brand, #b07d2b)', borderColor: 'var(--rr-brand, #b07d2b)', color: '#fcf8ee' }
+                      : term.op === 'should'
+                        ? { borderColor: 'var(--rr-brand, #b07d2b)', color: 'var(--rr-brand, #b07d2b)' }
+                        : { borderColor: '#a4423b', color: '#a4423b' }
+                  }
+                >
+                  {t(`nav.search.terms.op.${term.op}`, term.op === 'must' ? 'يجب' : term.op === 'should' ? 'أو' : 'بدون')}
+                </button>
+                <input
+                  type="text"
+                  dir="auto"
+                  value={term.text}
+                  onChange={(e) => updateTerm(term.id, { text: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape' && term.text) {
+                      e.preventDefault();
+                      updateTerm(term.id, { text: '' });
+                    }
+                  }}
+                  placeholder={t('nav.search.terms.placeholder', 'كلمة أو عبارة…')}
+                  className="min-w-[7rem] flex-1 bg-transparent text-[12.5px] outline-none"
+                  style={{ color: 'var(--rr-ink)' }}
+                />
+                <select
+                  value={term.match}
+                  onChange={(e) => {
+                    const match = e.target.value as TermMatch;
+                    updateTerm(term.id, {
+                      match,
+                      fuzziness: match === 'fuzzy' ? (term.fuzziness ?? 'AUTO') : undefined,
+                      diacritics: match === 'stem' ? 'ignore' : term.diacritics,
+                    });
+                  }}
+                  aria-label={t('nav.search.terms.matchLabel', 'نوع المطابقة')}
+                  className="rounded-[7px] px-1 py-[3px] text-[11px] outline-none"
+                  style={{ background: 'var(--rr-surface-2)', border: '1px solid var(--rr-line)', color: 'var(--rr-ink-2)' }}
+                >
+                  {(['phrase', 'word', 'fuzzy', 'stem'] as TermMatch[]).map((m) => (
+                    <option key={m} value={m}>
+                      {t(`nav.search.terms.match.${m}`, m === 'phrase' ? 'عبارة تامة' : m === 'word' ? 'كلمة تامة' : m === 'fuzzy' ? 'تقريبي' : 'تقارب لفظي')}
+                    </option>
+                  ))}
+                </select>
+                {term.match === 'fuzzy' && (
+                  <select
+                    value={String(term.fuzziness ?? 'AUTO')}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      updateTerm(term.id, { fuzziness: raw === 'AUTO' ? 'AUTO' : (Number(raw) as TermFuzziness) });
+                    }}
+                    aria-label={t('nav.search.terms.fuzzinessLabel', 'مدى التقريب')}
+                    className="rounded-[7px] px-1 py-[3px] text-[11px] outline-none"
+                    style={{ background: 'var(--rr-surface-2)', border: '1px solid var(--rr-line)', color: 'var(--rr-ink-2)' }}
+                  >
+                    <option value="AUTO">{t('nav.search.terms.fuzziness.auto', 'تلقائي')}</option>
+                    <option value="1">{t('nav.search.terms.fuzziness.one', 'حرف واحد')}</option>
+                    <option value="2">{t('nav.search.terms.fuzziness.two', 'حرفان')}</option>
+                  </select>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeTerm(term.id)}
+                  aria-label={t('docs.categorySearch.remove', 'إزالة')}
+                  className="ms-auto flex"
+                  style={{ color: 'var(--rr-ink-4)' }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addTerm}
+              className="self-start rounded-[9px] border border-dashed px-2.5 py-1 text-[11.5px] font-medium"
+              style={{ borderColor: 'var(--rr-line)', color: 'var(--rr-brand, #b07d2b)' }}
+            >
+              {t('nav.search.terms.add', '+ إضافة كلمة/عبارة')}
+            </button>
+          </div>
+        )}
+
         {/* Scope segmented (always) */}
         <div className="mt-2.5 grid grid-cols-2 gap-1 rounded-[10px] p-[3px]" style={{ background: '#e6d9bc' }}>
           {(['book', 'library'] as SearchScope[]).map((key) => {
@@ -284,6 +442,33 @@ export default function AdvancedSearchPanel({
         {hasQuery && isBook && (
           <div className="mt-3">
             <SearchKindTabs tab={tab} counts={counts} onChange={onTabChange} />
+          </div>
+        )}
+
+        {/* Per-term result filter chips (book scope, multi-term results) */}
+        {hasQuery && isBook && activeTerms.length > 1 && matches.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5" aria-label={t('nav.search.terms.label', 'شروط البحث')}>
+            {terms.map((term, index) => {
+              if (!term.text.trim() || term.op === 'must_not') return null;
+              const on = termFilter === index;
+              return (
+                <button
+                  key={term.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setTermFilter(on ? null : index)}
+                  className="inline-flex max-w-[11rem] items-center gap-1.5 rounded-full border px-2 py-[2px] text-[11px]"
+                  style={
+                    on
+                      ? { borderColor: termColor(index), background: 'var(--rr-surface)', color: 'var(--rr-ink)' }
+                      : { borderColor: 'var(--rr-line)', color: 'var(--rr-ink-3)' }
+                  }
+                >
+                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: termColor(index) }} />
+                  <bdi className="min-w-0 truncate">{term.text}</bdi>
+                </button>
+              );
+            })}
           </div>
         )}
 

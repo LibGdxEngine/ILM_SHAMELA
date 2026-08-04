@@ -10,7 +10,6 @@ import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { useI18n } from '@/components/i18n/I18nProvider';
 import Shelf from '@/components/documents/Shelf';
 
-// Mirrors ContinueShelf's cover fallback so the two shelves read as one system.
 const FALLBACK_GRADIENTS = [
   'from-[#c96442] to-[#7c4a2b]',
   'from-[#2c3a4a] to-[#141413]',

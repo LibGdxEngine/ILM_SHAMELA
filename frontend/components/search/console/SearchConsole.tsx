@@ -7,6 +7,8 @@ import { useI18n } from '@/components/i18n/I18nProvider';
 import DateRangePane from './DateRangePane';
 import ModePane from './ModePane';
 import OptionListPane from './OptionListPane';
+import ScopePane from './ScopePane';
+import TermBuilderPane from './TermBuilderPane';
 import SectionRail from './SectionRail';
 import type { FilterSectionKey, SectionSpec } from './types';
 
@@ -27,6 +29,10 @@ export function SectionPane({ section }: { section: SectionSpec }) {
       return <OptionListPane section={section} />;
     case 'mode':
       return <ModePane section={section} />;
+    case 'scope':
+      return <ScopePane section={section} />;
+    case 'terms':
+      return <TermBuilderPane section={section} />;
     case 'dateRange':
       return <DateRangePane section={section} />;
     default:

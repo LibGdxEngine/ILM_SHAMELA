@@ -3,6 +3,7 @@ import { useI18n } from '@/components/i18n/I18nProvider';
 import type { PrintedRef } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
 import { TASHKEEL, buildTashkeelStripMapping, classifyArabicTokenMatches } from '@/lib/arabic';
+import type { PageMention, EntityType } from '@/lib/api/extractionMentions';
 
 interface DocumentPageProps {
   pageNumber: number;
@@ -16,6 +17,10 @@ interface DocumentPageProps {
   printedRef?: PrintedRef | null;
   /** Hide the volume part of the printed label for single-volume editions. */
   singleVolume?: boolean;
+  /** Entity mentions for the overlay (when enabled). */
+  entityMentions?: PageMention[];
+  /** Returns a localized label for the given entity type (e.g. "عَلَم"). */
+  getEntityLabel?: (type: EntityType) => string;
 }
 
 function escapeHtml(text: string): string {
@@ -30,28 +35,62 @@ function escapeHtml(text: string): string {
 interface Range {
   start: number;
   end: number;
-  type: 'highlight' | 'search-exact' | 'search-near';
+  type: 'highlight' | 'search-exact' | 'search-near' | 'entity';
   highlightId?: number;
   color?: string;
+  // entity-specific
+  entityType?: EntityType;
+  entityTitle?: string;
 }
 
 /**
- * Render `content` with highlights (user-created marks) layered under search
- * matches. Highlights wrap with `<mark data-hid data-color>` so deep-link
- * scroll-into-view works; search matches are token-classified per the v2
- * design — the searched phrase itself gets `rr-tok-exact` (gold), tokens
- * within a small edit distance get `rr-tok-near` (lighter).
+ * Render `content` with highlights (user-created marks), search matches, and
+ * entity-mention marks all layered together.
  *
- * Strategy: produce a non-overlapping list of "segments" of plain text and
- * sliced wrapped ranges, then convert each to escaped HTML. Newlines become
- * `<br />` in the final pass.
+ * Rendering order (outermost → innermost):
+ *   entity-mention → user highlight → search token
+ *
+ * This uses a shared boundary-split strategy: all ranges are merged into a
+ * single boundary set; each resulting segment can carry marks from multiple
+ * range types simultaneously. Entity and search marks coexist naturally — both
+ * are applied to the same segment via nesting. No segment type is suppressed
+ * even when search marks are present, because the nesting approach keeps them
+ * visually independent (entity is a background tint, search is a gold fill).
+ *
+ * Highlights wrap with `<mark data-hid data-color>` so deep-link scroll works;
+ * search matches get `rr-tok-exact`/`rr-tok-near`; entity mentions get
+ * `entity-mention entity-<type>` with a `title` tooltip. Newlines → `<br />`.
  */
 function renderContentHtml(
   content: string,
   searchQuery: string,
-  highlights: ApiHighlight[]
+  highlights: ApiHighlight[],
+  entityMentions: PageMention[],
+  getEntityLabel: (type: EntityType) => string,
 ): string {
   const ranges: Range[] = [];
+
+  // Entity mentions — outermost layer (background tint).
+  for (const m of entityMentions) {
+    if (
+      typeof m.char_start === 'number' &&
+      typeof m.char_end === 'number' &&
+      m.char_end > m.char_start &&
+      m.char_start < content.length
+    ) {
+      const label = getEntityLabel(m.entity_type);
+      const titleText = m.normalized_text
+        ? `${label}: ${m.normalized_text}`
+        : label;
+      ranges.push({
+        start: m.char_start,
+        end: Math.min(m.char_end, content.length),
+        type: 'entity',
+        entityType: m.entity_type,
+        entityTitle: titleText,
+      });
+    }
+  }
 
   for (const h of highlights) {
     if (
@@ -81,9 +120,8 @@ function renderContentHtml(
   }
 
   // Build event boundary set; for each character index, decide which (if any)
-  // wrapping should apply. Search > highlight precedence visually because
-  // search marks are stacked on top via DOM order, but we render per-range
-  // segments. Where ranges overlap, we split at boundaries.
+  // wrapping should apply. Search > highlight > entity precedence visually
+  // because marks are applied innermost-last (entity outermost, search innermost).
   const boundaries = new Set<number>([0, content.length]);
   for (const r of ranges) {
     boundaries.add(r.start);
@@ -98,14 +136,22 @@ function renderContentHtml(
     if (segStart >= segEnd) continue;
     const segText = escapeHtml(content.slice(segStart, segEnd));
 
+    const matchingEntity = ranges.find(
+      (r) => r.type === 'entity' && r.start <= segStart && r.end >= segEnd
+    );
     const matchingHighlight = ranges.find(
       (r) => r.type === 'highlight' && r.start <= segStart && r.end >= segEnd
     );
     const matchingSearch = ranges.find(
-      (r) => r.type !== 'highlight' && r.start <= segStart && r.end >= segEnd
+      (r) => (r.type === 'search-exact' || r.type === 'search-near') && r.start <= segStart && r.end >= segEnd
     );
 
     let inner = segText;
+    // Apply outermost first (entity), then highlight, then search (innermost).
+    if (matchingEntity) {
+      const cls = `entity-mention entity-${matchingEntity.entityType}`;
+      inner = `<mark class="${cls}" title="${escapeHtml(matchingEntity.entityTitle ?? '')}">${inner}</mark>`;
+    }
     if (matchingHighlight) {
       const color = matchingHighlight.color ?? 'yellow';
       inner = `<mark data-hid="${matchingHighlight.highlightId}" data-color="${color}" class="highlight-${color}">${inner}</mark>`;
@@ -128,8 +174,13 @@ export default function DocumentPage({
   highlights = [],
   printedRef = null,
   singleVolume = false,
+  entityMentions = [],
+  getEntityLabel,
 }: DocumentPageProps) {
   const { t } = useI18n();
+
+  // Default entity label fallback (identity) when no translator is provided.
+  const resolveEntityLabel = getEntityLabel ?? ((type: EntityType) => type);
 
   // Printed-edition label (موافقة المطبوع) — display metadata only; the digital
   // page number stays the canonical anchor for jumps/highlights.
@@ -166,8 +217,10 @@ export default function DocumentPage({
         char_end: mapping[Math.max(0, Math.min(h.char_end, content.length))],
       }));
     }
-    return renderContentHtml(visibleContent, searchQuery, displayHighlights);
-  }, [content, searchQuery, highlights, tashkeelEnabled, language]);
+    return renderContentHtml(visibleContent, searchQuery, displayHighlights, entityMentions, resolveEntityLabel);
+  // resolveEntityLabel is stable when getEntityLabel is undefined (same fallback ref per render).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, searchQuery, highlights, tashkeelEnabled, language, entityMentions, getEntityLabel]);
 
   return (
     <article

@@ -1248,7 +1248,7 @@ html[lang="en"] .reading-room {
   display: none;
 }
 
-/* Reused shelves (e.g. ContinueShelf) render a `.section-eyebrow`; the landing
+/* Reused shelves (e.g. RecommendedShelf) render a `.section-eyebrow`; the landing
    shell's rule is scoped to .landing-shell, so re-provide an Arabic-friendly
    variant here (ochre, no letter-tracking). */
 .reading-room .section-eyebrow {
@@ -1360,6 +1360,74 @@ html[lang="en"] .reader-room {
 [data-reader-theme="dark"] .rr-tok-near {
   background: rgba(217, 164, 65, 0.16);
   color: inherit;
+}
+
+/* Entity-mention overlay marks (plain text viewer only; injected via
+   dangerouslySetInnerHTML like search tokens, so they must live here).
+   Per-type background tints use color-mix at ~18% opacity so text stays legible
+   across all reader themes. A dotted underline provides a secondary signal that
+   doesn't compete with user-created highlights. */
+.reader-room mark.entity-mention {
+  color: inherit;
+  border-radius: 3px;
+  text-decoration: dotted underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+  padding: 0 1px;
+  cursor: default;
+}
+.reader-room mark.entity-person {
+  background-color: color-mix(in srgb, #2c6e91 18%, transparent);
+  text-decoration-color: #2c6e91;
+}
+.reader-room mark.entity-place {
+  background-color: color-mix(in srgb, #5c7c3a 18%, transparent);
+  text-decoration-color: #5c7c3a;
+}
+.reader-room mark.entity-date {
+  background-color: color-mix(in srgb, #b0622b 18%, transparent);
+  text-decoration-color: #b0622b;
+}
+.reader-room mark.entity-quran {
+  background-color: color-mix(in srgb, #8a4d76 18%, transparent);
+  text-decoration-color: #8a4d76;
+}
+.reader-room mark.entity-hadith_source {
+  background-color: color-mix(in srgb, #8a6d3b 18%, transparent);
+  text-decoration-color: #8a6d3b;
+}
+/* LLM NER types: distinct tints for the common ones; the long tail (event,
+   money, measure, isnad/matn/poetry/quote…) keeps the neutral .entity-mention
+   base style so new backend types degrade gracefully. */
+.reader-room mark.entity-organization {
+  background-color: color-mix(in srgb, #3e7c74 18%, transparent);
+  text-decoration-color: #3e7c74;
+}
+.reader-room mark.entity-work_title {
+  background-color: color-mix(in srgb, #6a5aa8 18%, transparent);
+  text-decoration-color: #6a5aa8;
+}
+/* Dark theme: bump opacity slightly for contrast. */
+[data-reader-theme="dark"] .reader-room mark.entity-person {
+  background-color: color-mix(in srgb, #2c6e91 26%, transparent);
+}
+[data-reader-theme="dark"] .reader-room mark.entity-place {
+  background-color: color-mix(in srgb, #5c7c3a 26%, transparent);
+}
+[data-reader-theme="dark"] .reader-room mark.entity-date {
+  background-color: color-mix(in srgb, #b0622b 26%, transparent);
+}
+[data-reader-theme="dark"] .reader-room mark.entity-quran {
+  background-color: color-mix(in srgb, #8a4d76 26%, transparent);
+}
+[data-reader-theme="dark"] .reader-room mark.entity-hadith_source {
+  background-color: color-mix(in srgb, #8a6d3b 26%, transparent);
+}
+[data-reader-theme="dark"] .reader-room mark.entity-organization {
+  background-color: color-mix(in srgb, #3e7c74 26%, transparent);
+}
+[data-reader-theme="dark"] .reader-room mark.entity-work_title {
+  background-color: color-mix(in srgb, #6a5aa8 26%, transparent);
 }
 
 /* Reskin layer: the reader reuses components (TOC, chapter tree, bookmarks /

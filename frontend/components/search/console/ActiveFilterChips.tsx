@@ -6,10 +6,17 @@ import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLanguageName } from '@/lib/i18n/languageName';
 import { formatHijriCentury } from '@/lib/i18n/hijriCentury';
 import { MODE_FALLBACK } from '@/components/search/searchMode';
+import { termColor } from '@/lib/search/termColors';
 import type {
   CorpusFilterHandlers,
   CorpusFilterState,
 } from '@/lib/search/useCorpusSearchState';
+
+const OP_CHIP_FALLBACK: Record<string, string> = {
+  must: 'يجب',
+  should: 'أو',
+  must_not: 'بدون',
+};
 
 export interface ActiveFilterChipsProps {
   filters: CorpusFilterState;
@@ -32,12 +39,28 @@ export default function ActiveFilterChips({
   const languageName = useLanguageName();
 
   const chips = useMemo(() => {
-    const out: { key: string; label: string; onRemove: () => void }[] = [];
+    const out: { key: string; label: string; onRemove: () => void; dot?: string }[] = [];
+    filters.terms.forEach((term, index) => {
+      if (!term.text.trim()) return;
+      out.push({
+        key: `term-${term.id}`,
+        label: `${t(`nav.search.terms.op.${term.op}`, OP_CHIP_FALLBACK[term.op])}: ${term.text}`,
+        onRemove: () => handlers.removeTerm(term.id),
+        dot: termColor(index),
+      });
+    });
     if (filters.mode !== 'hybrid') {
       out.push({
         key: `mode-${filters.mode}`,
         label: `${t('nav.search.modeLabel', 'نوع البحث')}: ${t(`nav.search.mode.${filters.mode}`, MODE_FALLBACK[filters.mode])}`,
         onRemove: () => handlers.setMode('hybrid'),
+      });
+    }
+    if (filters.scope === 'mine') {
+      out.push({
+        key: 'scope-mine',
+        label: `${t('nav.search.scope.label', 'نطاق البحث')}: ${t('nav.search.scope.mine', 'كتبي')}`,
+        onRemove: () => handlers.setScope('all'),
       });
     }
     for (const name of filters.categories) {
@@ -61,6 +84,28 @@ export default function ActiveFilterChips({
         label: formatHijriCentury(century, locale),
         onRemove: () => handlers.toggleDeathCentury(century),
       });
+    }
+    for (const genre of filters.genres) {
+      out.push({ key: `genre-${genre}`, label: genre, onRemove: () => handlers.toggleGenre(genre) });
+    }
+    for (const madhhab of filters.madhhabs) {
+      out.push({ key: `madhhab-${madhhab}`, label: madhhab, onRemove: () => handlers.toggleMadhhab(madhhab) });
+    }
+    for (const century of filters.eraCenturies) {
+      out.push({
+        key: `era-${century}`,
+        label: formatHijriCentury(century, locale),
+        onRemove: () => handlers.toggleEraCentury(century),
+      });
+    }
+    for (const cls of filters.physicalClasses) {
+      out.push({ key: `physical-${cls}`, label: cls, onRemove: () => handlers.togglePhysicalClass(cls) });
+    }
+    for (const person of filters.persons) {
+      out.push({ key: `person-${person.id}`, label: person.label, onRemove: () => handlers.togglePerson(person) });
+    }
+    for (const place of filters.places) {
+      out.push({ key: `place-${place.id}`, label: place.label, onRemove: () => handlers.togglePlace(place) });
     }
     if (filters.dateFrom) {
       out.push({
@@ -96,6 +141,13 @@ export default function ActiveFilterChips({
             color: 'var(--shell-ink, #2c2620)',
           }}
         >
+          {chip.dot && (
+            <span
+              aria-hidden
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ background: chip.dot }}
+            />
+          )}
           <bdi className="min-w-0 truncate">{chip.label}</bdi>
           <svg className="h-3 w-3 shrink-0 opacity-70" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
