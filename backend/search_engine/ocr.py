@@ -5,13 +5,19 @@ Each engine is a thin HTTP client pointing at a sidecar service that implements:
     POST /parse  (multipart: file=<pdf>)  ->  {"pages": [{"page_number": N, "content": "..."}]}
     GET  /health                          ->  {"status": "ok", ...}
 
+Engines that advertise `"features": ["words"]` on /health also implement the
+word-geometry endpoint used by the PDF-overlay reader (see word_geometry.py):
+    POST /words  (multipart: file=<page image>; form: regions=<json>, lang, psm, pad, dpi)
+                 ->  {"width", "height", "regions": [{"id", "lines": [{"bbox", "words": [...]}]}]}
+
 Adding a new engine = add a registry entry with its URL env var + redeploy the sidecar.
 The Django task dispatcher (tasks.py) chooses an engine per-document from Document.ocr_engine.
 """
 
+import json
 import logging
 import os
-from typing import List, Dict
+from typing import Dict, List, Optional
 
 import requests
 
@@ -102,6 +108,71 @@ class OCREngineClient:
 
         return normalized
 
+    def supports_words(self) -> bool:
+        """True when /health advertises the word-geometry endpoint (`features` contains 'words')."""
+        if not self.configured:
+            return False
+        try:
+            r = requests.get(f'{self.url}/health', timeout=5)
+            if not (200 <= r.status_code < 300):
+                return False
+            features = r.json().get('features') or []
+        except (requests.RequestException, ValueError):
+            return False
+        return 'words' in features
+
+    def words(
+        self,
+        image_bytes: bytes,
+        regions: List[Dict],
+        *,
+        lang: str = 'ara',
+        psm: int = 6,
+        pad: int = 6,
+        dpi: Optional[int] = None,
+        timeout: Optional[int] = None,
+    ) -> Dict:
+        """
+        POST one page image plus its regions to /words and return the raw payload
+        `{'width', 'height', 'regions': [{'id', 'lines': [...], 'error'?}]}`.
+
+        `regions` bboxes are in IMAGE pixel space; the sidecar answers in the same
+        space. Deliberately not routed through `parse()`, whose normalization
+        whitelists page keys. Raises OCRUnavailable on transport/contract failure.
+        """
+        if not self.configured:
+            raise OCRUnavailable(f'OCR engine "{self.name}" is not configured (no URL)')
+
+        data = {
+            'regions': json.dumps(regions),
+            'lang': lang,
+            'psm': str(int(psm)),
+            'pad': str(int(pad)),
+        }
+        if dpi:
+            data['dpi'] = str(int(dpi))
+        try:
+            response = requests.post(
+                f'{self.url}/words',
+                files={'file': ('page.png', image_bytes, 'image/png')},
+                data=data,
+                timeout=timeout or _OCR_WORDS_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            raise OCRUnavailable(f'{self.name} /words request failed: {exc}') from exc
+
+        if response.status_code != 200:
+            raise OCRUnavailable(
+                f'{self.name} /words returned HTTP {response.status_code}: {response.text[:500]}'
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise OCRUnavailable(f'{self.name} /words returned non-JSON: {exc}') from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get('regions'), list):
+            raise OCRUnavailable(f'{self.name} /words returned no regions')
+        return payload
+
 
 # Tesseract URL: honor legacy MONKEYOCR_API_URL as a fallback for one release.
 _TESSERACT_URL = (
@@ -112,6 +183,8 @@ _TESSERACT_URL = (
 _CHANDRA_URL = os.environ.get('OCR_CHANDRA_URL', '')
 _DOCLING_URL = os.environ.get('OCR_DOCLING_URL', '')
 _OCR_TIMEOUT = int(os.environ.get('OCR_TIMEOUT', os.environ.get('MONKEYOCR_TIMEOUT', '1800')))
+# Per-page word-geometry call (one page image + its regions); far shorter than a whole-PDF parse.
+_OCR_WORDS_TIMEOUT = int(os.environ.get('OCR_WORDS_TIMEOUT', '180'))
 
 REGISTRY: Dict[str, OCREngineClient] = {
     'tesseract': OCREngineClient(

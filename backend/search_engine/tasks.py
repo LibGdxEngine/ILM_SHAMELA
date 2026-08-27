@@ -574,6 +574,15 @@ def process_document_task(self, doc_id):
         except Exception as exc:  # noqa: BLE001 — never fail processing over this
             logger.warning('[PROCESS] could not enqueue extraction: %s', exc)
 
+        # PDF-overlay docs: fill in per-word geometry in the background. The
+        # document is already `succeeded` and readable with the line-model
+        # overlay; pages upgrade to word-level selection as the task saves them.
+        if layout_pages is not None:
+            try:
+                extract_word_geometry_task.apply_async(args=[document.id], countdown=5)
+            except Exception as exc:  # noqa: BLE001 — never fail processing over this
+                logger.warning('[PROCESS] could not enqueue word geometry: %s', exc)
+
         return {
             'status': 'success',
             'doc_id': doc_id,
@@ -627,3 +636,157 @@ def process_document_task(self, doc_id):
 
     finally:
         reset_request_id(token)
+
+
+# Tesseract language for word geometry, keyed by Document.language (langdetect codes).
+_WORDS_LANG_BY_LANGUAGE = {'ar': 'ara', 'fa': 'fas', 'ur': 'urd', 'en': 'eng'}
+_WORDS_RENDER_BATCH = 5
+
+
+def _word_geometry_lang(document):
+    return (
+        os.environ.get('OCR_WORDS_LANG')
+        or _WORDS_LANG_BY_LANGUAGE.get((document.language or '').lower(), 'ara')
+    )
+
+
+def _pdf_source(document):
+    """Filesystem path when the storage exposes one (no per-batch temp copies), else the bytes."""
+    try:
+        return document.file.path
+    except (NotImplementedError, ValueError, AttributeError):
+        document.file.open('rb')
+        try:
+            return document.file.read()
+        finally:
+            document.file.close()
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=60, soft_time_limit=7200, time_limit=7260)
+def extract_word_geometry_task(self, doc_id, page_numbers=None, force=False):
+    """
+    Add per-word bounding boxes to the `layout` of a PDF-overlay document's chunks
+    (see word_geometry.py for the stored schema and invariants).
+
+    Renders pages from the source PDF at 300 dpi, sends each page once to the
+    tesseract sidecar's /words endpoint with the paragraph regions the layout
+    already knows, aligns the OCR words to the block text and saves every page as
+    it finishes (`.update()` on the chunk row — a concurrent reprocess deletes and
+    recreates chunks, in which case the rowcount is 0 and we stop; the reprocess
+    re-enqueues this task itself). Idempotent: pages whose blocks all carry
+    `word_geometry` are skipped unless `force`.
+    """
+    from . import word_geometry as wg
+
+    log_extra = {'document_id': doc_id, 'force': force}
+    try:
+        document = Document.objects.get(pk=doc_id)
+    except Document.DoesNotExist:
+        logger.warning('[WORDS] Document not found', extra=log_extra)
+        return {'status': 'skipped', 'reason': 'missing'}
+    if not document.has_layout:
+        return {'status': 'skipped', 'reason': 'no_layout'}
+    if not document.file:
+        return {'status': 'skipped', 'reason': 'no_file'}
+
+    engine = ocr_registry.get_engine('tesseract')
+    if not engine.configured or not engine.supports_words():
+        logger.warning('[WORDS] tesseract sidecar does not provide /words; skipping', extra=log_extra)
+        return {'status': 'skipped', 'reason': 'engine_unavailable'}
+
+    lang = _word_geometry_lang(document)
+    default_rtl = lang in ('ara', 'fas', 'urd')
+    wanted = {int(p) for p in page_numbers} if page_numbers else None
+
+    chunks = (
+        DocumentChunk.objects.filter(document=document, layout__isnull=False)
+        .order_by('page_number')
+        .only('id', 'page_number', 'layout')
+    )
+    pending = []
+    for chunk in chunks.iterator():
+        if wanted is not None and chunk.page_number not in wanted:
+            continue
+        blocks = (chunk.layout or {}).get('blocks') or []
+        if not blocks:
+            continue
+        if not force and not any(wg.needs_geometry(block) for block in blocks):
+            continue
+        pending.append(chunk)
+    if not pending:
+        logger.info('[WORDS] Nothing to do', extra=log_extra)
+        return {'status': 'success', 'pages': 0}
+
+    pdf_source = _pdf_source(document)
+    summary = {'pages': 0, 'blocks': 0, 'with_words': 0, 'low_coverage': 0, 'errors': 0}
+    coverages = []
+    started = timezone.now()
+
+    # Batches of consecutive pages share one pdftoppm call.
+    batches = []
+    for chunk in pending:
+        if batches and len(batches[-1]) < _WORDS_RENDER_BATCH \
+                and chunk.page_number == batches[-1][-1].page_number + 1:
+            batches[-1].append(chunk)
+        else:
+            batches.append([chunk])
+
+    try:
+        for batch in batches:
+            first, last = batch[0].page_number, batch[-1].page_number
+            rendered = {
+                page_number: (png, width, height)
+                for page_number, png, width, height in wg.render_page_images(pdf_source, first, last)
+            }
+            for chunk in batch:
+                page_started = timezone.now()
+                render = rendered.get(chunk.page_number)
+                if render is None:
+                    logger.warning('[WORDS] Page not rendered', extra={**log_extra, 'page_number': chunk.page_number})
+                    continue
+                png, width, height = render
+                layout = chunk.layout
+                sx, sy = wg.page_scale(layout, width, height)
+                regions = wg.page_regions(layout, sx, sy, force=force)
+                result = None
+                if regions:
+                    result = engine.words(png, regions, lang=lang, psm=wg.DEFAULT_PSM,
+                                          pad=wg.PAD_PX, dpi=wg.RENDER_DPI)
+                new_layout, stats = wg.apply_word_geometry_to_page(
+                    layout, result, sx, sy, default_rtl=default_rtl, force=force,
+                )
+                updated = DocumentChunk.objects.filter(pk=chunk.pk).update(layout=new_layout)
+                if updated == 0:
+                    logger.warning(
+                        '[WORDS] Chunk vanished (reprocess in flight) — stopping',
+                        extra={**log_extra, 'page_number': chunk.page_number},
+                    )
+                    return {'status': 'aborted', 'reason': 'chunks_replaced', **summary}
+                summary['pages'] += 1
+                summary['blocks'] += stats['blocks']
+                summary['with_words'] += stats['with_words']
+                summary['low_coverage'] += stats['low_coverage']
+                summary['errors'] += stats['errors']
+                if stats['mean_coverage'] is not None:
+                    coverages.append(stats['mean_coverage'])
+                logger.info(
+                    '[WORDS] Page done',
+                    extra={
+                        **log_extra,
+                        'page_number': chunk.page_number,
+                        'blocks': stats['blocks'],
+                        'with_words': stats['with_words'],
+                        'low_coverage': stats['low_coverage'],
+                        'errors': stats['errors'],
+                        'mean_coverage': stats['mean_coverage'],
+                        'seconds': round((timezone.now() - page_started).total_seconds(), 2),
+                    },
+                )
+    except OCRUnavailable as exc:
+        logger.warning('[WORDS] Sidecar unavailable, retrying: %s', exc, extra=log_extra)
+        raise self.retry(exc=exc)
+
+    summary['mean_coverage'] = round(sum(coverages) / len(coverages), 3) if coverages else None
+    summary['seconds'] = round((timezone.now() - started).total_seconds(), 1)
+    logger.info('[WORDS] Completed', extra={**log_extra, **summary})
+    return {'status': 'success', **summary}

@@ -313,6 +313,36 @@ export interface CorpusQueryResponse {
   degraded_reason?: string;
 }
 
+/**
+ * One OCR word inside a layout block (backend word geometry). `start`/`end`
+ * are offsets into `LayoutBlock.text` (the token without its trailing
+ * whitespace); the words partition the block text in order, so the DOM text of
+ * word i is `text.slice(start_i, start_{i+1})`. `bbox` is in the block's OCR
+ * pixel space, clipped to the block; every word on the same `line` shares one
+ * uniform y-range (the OCR row), not its own ink box.
+ */
+export interface LayoutWord {
+  start: number;
+  end: number;
+  bbox: [number, number, number, number];
+  line: number;
+  /** False when the word was placed by interpolation between OCR-matched neighbours. */
+  matched: boolean;
+}
+
+/** How a block's word geometry was produced (`LayoutBlock.word_geometry`). */
+export interface WordGeometryMeta {
+  engine: string;
+  version: number;
+  /** `ocr` = aligned OCR words, `block` = single token spanning the block,
+   *  `proportional` = tiny block split by token length. */
+  method: 'ocr' | 'block' | 'proportional';
+  /** Fraction of tokens matched to an OCR word (1.0 for non-OCR methods). */
+  coverage: number;
+  lines: number;
+  dpi: number;
+}
+
 /** One positioned OCR block on a page (PDF-overlay reader mode). */
 export interface LayoutBlock {
   id: string;
@@ -323,6 +353,10 @@ export interface LayoutBlock {
   /** Offsets into the page `content` (blocks joined by '\n'). */
   char_start: number;
   char_end: number;
+  /** Per-word geometry when the backend has aligned OCR words to `text`;
+   *  absent (or absent while `word_geometry` is present) → line-model fallback. */
+  words?: LayoutWord[];
+  word_geometry?: WordGeometryMeta;
 }
 
 /** Per-page OCR geometry for the transparent text overlay. */

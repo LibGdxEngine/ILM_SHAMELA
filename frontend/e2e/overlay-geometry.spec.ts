@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import type { LayoutBlock } from '../lib/api';
-import { blockOverlayLayout } from '../lib/reader/overlayMetrics';
+import type { LayoutBlock, LayoutWord } from '../lib/api';
+import { blockOverlayLayout, blockWordLayout } from '../lib/reader/overlayMetrics';
 import { renderBlockOverlayHtml } from '../lib/reader/overlayHtml';
 import { MEASURE_REFERENCE_PX } from '../lib/reader/lineMeasure';
 
@@ -46,6 +46,9 @@ const PAGE_CSS = `
   .ilm-pdf-line { position: absolute; white-space: pre; line-height: 1.1; }
   .ilm-pdf-overlay[dir='rtl'] .ilm-pdf-line { right: 0; transform-origin: right center; }
   .ilm-pdf-overlay[dir='ltr'] .ilm-pdf-line { left: 0; transform-origin: left center; }
+  .ilm-pdf-word { position: absolute; white-space: pre; line-height: 1; }
+  .ilm-pdf-overlay[dir='rtl'] .ilm-pdf-word { transform-origin: right center; }
+  .ilm-pdf-overlay[dir='ltr'] .ilm-pdf-word { transform-origin: left center; }
   .ilm-pdf-block mark { color: transparent !important; padding: 0; font-weight: inherit; background: rgba(250, 204, 21, 0.45); }
 `;
 
@@ -139,4 +142,189 @@ test('overlay lines, search marks and caret mapping track the printed geometry',
   // 6. Byte identity survives real DOM parsing (selection offset invariant).
   const domText = await page.locator('.ilm-pdf-block').evaluate((el) => el.textContent);
   expect(domText).toBe(BLOCK.text);
+});
+
+// ---------------------------------------------------------------------------
+// Word geometry: the backend aligned OCR words to the block text, so each
+// word is its own absolutely-positioned span fitted to its measured box.
+// The fixture builds the word boxes FROM the canvas measurements (scaled by a
+// per-row factor), so every expected rect is exact, not approximate.
+
+const WORD_BBOX: [number, number, number, number] = [124, 400, 1024, 580]; // 900 × 180, 3 rows of 60
+const ROW_PITCH = 60;
+const ROW_HEIGHT = 40; // uniform OCR row box inside each pitch slot
+const WORD_GAP = 16;
+const ROW_SCALES = [1.2, 0.9, 1.0]; // stretched, condensed, exact (→ no transform)
+const WORD_QUERY = 'طبع الحدة'; // two adjacent words on row 2
+
+test('word spans, marks, caret mapping and selection track the OCR word boxes', async ({ page }) => {
+  const text = LINES.join('\n');
+  const tokens = Array.from(text.matchAll(/\S+/g)).map((m) => ({ text: m[0], start: m.index!, end: m.index! + m[0].length }));
+  const rowOf = (start: number) => text.slice(0, start).split('\n').length - 1;
+
+  // 1. Measure every token with the runtime measurer's canvas font.
+  const measured: Record<string, number> = await page.evaluate(
+    ({ texts, referencePx }) => {
+      const context = document.createElement('canvas').getContext('2d')!;
+      context.font = `400 ${referencePx}px serif`;
+      context.direction = 'rtl';
+      return Object.fromEntries(texts.map((t: string) => [t, context.measureText(t).width]));
+    },
+    { texts: tokens.map((t) => t.text), referencePx: MEASURE_REFERENCE_PX }
+  );
+  const measure = (t: string) => measured[t] ?? 0;
+
+  // 2. Lay the words out rtl from the block's right edge, row by row.
+  const [bx0, by0, bx1] = WORD_BBOX;
+  const fontOcr = 0.9 * ROW_HEIGHT; // WORD_FONT_FACTOR
+  const words: LayoutWord[] = [];
+  let cursor = bx1;
+  let currentRow = -1;
+  for (const token of tokens) {
+    const row = rowOf(token.start);
+    if (row !== currentRow) {
+      currentRow = row;
+      cursor = bx1;
+    }
+    const natural = (measure(token.text) / MEASURE_REFERENCE_PX) * fontOcr;
+    const width = natural * ROW_SCALES[row];
+    const x1 = cursor;
+    const x0 = x1 - width;
+    expect(x0).toBeGreaterThan(bx0); // fixture sanity: never clipped by the block
+    const y0 = by0 + row * ROW_PITCH + (ROW_PITCH - ROW_HEIGHT) / 2;
+    words.push({ start: token.start, end: token.end, bbox: [x0, y0, x1, y0 + ROW_HEIGHT], line: row, matched: true });
+    cursor = x0 - WORD_GAP;
+  }
+  const block: LayoutBlock = {
+    id: '/page/0/Text/1',
+    type: 'Text',
+    bbox: WORD_BBOX,
+    text,
+    char_start: 0,
+    char_end: text.length,
+    words,
+  };
+
+  // 3. Build the layout + HTML with the real modules.
+  const layout = blockWordLayout(block, PAGE_H, measure, 'rtl');
+  expect(layout).not.toBeNull();
+  expect(layout!.words[tokens.length - 1].scaleX).toBeNull(); // row 3 scale 1.0 → no transform
+  const html = renderBlockOverlayHtml(block, layout!, { searchQuery: WORD_QUERY, searchTokens: [], highlights: [] });
+
+  const blockStyle =
+    `left:${(bx0 / PAGE_W) * 100}%;top:${(by0 / PAGE_H) * 100}%;` +
+    `width:${((bx1 - bx0) / PAGE_W) * 100}%;height:${((WORD_BBOX[3] - by0) / PAGE_H) * 100}%`;
+  await page.setContent(`
+    <style>${PAGE_CSS}</style>
+    <div class="ilm-pdf-canvas">
+      <div class="ilm-pdf-overlay" dir="rtl">
+        <div class="ilm-pdf-block" data-block-id="${block.id}" data-char-start="0" style="${blockStyle}">${html}</div>
+      </div>
+    </div>
+  `);
+  const blockBox = (await page.locator('.ilm-pdf-block').boundingBox())!;
+  const blockRight = blockBox.x + blockBox.width;
+
+  // 4. One span per word; the TOKEN's glyph box (a Range over its characters,
+  //    so the trailing space hanging into the gap is excluded) matches the
+  //    stored bbox × render scale; the span's row box matches the OCR row.
+  const spans = page.locator('.ilm-pdf-word');
+  await expect(spans).toHaveCount(tokens.length);
+  const rects = await spans.evaluateAll((els, tokenLens: number[]) =>
+    els.map((el, idx) => {
+      const range = document.createRange();
+      range.setStart(el, 0);
+      let remaining = tokenLens[idx];
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let node: Node | null = walker.nextNode();
+      while (node) {
+        const len = (node.textContent ?? '').length;
+        if (remaining <= len) {
+          range.setEnd(node, remaining);
+          break;
+        }
+        remaining -= len;
+        node = walker.nextNode();
+      }
+      const r = range.getBoundingClientRect();
+      const s = el.getBoundingClientRect();
+      return { right: r.right, width: r.width, cx: r.left + r.width / 2, cy: r.top + r.height / 2, spanTop: s.top, spanHeight: s.height };
+    }),
+    tokens.map((t) => t.text.length)
+  );
+  for (let i = 0; i < tokens.length; i += 1) {
+    const [x0, y0, x1] = words[i].bbox;
+    const expectedWidth = (x1 - x0) * RENDER_SCALE;
+    // 2% like the line test, with a 2px floor: per-glyph font hinting at
+    // ~18px shifts a 3-letter word's advance by ~1px either way, which the
+    // 100px canvas reference cannot predict (it averages out over a line).
+    expect(Math.abs(rects[i].width - expectedWidth)).toBeLessThan(Math.max(expectedWidth * 0.02, 2));
+    expect(Math.abs(rects[i].right - (blockRight - (bx1 - x1) * RENDER_SCALE))).toBeLessThan(1.5);
+    expect(Math.abs(rects[i].spanTop - (blockBox.y + (y0 - by0) * RENDER_SCALE))).toBeLessThan(1.5);
+    // A single row even for the spans that carry the separator '\n'.
+    expect(Math.abs(rects[i].spanHeight - ROW_HEIGHT * RENDER_SCALE)).toBeLessThan(ROW_HEIGHT * RENDER_SCALE * 0.02);
+  }
+
+  // 5. Caret hit-testing through the per-word transforms: each token's visual
+  //    centre resolves into its own span.
+  const caretHits = await page.evaluate(
+    (points: { cx: number; cy: number }[]) => {
+      const all = Array.from(document.querySelectorAll('.ilm-pdf-word'));
+      return points.map(({ cx, cy }) => {
+        const range = document.caretRangeFromPoint(cx, cy);
+        if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return -1;
+        const span = range.startContainer.parentElement?.closest('.ilm-pdf-word');
+        return span ? all.indexOf(span) : -1;
+      });
+    },
+    rects.map(({ cx, cy }) => ({ cx, cy }))
+  );
+  expect(caretHits).toEqual(tokens.map((_, i) => i));
+
+  // 6. A phrase across two words → one mark fragment per word, each hugging
+  //    its word: the first ends at its word's right edge, the second starts at
+  //    its word's left edge.
+  const marks = page.locator('mark.ilm-pdf-search-mark');
+  await expect(marks).toHaveCount(2);
+  const markInfo = await marks.evaluateAll((els) => {
+    const all = Array.from(document.querySelectorAll('.ilm-pdf-word'));
+    return els.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, span: all.indexOf(el.closest('.ilm-pdf-word')!) };
+    });
+  });
+  const first = tokens.findIndex((t) => t.text === 'طبع');
+  expect(markInfo[0].span).toBe(first);
+  expect(markInfo[1].span).toBe(first + 1);
+  expect(Math.abs(markInfo[0].right - (blockRight - (bx1 - words[first].bbox[2]) * RENDER_SCALE))).toBeLessThan(1.5);
+  expect(Math.abs(markInfo[1].left - (blockRight - (bx1 - words[first + 1].bbox[0]) * RENDER_SCALE))).toBeLessThan(1.5);
+
+  // 7. Byte identity and selection text: a Range from word 2 to word 4 reads
+  //    the exact substring, both as a Range and as the live Selection.
+  const domText = await page.locator('.ilm-pdf-block').evaluate((el) => el.textContent);
+  expect(domText).toBe(block.text);
+  const expectedSelection = text.slice(words[1].start, words[3].end);
+  const selected = await page.evaluate((endTokenLen: number) => {
+    const all = Array.from(document.querySelectorAll('.ilm-pdf-word'));
+    const range = document.createRange();
+    range.setStart(all[1], 0);
+    let remaining = endTokenLen;
+    const walker = document.createTreeWalker(all[3], NodeFilter.SHOW_TEXT);
+    let node: Node | null = walker.nextNode();
+    while (node) {
+      const len = (node.textContent ?? '').length;
+      if (remaining <= len) {
+        range.setEnd(node, remaining);
+        break;
+      }
+      remaining -= len;
+      node = walker.nextNode();
+    }
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return { range: range.toString(), selection: selection.toString() };
+  }, tokens[3].text.length);
+  expect(selected.range).toBe(expectedSelection);
+  expect(selected.selection).toBe(expectedSelection);
 });

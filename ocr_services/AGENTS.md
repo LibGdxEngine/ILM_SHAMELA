@@ -59,3 +59,18 @@ Three pluggable OCR engine sidecars that extract text from PDF documents via a s
 - **Hugging Face Hub** (optional, for Docling/Chandra model weights): Respects `HF_HOME` env var for caching; set to a persistent volume if running on-prem.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+
+### Word geometry endpoint (tesseract only)
+`tesseract/service.py` additionally exposes `POST /words` for the PDF-overlay reader's word-level
+text layer (backend: `search_engine/word_geometry.py`, task `extract_word_geometry_task`).
+- Request (multipart): `file` = one page image (PNG/WebP); form fields `regions` = JSON
+  `[{"id": ..., "bbox": [x0, y0, x1, y1], "psm"?: 6|7}]` in **image pixel** coords (absent → whole
+  page), `lang` (default env `OCR_WORDS_LANG`, `ara` — never mix `eng` into Arabic pages), `psm`
+  (default 6), `pad` (crop padding px, default 6), `dpi` (forwarded as `--dpi`).
+- Response: `{"width", "height", "regions": [{"id", "lines": [{"bbox", "order": [block, par, line],
+  "words": [{"text", "bbox", "conf"}]}], "error"?}]}` — coords translated back to full-image
+  space; words are in tesseract `word_num` order, which is already logical (RTL reading) order —
+  callers must NOT re-sort by x. One failing region yields `"error"` on that region, not HTTP 500.
+- `/health` advertises it via `"features": ["parse", "words"]`; the backend checks that before
+  enqueuing geometry work. Regions whose median word height is < 20 px are re-run at 2× upscale.
+- Smoke test: `curl -F file=@page.png -F 'regions=[{"id":"b","bbox":[100,100,900,300]}]' -F lang=ara http://localhost:7860/words`.

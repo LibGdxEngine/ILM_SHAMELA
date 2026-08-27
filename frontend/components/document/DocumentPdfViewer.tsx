@@ -9,7 +9,7 @@ import { useI18n } from '@/components/i18n/I18nProvider';
 import { useLocalizedPath } from '@/lib/i18n/navigation';
 import { toLocaleDigits } from '@/lib/utils';
 import { getLineMeasurer } from '@/lib/reader/lineMeasure';
-import { blockOverlayLayout } from '@/lib/reader/overlayMetrics';
+import { blockOverlayLayout, blockWordLayout } from '@/lib/reader/overlayMetrics';
 import { renderBlockOverlayHtml } from '@/lib/reader/overlayHtml';
 import { suppressSelectionPopover, releaseSelectionPopoverSuppression } from '@/lib/reader/selection';
 
@@ -68,6 +68,19 @@ function wordAtPoint(x: number, y: number): string | null {
     if (p) { node = p.offsetNode; offset = p.offset; }
   }
   if (!node || node.nodeType !== Node.TEXT_NODE) return null;
+  // Word-geometry pages: the span IS the word (a `<mark>` may split its text
+  // nodes, so the text-node walk below would truncate it). Trim the attached
+  // punctuation/whitespace the OCR token carries.
+  const wordSpan = node.parentElement?.closest('.ilm-pdf-word');
+  if (wordSpan) {
+    const raw = wordSpan.textContent || '';
+    let from = 0;
+    let to = raw.length;
+    while (from < to && !WORD_CHAR.test(raw[from])) from += 1;
+    while (to > from && !WORD_CHAR.test(raw[to - 1])) to -= 1;
+    const word = raw.slice(from, to);
+    return word.length >= 2 ? word : null;
+  }
   const text = node.textContent || '';
   let start = Math.min(offset, text.length);
   let end = start;
@@ -129,7 +142,10 @@ function PdfOverlayPage({
         )}
         <div className="ilm-pdf-overlay" dir={textDirection}>
           {layout.blocks.map((block) => {
-            const blockLayout = blockOverlayLayout(block, height, measure);
+            // Real per-word OCR geometry when the backend has aligned it;
+            // otherwise the estimated per-line model.
+            const wordLayout = blockWordLayout(block, height, measure, textDirection);
+            const blockLayout = wordLayout ?? blockOverlayLayout(block, height, measure);
             const html = renderBlockOverlayHtml(block, blockLayout, {
               searchQuery,
               searchTokens,
@@ -140,13 +156,16 @@ function PdfOverlayPage({
                 key={block.id}
                 data-block-id={block.id}
                 data-char-start={block.char_start}
+                data-geometry={blockLayout.kind}
                 className="ilm-pdf-block"
                 style={{
                   left: `${(block.bbox[0] / width) * 100}%`,
                   top: `${(block.bbox[1] / height) * 100}%`,
                   width: `${((block.bbox[2] - block.bbox[0]) / width) * 100}%`,
                   height: `${((block.bbox[3] - block.bbox[1]) / height) * 100}%`,
-                  fontSize: `${blockLayout.fontSizeCqh}cqh`,
+                  // Word spans carry their own font-size; only the line model
+                  // sizes the whole block.
+                  fontSize: blockLayout.kind === 'lines' ? `${blockLayout.fontSizeCqh}cqh` : undefined,
                 }}
                 dangerouslySetInnerHTML={{ __html: html }}
               />

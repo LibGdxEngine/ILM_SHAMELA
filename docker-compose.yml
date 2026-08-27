@@ -104,6 +104,7 @@ services:
     environment:
       - OCR_LANG=${OCR_LANG:-ara+eng+fas+urd}
       - OCR_DPI=${OCR_DPI:-200}
+      - OCR_WORDS_LANG=${OCR_WORDS_LANG:-ara}
     ports:
       - "7860:7860"
     networks:

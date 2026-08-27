@@ -487,6 +487,23 @@ mark[data-hid] { cursor: context-menu; }
   transform-origin: left center;
 }
 
+/* One absolutely-positioned span per OCR word (backend word geometry, see
+   overlayMetrics.ts `blockWordLayout`). Inline styles carry the word's
+   inline-start offset, `top`, `font-size` and the row's `line-height` — the
+   latter makes `::selection` paint uniform rows over the printed line. Each
+   word's trailing whitespace/newline lives INSIDE its span (byte identity). */
+.ilm-pdf-word {
+  position: absolute;
+  white-space: pre; /* abs + pre → max-content width, never wraps */
+  line-height: 1;
+}
+.ilm-pdf-overlay[dir='rtl'] .ilm-pdf-word {
+  transform-origin: right center;
+}
+.ilm-pdf-overlay[dir='ltr'] .ilm-pdf-word {
+  transform-origin: left center;
+}
+
 /* Text stays invisible even inside highlight/search marks. The global `mark`
    padding/font-weight would shift and inflate the invisible layer, breaking
    overlay/print alignment. No `background` here — it would out-specificity the

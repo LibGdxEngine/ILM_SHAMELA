@@ -135,7 +135,10 @@ export function computeSelectionPayload(): SelectionPayload | null {
       paragraph_id: startBlock.getAttribute('data-block-id') ?? `p${pageNumber}-0`,
       char_start: charStart,
       char_end: charEnd,
-      text: selection.toString(),
+      // Range.toString() is the pure DOM text between the endpoints; the
+      // Selection variant may insert layout newlines between the overlay's
+      // absolutely-positioned word/line boxes.
+      text: range.toString(),
     };
   }
 

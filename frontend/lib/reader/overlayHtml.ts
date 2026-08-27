@@ -1,7 +1,7 @@
 import type { LayoutBlock } from '@/lib/api';
 import type { ApiHighlight } from '@/lib/api/reader';
 import { findArabicPhraseMatches, findArabicTokenSetMatches } from '@/lib/arabic';
-import type { BlockOverlayLayout } from './overlayMetrics';
+import type { BlockOverlayLayout, WordOverlayLayout } from './overlayMetrics';
 
 export function escapeHtml(text: string): string {
   return text
@@ -30,27 +30,14 @@ export interface OverlaySearchOptions {
 }
 
 /**
- * Render one block as absolutely-positioned line spans with user highlights
- * and search matches wrapped in `<mark>` runs.
- *
- * Load-bearing invariant: the concatenated text nodes of the output equal
- * `block.text` byte-for-byte, INCLUDING the literal '\n' characters (each
- * line's separator newline is the last text node of its span, never inside a
- * `<mark>`). The selection layer maps DOM offsets to content offsets through
- * a text-node TreeWalker anchored at `data-char-start`, and highlight/search
- * offsets index the same string — any dropped or reordered character breaks
- * all anchoring after it.
- *
- * Highlight/search offsets are page-level (`content` = blocks joined by '\n'),
- * clipped to this block and shifted to block-local space. A range spanning a
- * line boundary emits one `<mark>` per line (repeating `data-hid` — consumers
- * use `closest('mark[data-hid]')`, so fragments behave like one highlight).
+ * Block-local mark ranges: user highlights (page-level offsets clipped to the
+ * block and shifted), exact phrase hits, and lexical token hits (skipped where
+ * they overlap an exact hit so the strong style wins).
  */
-export function renderBlockOverlayHtml(
+function collectRanges(
   block: LayoutBlock,
-  layout: BlockOverlayLayout,
   { searchQuery, searchTokens, highlights }: OverlaySearchOptions
-): string {
+): OverlayRange[] {
   const text = block.text;
   const ranges: OverlayRange[] = [];
 
@@ -89,6 +76,99 @@ export function renderBlockOverlayHtml(
     }
   }
 
+  return ranges;
+}
+
+/**
+ * Escaped HTML for `text[segStart, bareEnd)` with every range boundary inside
+ * it split into segments and each segment wrapped in its `<mark>`s (search
+ * outside, highlight inside). The caller appends the raw newline tail after
+ * this so no mark ever wraps a '\n'.
+ */
+function renderSegments(text: string, segStart: number, bareEnd: number, ranges: OverlayRange[]): string {
+  if (segStart >= bareEnd) return '';
+  const boundaries = new Set<number>([segStart, bareEnd]);
+  for (const r of ranges) {
+    if (r.end > segStart && r.start < bareEnd) {
+      boundaries.add(Math.max(segStart, Math.min(r.start, bareEnd)));
+      boundaries.add(Math.max(segStart, Math.min(r.end, bareEnd)));
+    }
+  }
+  const sorted = Array.from(boundaries).sort((a, b) => a - b);
+
+  let inner = '';
+  for (let i = 0; i < sorted.length - 1; i += 1) {
+    const from = sorted[i];
+    const to = sorted[i + 1];
+    if (from >= to) continue;
+    let segment = escapeHtml(text.slice(from, to));
+
+    const matchingHighlight = ranges.find((r) => r.type === 'highlight' && r.start <= from && r.end >= to);
+    const matchingSearch = ranges.find((r) => r.type === 'search' && r.start <= from && r.end >= to);
+    const matchingNear = ranges.find((r) => r.type === 'near' && r.start <= from && r.end >= to);
+
+    if (matchingHighlight) {
+      const color = matchingHighlight.color ?? 'yellow';
+      segment = `<mark data-hid="${matchingHighlight.highlightId}" data-color="${color}" class="highlight-${color}">${segment}</mark>`;
+    }
+    if (matchingSearch) {
+      segment = `<mark class="ilm-pdf-search-mark">${segment}</mark>`;
+    } else if (matchingNear) {
+      segment = `<mark class="ilm-pdf-search-mark ilm-pdf-search-mark--near">${segment}</mark>`;
+    }
+    inner += segment;
+  }
+  return inner;
+}
+
+/**
+ * Render one block as absolutely-positioned spans — one per printed line
+ * (`blockOverlayLayout`) or one per OCR word (`blockWordLayout`) — with user
+ * highlights and search matches wrapped in `<mark>` runs.
+ *
+ * Load-bearing invariant: the concatenated text nodes of the output equal
+ * `block.text` byte-for-byte, INCLUDING the literal '\n' characters (a
+ * separator newline is the last text node of the span that precedes it, never
+ * inside a `<mark>`). The selection layer maps DOM offsets to content offsets
+ * through a text-node TreeWalker anchored at `data-char-start`, and
+ * highlight/search offsets index the same string — any dropped or reordered
+ * character breaks all anchoring after it. Spans are therefore always emitted
+ * in character order, whatever their on-page position.
+ *
+ * Highlight/search offsets are page-level (`content` = blocks joined by '\n'),
+ * clipped to this block and shifted to block-local space. A range spanning a
+ * span boundary emits one `<mark>` per span (repeating `data-hid` — consumers
+ * use `closest('mark[data-hid]')`, so fragments behave like one highlight).
+ * In the word model a mark may cover a word's trailing space, never a newline.
+ */
+export function renderBlockOverlayHtml(
+  block: LayoutBlock,
+  layout: BlockOverlayLayout | WordOverlayLayout,
+  options: OverlaySearchOptions
+): string {
+  const text = block.text;
+  const ranges = collectRanges(block, options);
+
+  if (layout.kind === 'words') {
+    const anchor = layout.direction === 'rtl' ? 'right' : 'left';
+    let html = '';
+    let spanStart = 0;
+    for (const word of layout.words) {
+      const spanEnd = spanStart + word.text.length;
+      // Everything from the first newline on is the raw separator tail.
+      const newlineAt = word.text.indexOf('\n');
+      const bareEnd = newlineAt === -1 ? spanEnd : spanStart + newlineAt;
+      const inner = renderSegments(text, spanStart, bareEnd, ranges) + escapeHtml(text.slice(bareEnd, spanEnd));
+      let style =
+        `${anchor}:${word.startPct}%;top:${word.topPct}%;` +
+        `font-size:${word.fontSizeCqh}cqh;line-height:${word.lineHeightCqh}cqh`;
+      if (word.scaleX != null) style += `;transform:scaleX(${word.scaleX})`;
+      html += `<span class="ilm-pdf-word" style="${style}">${inner}</span>`;
+      spanStart = spanEnd;
+    }
+    return html;
+  }
+
   let html = '';
   let lineStart = 0;
   for (const line of layout.lines) {
@@ -97,45 +177,7 @@ export function renderBlockOverlayHtml(
     // a mark must never straddle a span boundary or wrap a newline.
     const newlineCount = line.text.length - line.text.replace(/\n+$/, '').length;
     const bareEnd = lineEnd - newlineCount;
-
-    const boundaries = new Set<number>([lineStart, bareEnd]);
-    for (const r of ranges) {
-      if (r.end > lineStart && r.start < bareEnd) {
-        boundaries.add(Math.max(lineStart, Math.min(r.start, bareEnd)));
-        boundaries.add(Math.max(lineStart, Math.min(r.end, bareEnd)));
-      }
-    }
-    const sorted = Array.from(boundaries).sort((a, b) => a - b);
-
-    let inner = '';
-    for (let i = 0; i < sorted.length - 1; i += 1) {
-      const segStart = sorted[i];
-      const segEnd = sorted[i + 1];
-      if (segStart >= segEnd) continue;
-      let segment = escapeHtml(text.slice(segStart, segEnd));
-
-      const matchingHighlight = ranges.find(
-        (r) => r.type === 'highlight' && r.start <= segStart && r.end >= segEnd
-      );
-      const matchingSearch = ranges.find(
-        (r) => r.type === 'search' && r.start <= segStart && r.end >= segEnd
-      );
-      const matchingNear = ranges.find(
-        (r) => r.type === 'near' && r.start <= segStart && r.end >= segEnd
-      );
-
-      if (matchingHighlight) {
-        const color = matchingHighlight.color ?? 'yellow';
-        segment = `<mark data-hid="${matchingHighlight.highlightId}" data-color="${color}" class="highlight-${color}">${segment}</mark>`;
-      }
-      if (matchingSearch) {
-        segment = `<mark class="ilm-pdf-search-mark">${segment}</mark>`;
-      } else if (matchingNear) {
-        segment = `<mark class="ilm-pdf-search-mark ilm-pdf-search-mark--near">${segment}</mark>`;
-      }
-      inner += segment;
-    }
-    inner += text.slice(bareEnd, lineEnd);
+    const inner = renderSegments(text, lineStart, bareEnd, ranges) + text.slice(bareEnd, lineEnd);
 
     const style =
       line.scaleX != null
