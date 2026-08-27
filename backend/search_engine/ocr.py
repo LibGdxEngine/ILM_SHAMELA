@@ -108,17 +108,24 @@ class OCREngineClient:
 
         return normalized
 
-    def supports_words(self) -> bool:
-        """True when /health advertises the word-geometry endpoint (`features` contains 'words')."""
+    def supports_words(self) -> Optional[bool]:
+        """
+        Whether /health advertises the word-geometry endpoint (`features` contains 'words').
+
+        Returns True/False from a definitive answer and None when the sidecar could
+        not be probed (unreachable, busy past the timeout, non-JSON): callers must
+        treat None as "unknown" and go ahead — a transient stall must not be mistaken
+        for a sidecar that lacks the feature.
+        """
         if not self.configured:
             return False
         try:
-            r = requests.get(f'{self.url}/health', timeout=5)
+            r = requests.get(f'{self.url}/health', timeout=15)
             if not (200 <= r.status_code < 300):
-                return False
+                return None
             features = r.json().get('features') or []
         except (requests.RequestException, ValueError):
-            return False
+            return None
         return 'words' in features
 
     def words(

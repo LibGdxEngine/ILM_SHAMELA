@@ -690,7 +690,12 @@ def extract_word_geometry_task(self, doc_id, page_numbers=None, force=False):
         return {'status': 'skipped', 'reason': 'no_file'}
 
     engine = ocr_registry.get_engine('tesseract')
-    if not engine.configured or not engine.supports_words():
+    if not engine.configured:
+        logger.warning('[WORDS] tesseract sidecar not configured; skipping', extra=log_extra)
+        return {'status': 'skipped', 'reason': 'engine_unavailable'}
+    if engine.supports_words() is False:
+        # Only a definitive "no words feature" skips. An unreachable/busy probe
+        # (None) proceeds: the /words call itself raises OCRUnavailable → retry.
         logger.warning('[WORDS] tesseract sidecar does not provide /words; skipping', extra=log_extra)
         return {'status': 'skipped', 'reason': 'engine_unavailable'}
 

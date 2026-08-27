@@ -131,6 +131,14 @@ class ExtractWordGeometryTaskTests(TestCase):
         self.assertEqual(self._run(_engine(configured=False)),
                          {'status': 'skipped', 'reason': 'engine_unavailable'})
 
+    def test_inconclusive_probe_proceeds(self):
+        # /health timed out because the sidecar was busy OCR'ing another page:
+        # that is not "no /words endpoint" — the task must still run.
+        engine = _engine(available=None)
+        result = self._run(engine)
+        self.assertEqual(result['status'], 'success')
+        self.assertGreater(engine.words.call_count, 0)
+
     def test_non_layout_or_missing_document_is_skipped(self):
         self.document.has_layout = False
         self.document.save(update_fields=['has_layout'])

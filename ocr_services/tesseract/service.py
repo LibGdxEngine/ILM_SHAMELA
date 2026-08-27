@@ -32,6 +32,7 @@ from io import BytesIO
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -96,7 +97,9 @@ async def parse_pdf(file: UploadFile = File(...)):
     logger.info('Parsing %s (%d bytes) with tesseract', file.filename, len(content))
 
     try:
-        pages = tesseract_extract_pages(content)
+        # Off the event loop: tesseract runs for minutes on a whole PDF and would
+        # otherwise stall /health (and every other request) meanwhile.
+        pages = await run_in_threadpool(tesseract_extract_pages, content)
     except Exception as exc:
         logger.exception('OCR failed')
         raise HTTPException(status_code=500, detail=f'OCR failed: {exc}')
@@ -144,16 +147,26 @@ async def words(
     logger.info('Word boxes for %s (%dx%d, %d regions, lang=%s, psm=%d)',
                 file.filename, image.width, image.height, len(parsed_regions), lang, psm)
 
+    # Tesseract is CPU-bound and blocking: run the page in a worker thread so the
+    # event loop keeps answering /health (the backend probes it before each task)
+    # and concurrent pages from several Celery workers overlap instead of queueing.
+    results = await run_in_threadpool(
+        _ocr_regions, image, parsed_regions, lang=lang, default_psm=psm, pad=pad, dpi=dpi,
+    )
+
+    word_total = sum(len(line['words']) for r in results for line in r['lines'])
+    logger.info('Returning %d regions, %d words', len(results), word_total)
+    return JSONResponse({'width': image.width, 'height': image.height, 'regions': results})
+
+
+def _ocr_regions(image, parsed_regions: List, *, lang: str, default_psm: int, pad: int, dpi: Optional[int]) -> List[Dict]:
     results = []
     for region in parsed_regions:
         if not isinstance(region, dict):
             results.append({'id': None, 'lines': [], 'error': 'region must be an object'})
             continue
-        results.append(ocr_region(image, region, lang=lang, default_psm=psm, pad=pad, dpi=dpi))
-
-    word_total = sum(len(line['words']) for r in results for line in r['lines'])
-    logger.info('Returning %d regions, %d words', len(results), word_total)
-    return JSONResponse({'width': image.width, 'height': image.height, 'regions': results})
+        results.append(ocr_region(image, region, lang=lang, default_psm=default_psm, pad=pad, dpi=dpi))
+    return results
 
 
 def ocr_region(image, region: Dict, *, lang: str, default_psm: int, pad: int, dpi: Optional[int]) -> Dict:

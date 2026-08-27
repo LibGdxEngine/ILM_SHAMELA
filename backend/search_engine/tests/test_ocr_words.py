@@ -92,11 +92,17 @@ class SupportsWordsTests(SimpleTestCase):
         self.assertFalse(self.client.supports_words())
 
     @patch('search_engine.ocr.requests.get')
-    def test_false_on_non_2xx_or_exception(self, get):
+    def test_none_when_probe_is_inconclusive(self, get):
+        # A busy/unreachable sidecar is "unknown", never "lacks the feature": the
+        # backfill must proceed and let /words itself fail (→ retry) if it is down.
         get.return_value = _response(status=503, payload={'features': ['words']})
-        self.assertFalse(self.client.supports_words())
+        self.assertIsNone(self.client.supports_words())
         get.side_effect = requests.Timeout('slow')
-        self.assertFalse(self.client.supports_words())
+        self.assertIsNone(self.client.supports_words())
+        get.side_effect = None
+        get.return_value = _response(status=200, json_error=True)
+        self.assertIsNone(self.client.supports_words())
+        self.assertEqual(get.call_args.kwargs.get('timeout'), 15)
 
     @patch('search_engine.ocr.requests.get')
     def test_false_when_not_configured(self, get):
