@@ -10,7 +10,7 @@ MAX_COVER_FILE_SIZE_MB = int(os.environ.get('MAX_COVER_FILE_SIZE_MB', '10'))
 MAX_COVER_FILE_SIZE_BYTES = MAX_COVER_FILE_SIZE_MB * 1024 * 1024
 MAX_OCR_LAYOUT_FILE_SIZE_MB = int(os.environ.get('MAX_OCR_LAYOUT_FILE_SIZE_MB', '50'))
 MAX_OCR_LAYOUT_FILE_SIZE_BYTES = MAX_OCR_LAYOUT_FILE_SIZE_MB * 1024 * 1024
-ALLOWED_DOCUMENT_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt'}
+ALLOWED_DOCUMENT_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt', '.md'}
 
 
 class AuthorListSerializer(serializers.ModelSerializer):

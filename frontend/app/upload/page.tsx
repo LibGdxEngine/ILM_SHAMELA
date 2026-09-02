@@ -61,7 +61,7 @@ export default function UploadPage() {
               <p className="mt-4 text-[16px] leading-relaxed text-text-2 max-w-xl">
                 {t(
                   'upload.pageSubtitle',
-                  'ارفع ملفات PDF أو DOC أو DOCX أو TXT لإضافتها إلى مكتبتك.'
+                  'ارفع ملفات PDF أو DOC أو DOCX أو TXT أو MD لإضافتها إلى مكتبتك.'
                 )}
               </p>
             </FadeIn>

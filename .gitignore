@@ -2,6 +2,11 @@
 caddy/data/
 caddy/config/
 
+# Docker secrets: file-backed credential material (see secrets/README.md).
+# Only the README is tracked; every value file stays local.
+secrets/*
+!secrets/README.md
+
 # Local environment and build artifacts
 .env.local
 .env.*.local
@@ -21,3 +26,10 @@ frontend/playwright-report/
 .omc/
 frontend/.next.root-old/
 progress.txt
+
+# KB pipeline outputs/cache from host-side runs (Docker uses the kb_data volume)
+backend/data/kb/
+
+# KB debug artifacts dropped at the repo root by host-side runs
+/extraction.json
+/windows_view.html

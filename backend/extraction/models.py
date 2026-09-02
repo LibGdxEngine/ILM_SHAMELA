@@ -13,10 +13,23 @@ Design contract (mirrors the repo's existing offset convention used by
   extractor_version) run keeps its own rows; a newer successful run marks the
   older version's rows ``superseded_at``. Serving queries always filter
   ``superseded_at__isnull=True``.
+
+KB-layer rows (``Kb*``) follow all of the above and add a second, authoritative
+coordinate system: ``(doc_char_start, doc_char_end)`` are ABSOLUTE offsets into
+the *normalized* document text built by ``extraction.kb.normalize`` — the only
+space the KB pipeline produces, and the one its spans and segments agree in.
+``(page_number, page_char_start, page_char_end)`` is a derived best-effort
+projection onto RAW page content for the reader overlay: the normalizer
+collapses whitespace and strips markdown, so page offsets are re-located by
+matching the surface form rather than by subtracting a page start. They are
+nullable, and a client must verify them against ``content_hash`` before
+rendering.
 """
 from django.conf import settings
 from django.db import models
 from django.db.models import F, Q
+
+from .kb import choices as kb_choices
 
 
 class ExtractionRun(models.Model):
@@ -42,6 +55,17 @@ class ExtractionRun(models.Model):
     error = models.TextField(blank=True, default='')
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    # KB layer only — blank for the deterministic extractors, layer0 and ner.
+    persisted_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When this run was last projected into the extraction_kb_* tables')
+    persisted_hash = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text='sha256(normalized-text hash | persist version | disk format) of '
+                  'the data currently in the extraction_kb_* tables. Empty or '
+                  'mismatched ⇒ the projection is stale and will be redone. '
+                  'Deliberately independent of corpus_hash so the writer can be '
+                  'fixed and replayed without invalidating paid LLM caches.')
 
     class Meta:
         db_table = 'extraction_runs'
@@ -546,3 +570,413 @@ class DocumentStructuredExtraction(models.Model):
 
     def __str__(self):
         return f'{self.kind} @doc{self.document_id}'
+
+
+# =============================================================================
+# KB layer — the mention-level projection of extraction/kb/ pipeline output.
+#
+# Files under KB_DATA_DIR stay the source of truth; these tables are a
+# rebuildable projection written by ``extraction.kb.persist`` (see
+# ``manage.py backfill_kb_to_db``). The vocabularies are NOT re-declared here:
+# they are derived from the pydantic enums in ``kb/schema.py`` via
+# ``kb/choices.py``, so the ORM can never drift from the extraction schema.
+#
+# The structural layer (segments) has no table of its own — ``segments.json``
+# remains its only home. The part worth querying, ``segment_type``, is
+# denormalized onto every row below, so "every appraisal inside a biography"
+# stays one indexed lookup.
+# =============================================================================
+
+
+class _KbRowMixin(models.Model):
+    """Shared anchoring, provenance and review-lifecycle block for KB rows.
+
+    An abstract model rather than the copy-paste used by the older tables: four
+    models repeating ~20 identical fields is where that convention stops paying
+    for itself. It adds no table and no query of its own.
+    """
+
+    document = models.ForeignKey(
+        'search_engine.Document', on_delete=models.CASCADE, related_name='+')
+    source_id = models.CharField(
+        max_length=20, blank=True, default='',
+        help_text="The pipeline's own id ('men_a1b2c3d4e5f6'). Regenerated on "
+                  'every run (uuid4) — diagnostic only, never identity.')
+
+    # Absolute offsets into the normalized document text — authoritative.
+    doc_char_start = models.PositiveIntegerField()
+    doc_char_end = models.PositiveIntegerField()
+    # Derived projection onto raw page content — best effort, may be NULL.
+    page_number = models.PositiveIntegerField()
+    page_char_start = models.PositiveIntegerField(null=True, blank=True)
+    page_char_end = models.PositiveIntegerField(null=True, blank=True)
+    content_hash = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text='sha256 of the raw page content at extraction time')
+
+    segment_source_id = models.CharField(
+        max_length=20, blank=True, default='',
+        help_text='segments.json id of the enclosing structural unit; valid only '
+                  'within the run that produced it')
+    segment_type = models.CharField(
+        max_length=kb_choices.SEGMENT_TYPE_MAX, blank=True, default='',
+        choices=kb_choices.SEGMENT_TYPE_CHOICES,
+        help_text='Denormalized from segments.json: biography / isnad / matn / '
+                  'annal… — what keeps the structural layer queryable')
+
+    stream = models.CharField(
+        max_length=kb_choices.TEXT_STREAM_MAX, choices=kb_choices.TEXT_STREAM_CHOICES,
+        default='main')
+    extraction_method = models.CharField(
+        max_length=kb_choices.EXTRACTION_METHOD_MAX,
+        choices=kb_choices.EXTRACTION_METHOD_CHOICES, default='llm')
+    ocr_source = models.BooleanField(default=False)
+    extracted_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When the pipeline produced this — distinct from created_at, '
+                  'which is when the projection wrote the row')
+    confidence = models.FloatField(
+        default=1.0,
+        help_text='Always 1.0 from the LLM pipeline (see kb/mapping.py) — kept for '
+                  'parity with EntityMention and for future human/model passes')
+
+    extractor_name = models.CharField(max_length=50)
+    extractor_version = models.CharField(max_length=20)
+    review_status = models.CharField(
+        max_length=10, choices=EntityMention.ReviewStatus.choices,
+        default=EntityMention.ReviewStatus.AUTO, db_index=True)
+    human_verified = models.BooleanField(default=False)
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+')
+    superseded_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        abstract = True
+
+
+class KbMention(_KbRowMixin):
+    """One KB-pipeline mention (12 labels, including time and quotation)."""
+
+    document = models.ForeignKey(
+        'search_engine.Document', on_delete=models.CASCADE, related_name='kb_mentions')
+
+    label = models.CharField(
+        max_length=kb_choices.MENTION_LABEL_MAX,
+        choices=kb_choices.MENTION_LABEL_CHOICES)
+    surface_form = models.TextField()
+    normalized_form = models.CharField(
+        max_length=255, blank=True, default='', db_index=True,
+        help_text="Canonical form when it differs from the text ('أسلم' → "
+                  "'الإسلام'). The KB analogue of EntityMention.normalized_text.")
+    blocking_key = models.CharField(
+        max_length=150, blank=True, default='',
+        help_text='Entity-resolution grouping key, same vocabulary as '
+                  'Person.blocking_key. Empty until the linking phase exists.')
+    ref_key = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text="'quran:2:255' / 'bukhari:52' — cross-extractor grouping key "
+                  'derived from canonical_ref')
+
+    # Subtype scalars; which one applies is keyed off `label`.
+    subtype = models.CharField(
+        max_length=kb_choices.MENTION_SUBTYPE_MAX, blank=True, default='',
+        choices=kb_choices.MENTION_SUBTYPE_CHOICES,
+        help_text='label=work → WorkSubtype, label=organization → '
+                  "OrganizationSubtype, label=sect → SectKind, '' otherwise")
+    quote_type = models.CharField(
+        max_length=kb_choices.QUOTATION_TYPE_MAX, blank=True, default='',
+        choices=kb_choices.QUOTATION_TYPE_CHOICES)
+    match_method = models.CharField(
+        max_length=kb_choices.MATCH_METHOD_MAX, blank=True, default='',
+        choices=kb_choices.MATCH_METHOD_CHOICES)
+    match_score = models.FloatField(null=True, blank=True)
+
+    # Denormalized from `parsed_time`: a discriminated union inside JSON is not
+    # indexable on SQLite, and "who died in 204" is the most-asked question here.
+    time_kind = models.CharField(
+        max_length=kb_choices.TIME_KIND_MAX, blank=True, default='',
+        choices=kb_choices.TIME_KIND_CHOICES)
+    hijri_year = models.IntegerField(null=True, blank=True)
+    hijri_year_to = models.IntegerField(null=True, blank=True)
+    hijri_approximate = models.BooleanField(default=False)
+
+    parsed_time = models.JSONField(
+        default=dict, blank=True,
+        help_text="ParsedTime dump: {'kind':'absolute','date':{…}} | "
+                  "{'kind':'range','range':{'earliest':{…},'latest':{…}}} | "
+                  "{'kind':'relative','anchor_text':str,'anchor_entity_id':str|None}")
+    canonical_ref = models.JSONField(
+        default=dict, blank=True,
+        help_text="{'ref_kind':'quran','sura':int,'aya_start':int,'aya_end':int|None} "
+                  "| {'ref_kind':'hadith','collection':str,'hadith_number':str}")
+    name_components = models.JSONField(
+        default=dict, blank=True,
+        help_text="NameComponents dump: {'kunya','ism','nasab':[],'nisba':[],"
+                  "'laqab':[],'shuhra'} — the list fields rule out real columns")
+
+    # Quotation attribution; both may point forward, so the writer fills them in
+    # a second pass after every mention row exists.
+    speaker_mention = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    about_mention = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+
+    # Entity-resolution landing slots — all unset until that phase is built.
+    entity_key = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text='MentionBase.entity_id — the KB entity this resolves to')
+    linking_status = models.CharField(
+        max_length=kb_choices.LINKING_STATUS_MAX,
+        choices=kb_choices.LINKING_STATUS_CHOICES, default='unlinked')
+    person = models.ForeignKey(
+        Person, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    place = models.ForeignKey(
+        Place, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    work = models.ForeignKey(
+        Work, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+
+    class Meta:
+        db_table = 'extraction_kb_mentions'
+        constraints = [
+            models.CheckConstraint(
+                check=Q(doc_char_end__gt=F('doc_char_start')),
+                name='kb_mention_span_valid'),
+            models.CheckConstraint(
+                check=Q(page_char_start__isnull=True)
+                | Q(page_char_end__gt=F('page_char_start')),
+                name='kb_mention_page_span_valid'),
+            models.CheckConstraint(
+                check=Q(subtype='')
+                | Q(label__in=['work', 'organization', 'sect']),
+                name='kb_mention_subtype_matches_label'),
+            models.CheckConstraint(
+                check=Q(quote_type='') | Q(label='quotation'),
+                name='kb_mention_quote_type_matches_label'),
+            models.UniqueConstraint(
+                fields=['document', 'extractor_name', 'extractor_version',
+                        'label', 'doc_char_start', 'doc_char_end'],
+                name='kb_mention_unique_per_version'),
+        ]
+        indexes = [
+            models.Index(
+                fields=['document', 'page_number', 'doc_char_start'],
+                condition=Q(superseded_at__isnull=True),
+                name='kb_mention_active_page_idx'),
+            models.Index(
+                fields=['label', 'normalized_form'],
+                condition=Q(superseded_at__isnull=True),
+                name='kb_mention_active_key_idx'),
+            models.Index(
+                fields=['document', 'segment_type'],
+                condition=Q(superseded_at__isnull=True),
+                name='kb_mention_active_seg_idx'),
+            models.Index(
+                fields=['blocking_key'],
+                condition=Q(superseded_at__isnull=True) & ~Q(blocking_key=''),
+                name='kb_mention_blocking_idx'),
+            models.Index(
+                fields=['hijri_year'],
+                condition=Q(superseded_at__isnull=True)
+                & Q(hijri_year__isnull=False),
+                name='kb_mention_year_idx'),
+            models.Index(
+                fields=['ref_key'],
+                condition=Q(superseded_at__isnull=True) & ~Q(ref_key=''),
+                name='kb_mention_ref_idx'),
+            models.Index(fields=['review_status', 'confidence']),
+        ]
+
+    def __str__(self):
+        return (f'{self.label}:{self.surface_form[:40]} '
+                f'@doc{self.document_id} p{self.page_number}')
+
+
+class KbMentionRelation(_KbRowMixin):
+    """A relation between two mentions (34 types, with place/time qualifiers)."""
+
+    document = models.ForeignKey(
+        'search_engine.Document', on_delete=models.CASCADE,
+        related_name='kb_mention_relations')
+
+    relation_type = models.CharField(
+        max_length=kb_choices.RELATION_TYPE_MAX,
+        choices=kb_choices.RELATION_TYPE_CHOICES, db_index=True)
+    subject_mention = models.ForeignKey(
+        KbMention, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='kb_relations_as_subject')
+    object_mention = models.ForeignKey(
+        KbMention, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='kb_relations_as_object')
+    place_mention = models.ForeignKey(
+        KbMention, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    time_mention = models.ForeignKey(
+        KbMention, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    trigger = models.CharField(
+        max_length=120, blank=True, default='',
+        help_text='The verb that signalled the relation — حدثنا، سمعت، تفقّه على. '
+                  'The interpretive content of an isnad edge.')
+    evidence_text = models.TextField(
+        blank=True, default='',
+        help_text='Normalized text under the enclosing span, capped at 2000 chars')
+    dedupe_key = models.CharField(
+        max_length=64,
+        help_text='sha256(relation_type | subject span key | object span key | '
+                  'place | time | span). Mention ids are random per run, so '
+                  'identity is built from spans instead.')
+
+    class Meta:
+        db_table = 'extraction_kb_mention_relations'
+        constraints = [
+            models.CheckConstraint(
+                check=Q(doc_char_end__gt=F('doc_char_start')),
+                name='kb_relation_span_valid'),
+            models.UniqueConstraint(
+                fields=['document', 'extractor_name', 'extractor_version',
+                        'dedupe_key'],
+                name='kb_relation_unique_per_version'),
+        ]
+        indexes = [
+            models.Index(
+                fields=['document', 'relation_type'],
+                condition=Q(superseded_at__isnull=True),
+                name='kb_relation_active_type_idx'),
+            models.Index(
+                fields=['document', 'page_number'],
+                condition=Q(superseded_at__isnull=True),
+                name='kb_relation_active_page_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.relation_type} @doc{self.document_id} p{self.page_number}'
+
+
+class KbMentionClaim(_KbRowMixin):
+    """A dated claim about one mention (birth / death / floruit)."""
+
+    document = models.ForeignKey(
+        'search_engine.Document', on_delete=models.CASCADE,
+        related_name='kb_mention_claims')
+
+    predicate = models.CharField(
+        max_length=kb_choices.CLAIM_PREDICATE_MAX,
+        choices=kb_choices.CLAIM_PREDICATE_CHOICES, db_index=True)
+    subject_mention = models.ForeignKey(
+        KbMention, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='kb_claims_as_subject')
+    time_mention = models.ForeignKey(
+        KbMention, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    # Copied off the time mention so "every death date in the corpus" is one
+    # indexed query rather than a join plus a JSON dig.
+    hijri_year = models.IntegerField(null=True, blank=True)
+    hijri_year_to = models.IntegerField(null=True, blank=True)
+    hijri_approximate = models.BooleanField(default=False)
+    dedupe_key = models.CharField(max_length=64)
+
+    class Meta:
+        db_table = 'extraction_kb_mention_claims'
+        constraints = [
+            models.CheckConstraint(
+                check=Q(doc_char_end__gt=F('doc_char_start')),
+                name='kb_claim_span_valid'),
+            models.UniqueConstraint(
+                fields=['document', 'extractor_name', 'extractor_version',
+                        'dedupe_key'],
+                name='kb_claim_unique_per_version'),
+        ]
+        indexes = [
+            models.Index(
+                fields=['document', 'predicate'],
+                condition=Q(superseded_at__isnull=True),
+                name='kb_claim_active_pred_idx'),
+            models.Index(
+                fields=['predicate', 'hijri_year'],
+                condition=Q(superseded_at__isnull=True)
+                & Q(hijri_year__isnull=False),
+                name='kb_claim_pred_year_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.predicate}={self.hijri_year} @doc{self.document_id}'
+
+
+class KbMentionAppraisal(_KbRowMixin):
+    """One جرح/تعديل verdict: a critic's judgement of a transmitter.
+
+    ``verbatim`` is authoritative and required; ``rank`` is a contested
+    normalization onto Ibn Hajar's 12 levels and stays optional and
+    re-derivable, exactly as the pydantic schema argues.
+    """
+
+    document = models.ForeignKey(
+        'search_engine.Document', on_delete=models.CASCADE,
+        related_name='kb_mention_appraisals')
+
+    verbatim = models.TextField(help_text='The verdict as written: ثقة ثبت، ليس بشيء')
+    polarity = models.CharField(
+        max_length=kb_choices.APPRAISAL_POLARITY_MAX,
+        choices=kb_choices.APPRAISAL_POLARITY_CHOICES, db_index=True)
+    rank = models.CharField(
+        max_length=kb_choices.APPRAISAL_RANK_MAX, blank=True, default='',
+        choices=kb_choices.APPRAISAL_RANK_CHOICES)
+    rank_level = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text='APPRAISAL_RANK_LEVEL[rank]: 1 = highest tadil, 12 = harshest '
+                  'jarh (1-6 tadil, 7-12 jarh). Denormalized because ordering on '
+                  'the string enum is meaningless and ordering is the point.')
+    scope_kind = models.CharField(
+        max_length=kb_choices.APPRAISAL_SCOPE_KIND_MAX,
+        choices=kb_choices.APPRAISAL_SCOPE_KIND_CHOICES, default='general')
+    scope_target_mention = models.ForeignKey(
+        KbMention, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    scope_note = models.CharField(max_length=255, blank=True, default='')
+    critic_mention = models.ForeignKey(
+        KbMention, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='kb_appraisals_as_critic')
+    subject_mention = models.ForeignKey(
+        KbMention, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='kb_appraisals_as_subject')
+    quotation_mention = models.ForeignKey(
+        KbMention, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    dedupe_key = models.CharField(max_length=64)
+
+    class Meta:
+        db_table = 'extraction_kb_mention_appraisals'
+        constraints = [
+            models.CheckConstraint(
+                check=Q(doc_char_end__gt=F('doc_char_start')),
+                name='kb_appraisal_span_valid'),
+            models.CheckConstraint(
+                check=~Q(verbatim=''), name='kb_appraisal_verbatim_present'),
+            # Port of AppraisalBase._rank_matches_polarity (kb/schema.py), so a
+            # future non-pipeline writer cannot file متروك as تعديل.
+            models.CheckConstraint(
+                check=Q(rank_level__isnull=True)
+                | Q(polarity__in=['mixed', 'neutral'])
+                | (Q(polarity='tadil') & Q(rank_level__lte=6))
+                | (Q(polarity='jarh') & Q(rank_level__gt=6)),
+                name='kb_appraisal_rank_matches_polarity'),
+            models.CheckConstraint(
+                check=~Q(scope_kind='general')
+                | Q(scope_target_mention__isnull=True),
+                name='kb_appraisal_general_scope_has_no_target'),
+            models.UniqueConstraint(
+                fields=['document', 'extractor_name', 'extractor_version',
+                        'dedupe_key'],
+                name='kb_appraisal_unique_per_version'),
+        ]
+        indexes = [
+            models.Index(
+                fields=['document', 'polarity'],
+                condition=Q(superseded_at__isnull=True),
+                name='kb_appraisal_active_pol_idx'),
+            models.Index(
+                fields=['subject_mention', 'rank_level'],
+                condition=Q(superseded_at__isnull=True),
+                name='kb_appraisal_subj_rank_idx'),
+        ]
+
+    def __str__(self):
+        return (f'{self.polarity}({self.rank or "-"}): {self.verbatim[:40]} '
+                f'@doc{self.document_id}')

@@ -14,33 +14,55 @@ The system combines Django + Celery + Elasticsearch on the backend and Next.js o
 See `docs/architecture.md` for data flow and service responsibilities.
 
 ## Quickstart
-1. Copy `.env.example` to `.env` and fill required values.
-2. Start the stack:
+1. Copy `.env.example` to `.env` (non-secret configuration).
+2. Create the file-backed secrets — compose will not start without them:
+```bash
+make secrets          # or: bash scripts/init-secrets.sh
+```
+   This generates `secrets/django_secret_key.txt`, `secrets/postgres_password.txt`
+   and `secrets/minio_root_password.txt`, and writes empty placeholders for the
+   third-party API keys. It never overwrites an existing file, and seeds from
+   `.env` when a credential is still defined there. See `secrets/README.md`.
+3. Start the stack:
 ```bash
 docker compose up --build
 ```
-3. Open:
+4. Open:
 - Frontend: `https://localhost`
 - Backend API root (via Caddy): `https://localhost/api/`
 - Health checks:
   - `https://localhost/api/health/live/`
   - `https://localhost/api/health/ready/`
 
-## Required Environment Variables
-Minimum required for backend startup:
-- `SECRET_KEY`
+## Configuration
+Credentials are file-backed Docker secrets in `./secrets/` (gitignored);
+everything else is plain environment configuration in `.env`.
+
+Secrets — required for backend startup:
+- `secrets/django_secret_key.txt` (`SECRET_KEY`)
+- `secrets/postgres_password.txt` (`POSTGRES_PASSWORD`)
+- `secrets/minio_root_password.txt` (`MINIO_ROOT_PASSWORD`)
+
+Secrets — optional, blank disables the feature:
+- `secrets/google_client_secret.txt`, `secrets/gemini_api_key.txt`,
+  `secrets/openrouter_api_key.txt`, `secrets/anthropic_api_key.txt`
+
+`.env` — required:
 - `POSTGRES_DB`
 - `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
 
-Commonly used:
+`.env` — commonly used:
 - `DEBUG`
 - `ALLOWED_HOSTS`
 - `CORS_ALLOWED_ORIGINS`
 - `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
 
-For details, see `docs/security.md` and `docs/operations.md`.
+Compose passes each secret as `<VAR>_FILE=/run/secrets/<name>`. The `postgres`
+and `minio` images resolve that natively; the Python services expand it in
+`backend/ilm_shamela/env_secrets.py`. Setting a plain `<VAR>` still works when
+no `<VAR>_FILE` is present, which is what keeps host-run tests unchanged.
+
+For details, see `secrets/README.md`, `docs/security.md` and `docs/operations.md`.
 
 ## API Quick Examples
 See complete API in `docs/api.md`.

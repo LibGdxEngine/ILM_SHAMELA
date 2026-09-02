@@ -8,6 +8,8 @@ from pathlib import Path
 from datetime import timedelta
 from django.core.exceptions import ImproperlyConfigured
 
+from .env_secrets import load_secrets
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -26,13 +28,23 @@ def env_list(name, default=None):
     return [item.strip() for item in value.split(',') if item.strip()]
 
 
+# Expand any <VAR>_FILE (Docker secrets, mounted at /run/secrets/<name>) into
+# the process environment before a single secret is read below. Every module
+# that reads these keys via os.environ.get sees the resolved values, and plain
+# environment variables keep working when no _FILE is set.
+load_secrets()
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('SECRET_KEY')
 if not SECRET_KEY:
-    raise ImproperlyConfigured('SECRET_KEY environment variable is required.')
+    raise ImproperlyConfigured(
+        'SECRET_KEY is required. Set SECRET_KEY_FILE to a Docker secret '
+        '(the compose stack mounts one at /run/secrets/django_secret_key) '
+        'or set SECRET_KEY directly.'
+    )
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool('DEBUG', False)
@@ -277,6 +289,11 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+
+# KB extraction pipeline (extraction/kb/) — file outputs + LLM-response cache.
+# Inside Docker this is a named volume (kb_data) so cache/outputs survive
+# container restarts; on a host run it defaults under BASE_DIR (gitignored).
+KB_DATA_DIR = os.environ.get('KB_DATA_DIR', os.path.join(BASE_DIR, 'data', 'kb'))
 
 # Analytics / behavior tracking
 # Raw UserEvent rows older than this are purged by `manage.py purge_events`

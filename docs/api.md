@@ -34,6 +34,21 @@ All `search_engine` endpoints require authenticated users.
 - `GET /search_engine/documents/{id}/pages/?page=1&page_size=5`
 - `GET /search_engine/documents/{id}/search/?q=...`
 
+### Markdown upload
+- `POST /search_engine/documents/` accepts a `.md` `file` alongside the existing
+  `.pdf`/`.doc`/`.docx`/`.txt`. Markdown is assumed to be marker/datalab output.
+- Processing **skips Tika and OCR entirely**: the file is decoded as UTF-8
+  (BOM-tolerant) and stored verbatim, so Markdown syntax (`##`, `**`, links) is
+  preserved in `content`. A non-UTF-8 file fails terminally.
+- Pages come from marker's `{N}------------------------------------------------`
+  separator lines, which are consumed as delimiters and never appear in the stored
+  text. Page numbers are assigned **positionally** (1..N), not from the `{N}`
+  value, so they match every downstream consumer that re-derives pages from
+  `content`. A `.md` with no separators falls back to the generic splitter.
+- Responses report `ocr_engine_used: "markdown"` and `has_layout: false`. The
+  `ocr_engine` field is ignored for `.md`, as it is for every non-PDF.
+- An `ocr_layout` JSON cannot be attached to a `.md` file (PDF only).
+
 ### PDF-overlay mode (OCR layout)
 - `POST /search_engine/documents/` accepts an optional `ocr_layout` file — a
   datalab/marker OCR JSON with per-block bounding boxes. Only valid alongside a
