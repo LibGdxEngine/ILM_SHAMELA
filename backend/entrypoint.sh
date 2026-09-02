@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Expand Docker secrets (<VAR>_FILE -> <VAR>) before anything below reads them.
+# Django/Celery do this again for themselves in ilm_shamela/env_secrets.py; this
+# call is what makes POSTGRES_PASSWORD available to the pg_isready wait, which
+# runs before any Python starts.
+. "$(dirname "$0")/load_secrets.sh"
+
 echo "Waiting for database to be ready..."
 export PGPASSWORD="${POSTGRES_PASSWORD}"
 while ! pg_isready -h "${POSTGRES_HOST:-db}" -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" > /dev/null 2>&1; do

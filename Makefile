@@ -4,7 +4,7 @@ FRONTEND = $(COMPOSE) exec frontend
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up up-build down restart stop ps logs logs-backend logs-frontend logs-caddy \
+.PHONY: help secrets up up-build down restart stop ps logs logs-backend logs-frontend logs-caddy \
         build rebuild pull \
         shell-backend shell-frontend shell-db \
         migrate makemigrations superuser collectstatic \
@@ -16,12 +16,17 @@ FRONTEND = $(COMPOSE) exec frontend
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
+## --- Secrets -----------------------------------------------------------------
+
+secrets: ## Create the file-backed Docker secrets in ./secrets (idempotent)
+	@bash scripts/init-secrets.sh
+
 ## --- Stack lifecycle ---------------------------------------------------------
 
-up: ## Start the stack in the background
+up: secrets ## Start the stack in the background
 	$(COMPOSE) up -d
 
-up-build: ## Rebuild images and start the stack
+up-build: secrets ## Rebuild images and start the stack
 	$(COMPOSE) up -d --build
 
 down: ## Stop and remove containers (keeps volumes)
@@ -113,14 +118,14 @@ frontend-build: ## Build frontend on host
 
 ## --- Public deployment ------------------------------------------------------
 
-deploy-public: ## Build images + start the public stack (tesseract + docling + caddy on :80/:443)
+deploy-public: secrets ## Build images + start the public stack (tesseract + docling + caddy on :80/:443)
 	git pull --ff-only || true
 	$(COMPOSE) --profile docling up -d --build
 	$(BACKEND) python manage.py migrate --noinput
 	$(BACKEND) python manage.py collectstatic --noinput
 	$(COMPOSE) ps
 
-redeploy-public: ## Pull latest code, rebuild from scratch, and restart the public stack
+redeploy-public: secrets ## Pull latest code, rebuild from scratch, and restart the public stack
 	git pull --ff-only
 	$(COMPOSE) --profile docling down
 	$(COMPOSE) --profile docling build --no-cache

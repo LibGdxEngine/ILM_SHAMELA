@@ -11,9 +11,11 @@ ILM_SHAMELA is a full-stack document intelligence platform for Islamic manuscrip
 | `README.md` | Quick-start guide, API examples, testing commands, CI workflow reference. |
 | `docker-compose.yml` | Complete service stack definition: 14 services (Postgres, Elasticsearch, Redis, MinIO, 3× OCR sidecars, Django backend, Celery worker, FastAPI agent, Next.js frontend, Caddy reverse proxy). Includes all environment passthrough and healthchecks. |
 | `Makefile` | 40+ targets: stack lifecycle (`up`, `down`, `restart`), logs, shells, Django management (`migrate`, `superuser`, `reindex`), tests, frontend host dev, and public deployment profiles. |
-| `.env.example` | Template for ~35 environment variables: Django secrets, Postgres/Redis/MinIO credentials, OCR engine URLs/langs, Gemini/OpenRouter/Anthropic API keys, and frontend proxy URLs. |
+| `.env.example` | Template for the non-secret environment: OCR engine URLs/langs, model slugs, Postgres/MinIO usernames, hosts/CORS, and frontend proxy URLs. Credentials live in `secrets/`, not here. |
+| `secrets/` | File-backed Docker secrets (`django_secret_key`, `postgres_password`, `minio_root_password`, `google_client_secret`, and the Gemini/OpenRouter/Anthropic API keys). Gitignored; created by `make secrets`. See `secrets/README.md`. |
+| `scripts/init-secrets.sh` | Idempotent generator for `secrets/*.txt`; seeds from `.env` when a credential is still defined there. |
 | `package.json` | Root-level dependency: `react-simple-maps`. (Frontend and backend have separate package management.) |
-| `.gitignore` | Excludes `.env*`, build artifacts, node_modules, Caddy local TLS, `.claude/`. |
+| `.gitignore` | Excludes `.env*`, `secrets/*` (all but its README), build artifacts, node_modules, Caddy local TLS, `.claude/`. |
 
 ## Subdirectories
 | Directory | Purpose |
@@ -30,7 +32,8 @@ ILM_SHAMELA is a full-stack document intelligence platform for Islamic manuscrip
 ### Working In This Directory
 - **Stack startup**: Always use `docker compose up -d --build` or `make up-build` — never manually start containers.
 - **Backend management**: Access the running backend container via `docker compose exec search_backend bash` or `make shell-backend`; never run Django commands on the host machine.
-- **Environment setup**: Copy `.env.example` to `.env` and set `SECRET_KEY`, Postgres, Redis, and MinIO credentials. Omit OCR URLs if you want default in-Docker services.
+- **Environment setup**: Copy `.env.example` to `.env` for non-secret config, then run `make secrets` to create the file-backed Docker secrets in `secrets/` — compose refuses to start without them. Omit OCR URLs if you want default in-Docker services.
+- **Secrets**: Never add a credential to `docker-compose.yml` or `.env`. Add it to the top-level `secrets:` block, declare it on the services that need it, pass `<VAR>_FILE=/run/secrets/<name>`, and add the variable to both `SECRET_ENV_VARS` in `backend/ilm_shamela/env_secrets.py` and `SECRET_VARS` in `backend/load_secrets.sh` (a test asserts the two lists match).
 - **Service health**: Check `/api/health/live/` and `/api/health/ready/` via `curl -k https://localhost/api/health/live/`. Caddy reverse-proxies these from backend:8000.
 - **Logs**: Use `make logs`, `make logs-backend`, `make logs-frontend`, `make logs-caddy` — not `docker logs` directly.
 

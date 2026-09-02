@@ -37,6 +37,49 @@ def _is_pdf(document):
     return file_name.endswith('.pdf')
 
 
+def _is_markdown(document):
+    file_name = (document.file.name or '').lower()
+    return file_name.endswith('.md')
+
+
+# marker/datalab Markdown separates pages with `{N}-----...` on its own line.
+# `^…$` under MULTILINE keeps a `{1}---` that appears mid-line or inside a code
+# fence from being read as a boundary; `[ \t\r]*$` tolerates CRLF. `-{3,}` is
+# loose on purpose — the `{N}` prefix is the discriminating part, so a bare
+# Markdown `---` horizontal rule can never match.
+_MD_PAGE_SEPARATOR_RE = re.compile(r'^[ \t]*\{(\d+)\}-{3,}[ \t\r]*$', re.MULTILINE)
+
+
+def _split_markdown_pages(text):
+    """Split marker/datalab Markdown into reader pages on its `{N}-----` lines.
+
+    Returns ``None`` when the file carries no separators (a plain .md), so the
+    caller can fall back to ``split_document_content_into_pages``.
+
+    Page numbers are POSITIONAL, not the captured `{N}`: ``document.content`` is
+    stored as a form-feed join and every downstream consumer re-derives pages
+    with ``split_document_content_into_pages``, which numbers positionally.
+    Trusting `{N}` — which marker emits 0-based, and which skips nothing for
+    blank pages — would desync ``DocumentChunk.page_number`` from every
+    extraction/KB row anchored to the same document.
+    """
+    if not _MD_PAGE_SEPARATOR_RE.search(text):
+        return None
+    # re.split with one capturing group interleaves the captured numbers.
+    parts = _MD_PAGE_SEPARATOR_RE.split(text)
+    chunks = [c.strip() for c in parts[::2]]
+    declared = parts[1::2]
+    if declared:
+        logger.debug(
+            '[MARKDOWN] %d separators, first declared page %s, last %s',
+            len(declared), declared[0], declared[-1],
+        )
+    return [
+        {'page_number': idx + 1, 'content': chunk}
+        for idx, chunk in enumerate(c for c in chunks if c)
+    ]
+
+
 def _count_pdf_pages(file_content):
     try:
         from pdf2image import pdfinfo_from_bytes
@@ -361,6 +404,7 @@ def process_document_task(self, doc_id):
             raise RetriableProcessingError(f'Failed reading file: {exc}') from exc
 
         layout_pages: list | None = None
+        md_pages: list | None = None
         ocr_pages: list | None = None
         engine_used: str = ''
         authors: list = []
@@ -382,6 +426,39 @@ def process_document_task(self, doc_id):
                 extra={
                     'document_id': document.id,
                     'page_count': len(layout_pages),
+                    'char_count': len(extracted_text),
+                },
+            )
+        elif _is_markdown(document):
+            # Already-converted Markdown — no Tika round-trip, and the raw
+            # Markdown is what we want stored, not Tika's flattening of it.
+            # (OCR is already unreachable here: it is gated on _is_pdf below.)
+            try:
+                text = file_content.decode('utf-8-sig')
+            except UnicodeDecodeError as exc:
+                # Terminal, like a Tika parse failure — a bad encoding will not
+                # fix itself on retry.
+                raise ValueError(f'Markdown file is not valid UTF-8: {exc}') from exc
+            # Normalize CRLF, and neutralize any form feed already in the source:
+            # pages are rejoined with '\n\f\n' below, so a stray \f would make
+            # split_document_content_into_pages see a page break that no chunk has.
+            text = text.replace('\r\n', '\n').replace('\r', '\n').replace('\f', ' ')
+            md_pages = _split_markdown_pages(text)
+            if md_pages is None:
+                logger.warning(
+                    '[MARKDOWN] no {N} page separators found — paginating generically',
+                    extra={'document_id': document.id, 'char_count': len(text)},
+                )
+                md_pages = split_document_content_into_pages(text)
+            if not any(p['content'].strip() for p in md_pages):
+                raise ValueError('Markdown file contains no text')
+            extracted_text = '\n\f\n'.join(p['content'] for p in md_pages)
+            engine_used = 'markdown'
+            logger.info(
+                '[MARKDOWN] Built pages from Markdown source',
+                extra={
+                    'document_id': document.id,
+                    'page_count': len(md_pages),
                     'char_count': len(extracted_text),
                 },
             )
@@ -470,6 +547,8 @@ def process_document_task(self, doc_id):
         # Per-chunk embeddings for in-document semantic search
         if layout_pages is not None:
             pages = layout_pages
+        elif md_pages is not None:
+            pages = md_pages
         elif ocr_pages:
             pages = ocr_pages
         else:
@@ -563,12 +642,17 @@ def process_document_task(self, doc_id):
         # extraction app is absent.
         try:
             from extraction.tasks import (
-                classify_document_task, extract_document_task, ner_document_task)
+                classify_document_task, extract_document_task,
+                kb_extract_document_task)
             extract_document_task.delay(document.id)
             classify_document_task.delay(document.id)
-            # 90s head start lets layer0 usually land first so the NER pass
-            # picks its genre playbook; the task itself covers the race.
-            ner_document_task.apply_async(args=[document.id], countdown=90)
+            # Whole-book KB pipeline (Stage 1 split + Stage 2 extraction),
+            # replacing the legacy 25-page NER pass. The 120s countdown lets
+            # the deterministic pass and layer0 land first on the small
+            # worker; the task is resumable/idempotent, and auto=True applies
+            # the KB_MAX_AUTO_COST_USD / KB_MAX_DOC_CHARS guards.
+            kb_extract_document_task.apply_async(
+                args=[document.id], kwargs={'auto': True}, countdown=120)
         except ImportError:
             pass
         except Exception as exc:  # noqa: BLE001 — never fail processing over this

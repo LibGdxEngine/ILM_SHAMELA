@@ -1,4 +1,8 @@
-"""LLM NER pass over the first 25 pages of a document (OpenRouter).
+"""DEPRECATED: no longer scheduled at upload — superseded by the
+whole-book KB pipeline in ``extraction/kb/`` (see docs/ocr-and-ner.md).
+Kept for ``backfill_extractions --extractor ner`` and existing rows.
+
+LLM NER pass over the first 25 pages of a document (OpenRouter).
 
 Registered as ``extractor_name='ner_llm'`` — coexists with the deterministic
 extractors through the per-extractor versioning contract. One forced tool call

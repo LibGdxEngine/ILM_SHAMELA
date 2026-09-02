@@ -8,7 +8,7 @@ Usage:
     python manage.py backfill_extractions --dry-run
     python manage.py backfill_extractions --sync              # run inline (no Celery)
     python manage.py backfill_extractions --extractor layer0  # LLM classification
-    python manage.py backfill_extractions --extractor ner     # LLM NER (first 25 pages)
+    python manage.py backfill_extractions --extractor ner     # LLM NER (deprecated legacy pass)
 
 Enqueues with staggered countdowns so the concurrency-2 worker isn't swamped
 alongside document processing (mirrors process_documents' conventions).

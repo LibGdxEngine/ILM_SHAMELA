@@ -67,6 +67,39 @@ def _replace_versioned_rows(model, document, extractor_name, extractor_version,
             verified.save(update_fields=['review_status'])
 
 
+def _persist_kb_projection(document, run, ndoc):
+    """Project KB_DATA_DIR files into the extraction_kb_* tables.
+
+    Never fails the run: the files are the source of truth and these tables are
+    rebuildable (``manage.py backfill_kb_to_db``). Failing a four-hour, paid LLM
+    run because a derived table hiccuped is the wrong trade — instead the
+    failure is noted on the run row and ``persisted_hash`` is left stale, so the
+    next attempt (or ``--only-unpersisted``) retries it.
+    """
+    from celery.exceptions import Retry, SoftTimeLimitExceeded
+
+    from .kb import persist as kb_persist
+
+    try:
+        result = kb_persist.persist_document(document, ndoc=ndoc, run=run)
+    except (Retry, SoftTimeLimitExceeded):
+        raise  # must propagate or the task's retry envelope breaks
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('[KB] db projection failed for doc %s', document.pk)
+        run.error = f'{run.error} | db-projection FAILED: {exc}'[:2000]
+        run.save(update_fields=['error'])
+        return None
+    if result.skipped:
+        logger.debug('[KB] doc %s projection skipped: %s', document.pk, result.reason)
+    else:
+        logger.info('[KB] doc %s projected: %d mentions, %d relations, %d claims, '
+                    '%d appraisals (%d deduped, %d page spans unresolved)',
+                    document.pk, result.mentions, result.relations, result.claims,
+                    result.appraisals, result.mentions_deduped,
+                    result.page_spans_missing)
+    return result
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def extract_document_task(self, doc_id: int, extractors=None, force: bool = False):
     """Run the deterministic extractors over one document's pages.
@@ -246,7 +279,11 @@ def classify_document_task(self, doc_id: int, force: bool = False):
 
 @shared_task(bind=True, max_retries=4, rate_limit='6/m')
 def ner_document_task(self, doc_id: int, force: bool = False, meta_waits: int = 0):
-    """LLM NER pass over the first 25 pages (≤5 OpenRouter calls/document —
+    """DEPRECATED legacy pass — no longer enqueued at upload (superseded by
+    ``kb_extract_document_task``); kept for ``backfill_extractions
+    --extractor ner`` and existing rows.
+
+    LLM NER pass over the first 25 pages (≤5 OpenRouter calls/document —
     the 6/m task rate keeps LLM-call volume at the layer0 30/m precedent).
 
     Sequencing: genre-conditional prompts want layer0's ``DocumentMeta``, but
@@ -546,3 +583,157 @@ class _CanonicalResolver:
                     person_id = close[0]
             self._person_cache[cache_key] = person_id
         return self._person_cache[cache_key]
+
+
+@shared_task(bind=True, max_retries=3,
+             soft_time_limit=4 * 3600, time_limit=4 * 3600 + 300)
+def kb_extract_document_task(self, doc_id: int, force_stage1: bool = False,
+                             force_stage2: bool = False,
+                             windows_limit=None, auto: bool = False):
+    """Whole-book KB pipeline (Stage 1 split + Stage 2 two-pass extraction).
+
+    One long task per book, not many short ones: API pacing is handled by the
+    pipeline's own 429 backoff, and every LLM response is disk-cached before
+    parsing, so a retry (or the 4h soft limit firing) fast-forwards through
+    cache to the first unanswered window — interruption never loses paid work.
+
+    Files under KB_DATA_DIR are the source of truth (``runner`` skips complete,
+    non-drifted books on its own); the ``ExtractionRun`` row mirrors state for
+    ops/admin visibility. ``auto=True`` (the upload path) additionally applies
+    the KB_AUTO_ENABLED / KB_MAX_DOC_CHARS / KB_MAX_AUTO_COST_USD guards —
+    manual command runs bypass them. Failure envelope mirrors
+    ``ner_document_task`` (dead key / 401 terminal + loud; transport errors
+    retry with backoff).
+    """
+    from celery.exceptions import Retry, SoftTimeLimitExceeded
+
+    from search_engine.models import Document
+
+    from .kb import config as kb_config
+    from .kb import io_utils as kb_io
+    from .kb import runner as kb_runner
+    from .kb import split as kb_split
+    from .models import ExtractionRun
+
+    try:
+        document = Document.objects.get(id=doc_id)
+    except Document.DoesNotExist:
+        logger.warning('[KB] document %s vanished', doc_id)
+        return
+
+    run, _created = ExtractionRun.objects.get_or_create(
+        document=document,
+        extractor_name=kb_config.KB_EXTRACTOR_NAME,
+        extractor_version=kb_config.KB_PIPELINE_VERSION,
+    )
+
+    def _guard_skip(reason: str) -> None:
+        logger.warning('[KB] doc %s: auto-run guard: %s', doc_id, reason)
+        run.status = ExtractionRun.Status.FAILED
+        run.error = f'auto-run guard: {reason}'[:2000]
+        run.finished_at = timezone.now()
+        run.save(update_fields=['status', 'error', 'finished_at'])
+
+    if auto and not kb_config.auto_enabled():
+        return _guard_skip('KB_AUTO_ENABLED is off')
+    if auto and len(document.content or '') > kb_config.max_doc_chars():
+        return _guard_skip(
+            f'document has {len(document.content or "")} chars '
+            f'> KB_MAX_DOC_CHARS={kb_config.max_doc_chars()}')
+
+    ndoc = kb_runner.normalize_document(document)
+    norm_sha = kb_split.norm_sha256(ndoc)
+    book_id = kb_config.book_id_for(document)
+
+    if (not force_stage1 and not force_stage2
+            and run.status == ExtractionRun.Status.SUCCEEDED
+            and run.corpus_hash == norm_sha):
+        meta = kb_io.read_json_or_none(
+            kb_config.output_dir(book_id) / 'extraction_meta.json')
+        if meta is not None and meta.get('complete', False):
+            # Files agree with the DB row — no extraction work to do. The
+            # projection has its own gate, so a book extracted before the
+            # extraction_kb_* tables existed still lands in them here; when it
+            # is already current this costs one field comparison.
+            _persist_kb_projection(document, run, ndoc)
+            return
+
+    run.status = ExtractionRun.Status.RUNNING
+    run.started_at = timezone.now()
+    run.error = ''
+    run.save(update_fields=['status', 'started_at', 'error'])
+
+    try:
+        kb_runner.run_stage1(book_id, ndoc, force=force_stage1,
+                             document_id=document.pk)
+        if auto:
+            est = kb_runner.estimate_stage2(book_id, ndoc) or {}
+            if est.get('cost_usd', 0) > kb_config.max_auto_cost_usd():
+                return _guard_skip(
+                    f'stage 2 estimate ${est.get("cost_usd")} > '
+                    f'KB_MAX_AUTO_COST_USD={kb_config.max_auto_cost_usd()} '
+                    f'(stage 1 output kept; run run_kb_pipeline manually)')
+        summary = kb_runner.run_stage2(
+            book_id, ndoc, windows_limit=windows_limit, force=force_stage2,
+            document_id=document.pk)
+
+        if summary.get('skipped') or summary.get('complete'):
+            note = ('complete (files already on disk)' if summary.get('skipped')
+                    else (f'mentions={summary["mentions"]} '
+                          f'relations={summary["relations"]} '
+                          f'claims={summary["claims"]} '
+                          f'appraisals={summary["appraisals"]} '
+                          f'drops={summary["drops"]} '
+                          f'windows={summary["windows_done"]}'
+                          f'/{summary["windows_total"]}'))
+            run.status = ExtractionRun.Status.SUCCEEDED
+            run.corpus_hash = norm_sha
+            run.mention_count = summary.get('mentions', run.mention_count)
+            run.error = note[:2000]
+            run.finished_at = timezone.now()
+            run.save(update_fields=['status', 'corpus_hash', 'mention_count',
+                                    'error', 'finished_at'])
+            # Files, then the run row, then the derived projection: the only
+            # step that is safe to lose goes last.
+            _persist_kb_projection(document, run, ndoc)
+            return
+
+        # Incomplete: failed windows or a windows_limit smoke run. Leave the
+        # row FAILED with the counts; cached calls make the next attempt cheap.
+        run.status = ExtractionRun.Status.FAILED
+        run.error = (f'incomplete: {summary.get("windows_done", "?")}'
+                     f'/{summary.get("windows_total", "?")} windows '
+                     f'({summary.get("failed_windows", 0)} failed)')[:2000]
+        run.finished_at = timezone.now()
+        run.save(update_fields=['status', 'error', 'finished_at'])
+        retries = self.request.retries or 0
+        if (windows_limit is None and summary.get('failed_windows')
+                and self.request.id and retries < self.max_retries):
+            raise self.retry(countdown=min(120 * (2 ** retries), 900))
+    except Retry:
+        raise  # self.retry() from the incomplete branch — already scheduled
+    except SoftTimeLimitExceeded:
+        run.status = ExtractionRun.Status.FAILED
+        run.error = 'soft time limit hit — resumable from cache'
+        run.finished_at = timezone.now()
+        run.save(update_fields=['status', 'error', 'finished_at'])
+        retries = self.request.retries or 0
+        if self.request.id and retries < self.max_retries:
+            raise self.retry(countdown=60)
+        raise
+    except Exception as exc:  # noqa: BLE001
+        message = str(exc)[:2000]
+        logger.exception('[KB] pipeline failed for doc %s', doc_id)
+        run.status = ExtractionRun.Status.FAILED
+        run.error = message
+        run.finished_at = timezone.now()
+        run.save(update_fields=['status', 'error', 'finished_at'])
+        transient = not (
+            'OPENROUTER_API_KEY' in message
+            or 'GEMINI_API_KEY' in message
+            or '401' in message
+            or 'AuthenticationError' in type(exc).__name__
+        )
+        retries = self.request.retries or 0
+        if transient and self.request.id and retries < self.max_retries:
+            raise self.retry(exc=exc, countdown=min(60 * (2 ** retries), 600))

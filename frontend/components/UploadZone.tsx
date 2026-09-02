@@ -186,12 +186,12 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
     // Validate file type
     const allowedTypes = ['application/pdf', 'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'text/plain'];
-    const allowedExtensions = ['.pdf', '.doc', '.docx', '.txt'];
+      'text/plain', 'text/markdown', 'text/x-markdown'];
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.txt', '.md'];
     const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
 
     if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-      setErrors({ file: t('upload.invalidFile', 'يرجى اختيار ملف صالح (PDF أو DOC أو DOCX أو TXT).') });
+      setErrors({ file: t('upload.invalidFile', 'يرجى اختيار ملف صالح (PDF أو DOC أو DOCX أو TXT أو MD).') });
       return;
     }
 
@@ -497,7 +497,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
             {t('upload.documentFile', 'ملف الكتاب')} <span className="text-red-300">*</span>
           </span>
           <p className="mt-2 text-[14px] text-text-2">
-            {t('upload.supportedFiles', 'الملفات المدعومة: PDF وDOC وDOCX وTXT')}
+            {t('upload.supportedFiles', 'الملفات المدعومة: PDF وDOC وDOCX وTXT وMD')}
           </p>
         </div>
 
@@ -526,7 +526,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
             className="hidden"
             onChange={handleFileInputChange}
             disabled={isUploading}
-            accept=".pdf,.doc,.docx,.txt"
+            accept=".pdf,.doc,.docx,.txt,.md"
           />
 
           <div className="flex flex-col items-center justify-center gap-5">
@@ -557,7 +557,7 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps = {}) {
               </p>
               {!selectedFile && !isUploading && (
                 <p className="text-[13px] text-text-3 mt-2">
-                  {t('upload.supportedFiles', 'الملفات المدعومة: PDF وDOC وDOCX وTXT')}
+                  {t('upload.supportedFiles', 'الملفات المدعومة: PDF وDOC وDOCX وTXT وMD')}
                 </p>
               )}
             </div>
